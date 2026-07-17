@@ -1,0 +1,109 @@
+{
+  "name": "sundial-editor",
+  "displayName": "Sundial Editor",
+  "description": "A focused collaboration prompt surface for Sundial editing workflows.",
+  "version": "0.3.0",
+  "publisher": "arcridge",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/bjackson-arcridge/sundial-editor/tree/main/packages/editor#readme",
+  "bugs": {
+    "url": "https://github.com/bjackson-arcridge/sundial-editor/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bjackson-arcridge/sundial-editor.git",
+    "directory": "packages/editor"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "editor",
+    "collaboration",
+    "sundial"
+  ],
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "icon": "media/sundial_vscode_icon_slate_lemon_256.png",
+  "files": [
+    "dist",
+    "media",
+    "README.md",
+    "LICENSE"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:sundialEditor.submitPrompt",
+    "onView:sundialEditor.messages"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sundialEditor.submitPrompt",
+        "title": "Sundial Editor: Submit Prompt",
+        "icon": "$(send)"
+      }
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "sundialEditor",
+          "title": "Sundial Agents",
+          "icon": "media/sundial.svg"
+        }
+      ]
+    },
+    "views": {
+      "sundialEditor": [
+        {
+          "id": "sundialEditor.messages",
+          "name": "Messages",
+          "type": "webview",
+          "icon": "media/sundial.svg"
+        }
+      ]
+    },
+    "configurationDefaults": {
+      "files.autoSave": "afterDelay",
+      "files.autoSaveDelay": 1000
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "sundialEditor.submitPrompt"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "prepack": "npm run package",
+    "vscode:prepublish": "npm run package",
+    "check-types:host": "tsc --noEmit",
+    "check-types:webview": "tsc --noEmit -p tsconfig.webview.json",
+    "check-types": "npm run check-types:host && npm run check-types:webview",
+    "compile": "npm run check-types && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "watch:tsc-webview": "tsc --noEmit --watch -p tsconfig.webview.json",
+    "package": "npm run check-types && node esbuild.js --production",
+    "package:vsix": "vsce package --no-dependencies",
+    "compile-tests": "tsc -p . --outDir out",
+    "test:unit": "npm run compile-tests && node --test out/unit/*.test.js",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "prepare-test-workspaces": "node src/test/prepare-workspaces.mjs",
+    "prepare-test-runtime": "node ../../scripts/prepare-vscode-test-runtime.mjs",
+    "pretest": "npm run compile-tests && npm run compile && npm run prepare-test-workspaces && npm run prepare-test-runtime",
+    "test": "vscode-test --config .vscode-test.mjs"
+  },
+  "dependencies": {
+    "@floating-ui/dom": "^1.7.6",
+    "@vscode/codicons": "^0.0.45",
+    "lit": "^3.3.2"
+  }
+}

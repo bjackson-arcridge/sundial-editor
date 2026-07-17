@@ -1,0 +1,30 @@
+{
+  "name": "sundial-editor-workspace",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Sundial Editor workspace.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "check-types": "npm run check-types --workspaces",
+    "compile": "npm run compile --workspaces",
+    "lint": "eslint packages",
+    "package:editor": "npm --workspace packages/editor run package:vsix",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.109.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.9.1",
+    "eslint": "^9.39.3",
+    "esbuild": "^0.27.3",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
+  }
+}

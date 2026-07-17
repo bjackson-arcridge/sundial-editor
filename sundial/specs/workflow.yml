@@ -1,0 +1,39 @@
+kanban:
+  order:
+    - Backlog
+    - Todo
+    - Active
+    - Done
+sidebar:
+  order:
+    - Active
+    - Todo
+    - Backlog
+    - Done
+    - Archive
+statuses:
+  - name: Backlog
+    kanban:
+      visible: true
+    sidebar:
+      visible: true
+  - name: Todo
+    kanban:
+      visible: true
+    sidebar:
+      visible: true
+  - name: Active
+    kanban:
+      visible: true
+    sidebar:
+      visible: true
+  - name: Done
+    kanban:
+      visible: true
+    sidebar:
+      visible: true
+  - name: Archive
+    kanban:
+      visible: false
+    sidebar:
+      visible: true
