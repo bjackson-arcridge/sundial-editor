@@ -13,7 +13,11 @@ slice: 2
 
 ## Discovery
 
-This is functional slice 2 from SPEC-0008. It adds a provider-agnostic CLI agent-control surface and the first Codex app-server adapter so one managed agent can receive prompts, report status and output, and make targeted patches in the dirty shared tree.
+This is functional slice 2 from SPEC-0008. It adds an independently published npm package, `@arcridge/sundial-editor-cli`, that owns the provider-facing agent-control surface for Sundial Editor. The first implementation target is a Codex adapter backed by the local Codex CLI/app-server surface so one managed agent can receive prompts from the editor, report status and output, and make targeted patches in the dirty shared tree.
+
+The existing editor package intentionally stops at an integration stub. This slice replaces that stub boundary with a small local CLI protocol rather than coupling the VS Code extension directly to Codex internals. The Codesteward CLI package is the structural example: a workspace package with its own `package.json`, `bin`, `prepack` compile step, package README, unit-testable `main`, root convenience scripts for local pack/install/publish, and no runtime dependency on VS Code.
+
+Developer-centric command guidance belongs in `DEVELOPING.md`; `AGENTS.md` remains agent-facing project policy plus managed Sundial instructions.
 
 ## Applicable Decision Records
 
@@ -31,12 +35,39 @@ This is functional slice 2 from SPEC-0008. It adds a provider-agnostic CLI agent
 
 ## Planned Approach
 
+1. Add `packages/cli` as the new publishable package named `@arcridge/sundial-editor-cli`, with Node `>=20`, Apache-2.0 metadata, repository directory metadata, `publishConfig.access: "public"`, `files` limited to `dist`, `README.md`, and `LICENSE`, and a command-line `bin`. Use `sundial-editor-cli` as the executable name so the command matches the package suffix. Start the package at version `0.1.0` because this is new user-facing functionality; future CLI surface changes follow DR-0025.
+
+2. Mirror the Codesteward CLI package shape where it fits this repository: `src/main.ts` exports a unit-testable `main(argv, io)` function, `esbuild.js` bundles a Node CJS executable with a `#!/usr/bin/env node` banner and `0o755` mode, `tsconfig.json` emits tests to `out`, and scripts include `check-types`, `compile`, `prepack`, `test:unit`, and `cli`. Keep package-local runtime code dependency-free unless implementation proves a focused protocol client dependency is materially safer than in-repo parsing.
+
+3. Add root developer scripts following the Codesteward naming pattern: `cli`, `pack:cli`, `install:cli:local`, `uninstall:cli:local`, and `publish:cli`, alongside the existing editor packaging scripts. Document those commands in `DEVELOPING.md` rather than `AGENTS.md`, including the standard verification flow, local tarball install loop, and publish command. Keep `README.md` product-oriented and brief, linking to developer docs for maintainer workflows.
+
+4. Define a narrow CLI contract for the editor to call. The MVP should support `--version`, `help`, a machine-readable health/capabilities command, and a prompt-submission command that accepts the originating workspace/document context and prompt text through structured stdin or a single JSON file path. Output intended for the VS Code extension should be newline-delimited JSON events with stable `kind` discriminators. Agent status is limited to `waiting`, `working`, and `blocked`; all other progress and output updates are freeform model-authored text events. Human-readable commands can remain plain text. The CLI should exit non-zero with useful stderr on validation, missing Codex, unsupported Codex versions, protocol startup, or provider-auth failures.
+
+5. Implement the first provider adapter as `codex`, isolated behind an internal adapter interface so later Claude or mock adapters do not reshape the editor-facing CLI. The Codex path should prefer the app-server protocol researched in RES-0007 for managed thread/turn control, but implementation must regenerate or validate protocol types against the installed Codex version before binding to version-specific request shapes. Unsupported Codex versions should be reported cleanly rather than guessed around. If app-server proves unstable during implementation, fall back only to a deliberately documented one-shot `codex exec` mode and keep live steering out of scope for this slice.
+
+6. Replace the Messages integration stub with extension-host orchestration that invokes the locally installed `sundial-editor-cli` from `PATH`. Provider selection belongs in the Sundial Agents panel, where each agent can be configured with a provider/model preset; the CLI receives that selected agent configuration rather than hard-coding provider choice in the extension. The extension sends accepted `%` prompt context to the CLI, renders lifecycle/status/output events in the Messages view, and keeps the keyboard loop from SPEC-0009: prompt line removal remains undoable, cancellation and completion return focus to the originating source location, and provider failures surface as recoverable user-facing status rather than source-document edits.
+
+7. Keep this slice scoped to one managed Codex agent in the current dirty shared tree. It may start or resume one local session, stream visible progress, and allow interrupt/cancel if the provider surface supports it. It does not yet implement multi-agent awareness, annotation persistence, isolated worktrees, commit workflows, or provider selection UI beyond a conservative `codex` default and a test/mocked adapter seam.
+
 ## Rejected Alternatives
+
+- Publish the CLI as part of `packages/editor`. The VS Code extension package and Node agent-control package have different runtimes, package metadata, release artifacts, and testing surfaces; keeping them separate matches the workspace layout already reserved by SPEC-0009.
+- Call Codex VS Code commands directly from the editor extension. RES-0007 found no public command for arbitrary prompt submission or live steering, and direct extension internals would be harder to test than a local CLI boundary.
+- Put developer command walkthroughs in `AGENTS.md`. That file is for agent operating policy and managed instruction blocks; maintainer workflows are easier to find and less noisy in `DEVELOPING.md`.
+- Build provider control only as a webview client feature. Provider processes, local filesystem context, auth failure handling, and subprocess lifecycles belong in Node surfaces, not browser webview code.
 
 ## Test Plan
 
-## Open Questions
+- Add CLI unit tests for argument parsing, `--version`, help output, unknown commands, stdin/file JSON validation, newline-delimited event rendering, exit-code behavior, and adapter error mapping. Use fake adapters and temporary directories; avoid real Codex subprocesses in unit tests.
+- Add package-manifest tests covering `@arcridge/sundial-editor-cli`, version `0.1.0`, Node engine, `bin`, public publish config, `files`, repository metadata, executable build script, and root package scripts for local pack/install/publish.
+- Add focused extension unit tests for CLI path resolution, command invocation arguments, event parsing, provider-failure messages, and preservation of the SPEC-0009 prompt focus loop.
+- Add staged VS Code integration coverage that submits a `%F` prompt through the Messages view using a deterministic fake CLI executable, verifies the prompt context reaches the CLI contract, streams fake status/output into the view state, and returns focus to the source editor after completion or cancellation. Do not require a real Codex login in integration tests.
+- Run `npm run check-types`, `npm run lint`, `npm run test:unit`, and `npm test`. Per project instructions, run `npm test` elevated on the first attempt in a sandboxed Codex session because the VS Code runtime cache may need network access.
+- Before publishing, run `npm pack` for `@arcridge/sundial-editor-cli`, inspect the tarball contents, install it locally with the documented developer command, and verify `sundial-editor-cli --version` and help from the global install.
 
 ## Implementation Log
+
+- 2026-07-16: Planned the new `@arcridge/sundial-editor-cli` package using Codesteward's CLI package and developer-script layout as the reference shape. Created CAND-0004 to capture the docs split that keeps maintainer command walkthroughs in `DEVELOPING.md` rather than `AGENTS.md`.
+- 2026-07-17: Folded review comments into the plan: the executable is `sundial-editor-cli`, the extension invokes the locally installed CLI from `PATH`, provider/model preset selection is owned by the Sundial Agents panel, unsupported Codex versions are reported explicitly, and the event vocabulary uses `waiting`, `working`, `blocked`, plus freeform model-authored updates.
 
 ## Test Log

@@ -1,14 +1,14 @@
 ---
-id: CAND-0003
+id: DR-0033
 title: Sundial Editor preserves VS Code's standard autosave delay
-status: candidate
+status: accepted
 domain: editor
 created: 2026-07-13
-created_by: bjackson
 references:
   - packages/editor/package.json#contributes.configurationDefaults
+updated: 2026-07-17
+author: bjackson
 ---
-
 ## Decision
 
 Sundial Editor contributes delayed autosave with the standard 1000 ms default; user, workspace, folder, and language settings remain able to override it.

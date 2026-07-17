@@ -4,12 +4,4 @@ Sundial Editor is the independent VS Code collaboration surface for Sundial work
 
 ## Development
 
-```bash
-npm install
-npm run check-types
-npm run lint
-npm run test:unit
-npm test
-```
-
-`npm test` downloads and validates the pinned VS Code runtime in the repository-local `.vscode-test/` cache when needed; it does not require a machine-wide VS Code installation.
+See [DEVELOPING.md](DEVELOPING.md) for maintainer setup, verification, packaging, and planned CLI publishing workflows.
