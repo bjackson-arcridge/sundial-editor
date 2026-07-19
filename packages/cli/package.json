@@ -1,0 +1,34 @@
+{
+  "name": "@arcridge/sundial-editor-cli",
+  "version": "0.1.1",
+  "description": "Local provider bridge for Sundial Editor.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bjackson-arcridge/sundial-editor.git",
+    "directory": "packages/cli"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "sundial-editor-cli": "dist/main.js"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "compile": "npm run check-types && node esbuild.js",
+    "prepack": "npm run compile",
+    "test:unit": "tsc -p . --outDir out && node --test out/unit/*.test.js",
+    "test:integration": "tsc -p . --outDir out && node --test out/integration/*.test.js",
+    "test": "npm run test:integration",
+    "cli": "npm run compile --silent && node dist/main.js"
+  }
+}

@@ -10,6 +10,6 @@ export const scenarios = [
 	},
 	{
 		label: 'prompt-to-messages',
-		description: 'A percent command removes its source line and populates the Messages composer with integration stub text.',
+		description: 'A percent command submits structured context to a fake CLI and streams its result.',
 	},
 ];

@@ -9,8 +9,14 @@
   "scripts": {
     "check-types": "npm run check-types --workspaces",
     "compile": "npm run compile --workspaces",
+    "cli": "npm --workspace packages/cli run cli --",
+    "pack:cli": "npm pack --workspace packages/cli",
+    "install:cli:local": "./scripts/install-cli-local.sh",
+    "uninstall:cli:local": "npm uninstall --global @arcridge/sundial-editor-cli",
+    "publish:cli": "npm publish --workspace packages/cli",
     "lint": "eslint packages",
     "package:editor": "npm --workspace packages/editor run package:vsix",
+    "install:editor:local": "./scripts/install-editor-local.sh",
     "test:unit": "npm run test:unit --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },

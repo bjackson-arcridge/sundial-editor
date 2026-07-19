@@ -4,7 +4,7 @@ title: Provider command surfaces for agent control
 domain: vscode.extension
 summary: Local inspection and official docs show that Codex and Claude Code VS Code commands are mostly UI/context surfaces, while programmatic agent control is more likely through Codex app-server and Claude Code CLI/background-agent surfaces. Load this before designing Sundial editor provider-control adapters.
 created: 2026-07-13
-updated: 2026-07-13
+updated: 2026-07-16
 ---
 
 ## Research
@@ -61,6 +61,12 @@ Codex CLI and app-server:
   - `turn/start`
   - `turn/steer`
   - `turn/interrupt`
+  - `model/list`
+- Generated Codex 0.131.0 `ModelListParams` is `{ cursor?: string | null, includeHidden?: boolean | null, limit?: number | null }`. `cursor` is the opaque `nextCursor` from a prior response; `includeHidden: false` excludes models hidden from the default picker.
+- Generated Codex 0.131.0 `ModelListResponse` is `{ data: Model[], nextCursor?: string | null }`. Each `Model` requires `id`, `model`, `displayName`, `description`, `hidden`, `isDefault`, `defaultReasoningEffort`, and `supportedReasoningEfforts`; the `id` and `model` fields are distinct protocol fields even when their values match.
+- A live `model/list` probe on 2026-07-16 against authenticated Codex 0.131.0 returned four visible models and `nextCursor: null`. It marked `gpt-5.5` as `isDefault: true`; the other returned model strings were `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.3-codex-spark`.
+- During that live probe, Codex logged that its cached model data contained an unrecognized reasoning-effort value `max`, then still returned the four-model response above.
+- A manual Sundial run that left `ThreadStartParams.model` null failed with an error naming configured model `gpt-5.6-sol`, even though the same installed app-server's visible model list identified `gpt-5.5` as its default. This establishes that a null thread model does not necessarily resolve to the visible `model/list` default when local Codex configuration selects another model.
 - Generated `TurnStartParams` is `{ threadId: string, input: Array<UserInput>, cwd?, approvalPolicy?, approvalsReviewer?, sandboxPolicy?, model?, serviceTier?, effort?, summary?, personality?, outputSchema? }`.
 - Generated `TurnSteerParams` is `{ threadId: string, input: Array<UserInput>, expectedTurnId: string }`; the comment says `expectedTurnId` is a required active-turn precondition and the request fails if it does not match the currently active turn.
 - Generated `ThreadStartParams` supports fields including `model`, `modelProvider`, `serviceTier`, `cwd`, `approvalPolicy`, `approvalsReviewer`, `sandbox`, `config`, `serviceName`, `baseInstructions`, `developerInstructions`, `personality`, `ephemeral`, `sessionStartSource`, and `threadSource`.

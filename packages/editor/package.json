@@ -2,7 +2,7 @@
   "name": "sundial-editor",
   "displayName": "Sundial Editor",
   "description": "A focused collaboration prompt surface for Sundial editing workflows.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "arcridge",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bjackson-arcridge/sundial-editor/tree/main/packages/editor#readme",
@@ -68,6 +68,16 @@
         }
       ]
     },
+    "configuration": {
+      "title": "Sundial Editor",
+      "properties": {
+        "sundialEditor.cliPath": {
+          "type": "string",
+          "default": "sundial-editor-cli",
+          "description": "Path or executable name for the locally installed Sundial Editor CLI."
+        }
+      }
+    },
     "configurationDefaults": {
       "files.autoSave": "afterDelay",
       "files.autoSaveDelay": 1000
@@ -98,12 +108,13 @@
     "watch-tests": "tsc -p . -w --outDir out",
     "prepare-test-workspaces": "node src/test/prepare-workspaces.mjs",
     "prepare-test-runtime": "node ../../scripts/prepare-vscode-test-runtime.mjs",
-    "pretest": "npm run compile-tests && npm run compile && npm run prepare-test-workspaces && npm run prepare-test-runtime",
+    "pretest": "npm --prefix ../cli run compile && npm run compile-tests && npm run compile && npm run prepare-test-workspaces && npm run prepare-test-runtime",
     "test": "vscode-test --config .vscode-test.mjs"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.6",
     "@vscode/codicons": "^0.0.45",
-    "lit": "^3.3.2"
+    "lit": "^3.3.2",
+    "markdown-it": "^14.3.0"
   }
 }

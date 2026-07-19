@@ -1,22 +1,28 @@
 import * as vscode from 'vscode';
-import { createIntegrationStub } from '../../integrationStub.js';
+import type { AgentEvent } from '../../agentProtocol.js';
+import { startAgentRun, type AgentRun } from '../../cliRunner.js';
 import type { PromptContext } from '../../promptCommand.js';
 import { renderWebviewHtml } from '../shared/csp.js';
 import { attachMessageRouter, type MessageRouter } from '../shared/messageRouter.js';
 import {
 	type HostToWebview,
+	type MessagesState,
 	type WebviewToHost,
+	appendAgentEvent,
 	isValidWebviewToHostMessage,
 } from './messages.js';
 
 export interface MessagesServices {
 	readonly returnToSource: (prompt: PromptContext) => void | Promise<void>;
+	readonly startAgentRun?: typeof startAgentRun;
+	readonly cliPath?: () => string;
+	readonly workspaceCwd?: (prompt: PromptContext) => string | undefined;
 }
 
 export interface MessagesDiagnostics {
 	readonly viewResolved: boolean;
 	readonly viewVisible: boolean;
-	readonly state: HostToWebview;
+	readonly state: MessagesState;
 }
 
 interface PendingPrompt {
@@ -28,6 +34,8 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	private readonly messageRouters = new Set<MessageRouter<WebviewToHost, HostToWebview>>();
 	private activeMessagesView: vscode.WebviewView | undefined;
 	private pendingPrompt: PendingPrompt | undefined;
+	private activeRun: { readonly prompt: PromptContext; readonly run: AgentRun } | undefined;
+	private runState: MessagesState['run'];
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -46,7 +54,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			scriptUri: messagesView.webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'dist', 'webviews', 'messages.js')),
 			codiconUri: messagesView.webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'codicon.css')),
 			cspSource: messagesView.webview.cspSource,
-			initialState: this.stateMessage(),
+			initialState: this.hostStateMessage(),
 			fallbackText: 'Loading Messages...',
 		});
 
@@ -71,11 +79,20 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	}
 
 	async openPrompt(prompt: PromptContext): Promise<void> {
-		this.postToMessagesWebviews({ kind: 'clearPrompt' });
+		if (this.activeRun !== undefined) {
+			this.activeRun.run.cancel();
+			try {
+				await this.activeRun.run.completion;
+			} catch {
+				// The existing run reports its own recoverable failure before this prompt opens.
+			}
+		}
 		this.pendingPrompt = {
 			prompt,
-			draft: createIntegrationStub(prompt),
+			draft: '',
 		};
+		this.runState = undefined;
+		this.postState();
 		await vscode.commands.executeCommand('workbench.view.extension.sundialEditor');
 		await vscode.commands.executeCommand('sundialEditor.messages.focus');
 		this.focusPendingComposer();
@@ -85,28 +102,27 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		return {
 			viewResolved: this.activeMessagesView !== undefined,
 			viewVisible: this.activeMessagesView?.visible === true,
-			state: this.stateMessage(),
+			state: this.currentState(),
 		};
 	}
 
-	async acknowledgePendingSubmission(): Promise<void> {
-		const prompt = this.pendingPrompt?.prompt;
-		this.pendingPrompt = undefined;
-		this.postToMessagesWebviews({ kind: 'submissionAcknowledged' });
-		if (prompt !== undefined) {
-			await this.services.returnToSource(prompt);
-		}
+	async submitPendingMessage(message = 'Please handle this prompt.'): Promise<void> {
+		await this.startSubmission(message);
 	}
 
 	private handleWebviewMessage(inboundMessage: WebviewToHost): void {
 		switch (inboundMessage.kind) {
 			case 'submit':
-				void this.acknowledgePendingSubmission();
+				void this.startSubmission(inboundMessage.message);
 				return;
 			case 'cancel': {
+				if (this.activeRun !== undefined) {
+					this.activeRun.run.cancel();
+					return;
+				}
 				const prompt = this.pendingPrompt?.prompt;
 				this.pendingPrompt = undefined;
-				this.postToMessagesWebviews({ kind: 'clearPrompt' });
+				this.postState();
 				if (prompt !== undefined) {
 					void this.services.returnToSource(prompt);
 				}
@@ -124,18 +140,101 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
-		this.postToMessagesWebviews(this.stateMessage());
+		this.postState();
 		this.postToMessagesWebviews({ kind: 'focusComposer' });
 	}
 
-	private stateMessage(): HostToWebview {
-		return this.pendingPrompt === undefined
-			? { kind: 'state' }
-			: {
-				kind: 'state',
+	private async startSubmission(message: string): Promise<void> {
+		const pending = this.pendingPrompt;
+		if (pending === undefined || this.activeRun !== undefined) {
+			return;
+		}
+		if (message.trim() === '') {
+			this.runState = {
+				status: 'blocked',
+				events: [{ kind: 'error', message: 'Enter a message before sending.', recoverable: true }],
+			};
+			this.postState();
+			return;
+		}
+
+		const cwd = this.services.workspaceCwd?.(pending.prompt)
+			?? vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(pending.prompt.sourceUri))?.uri.fsPath;
+		if (cwd === undefined) {
+			this.runState = {
+				status: 'blocked',
+				events: [{ kind: 'error', message: 'The prompt is not inside an open workspace.', recoverable: true }],
+			};
+			this.postState();
+			return;
+		}
+
+		this.pendingPrompt = { prompt: pending.prompt, draft: message };
+		this.runState = { status: 'working', events: [{ kind: 'status', status: 'working', message: 'Starting Codex…' }] };
+		this.postState();
+		let run: AgentRun;
+		try {
+			run = (this.services.startAgentRun ?? startAgentRun)({
+				cliPath: this.services.cliPath?.() ?? vscode.workspace.getConfiguration('sundialEditor').get('cliPath', 'sundial-editor-cli'),
+				cwd,
+				prompt: pending.prompt,
+				message,
+			}, event => this.handleAgentEvent(event));
+		} catch (error) {
+			this.finishWithFailure(pending.prompt, error instanceof Error ? error.message : String(error));
+			return;
+		}
+		this.activeRun = { prompt: pending.prompt, run };
+		try {
+			const result = await run.completion;
+			if (result.exitCode !== 0 && this.runState?.status !== 'blocked') {
+				this.handleAgentEvent({
+					kind: 'error', recoverable: true,
+					message: result.stderr || `Sundial Editor CLI exited with code ${result.exitCode}.`,
+				});
+			}
+		} catch (error) {
+			this.handleAgentEvent({ kind: 'error', recoverable: true, message: error instanceof Error ? error.message : String(error) });
+		} finally {
+			this.activeRun = undefined;
+			this.pendingPrompt = undefined;
+			this.postState();
+			await this.services.returnToSource(pending.prompt);
+		}
+	}
+
+	private handleAgentEvent(event: AgentEvent): void {
+		const events = appendAgentEvent(this.runState?.events ?? [], event);
+		const status = event.kind === 'status'
+			? event.status
+			: event.kind === 'error' ? 'blocked' : (this.runState?.status ?? 'working');
+		this.runState = { status, events };
+		this.postState();
+	}
+
+	private finishWithFailure(prompt: PromptContext, message: string): void {
+		this.handleAgentEvent({ kind: 'error', message, recoverable: true });
+		this.pendingPrompt = undefined;
+		this.postState();
+		void this.services.returnToSource(prompt);
+	}
+
+	private currentState(): MessagesState {
+		return {
+			...(this.pendingPrompt === undefined ? {} : {
 				prompt: this.pendingPrompt.prompt,
 				draft: this.pendingPrompt.draft,
-			};
+			}),
+			...(this.runState === undefined ? {} : { run: this.runState }),
+		};
+	}
+
+	private hostStateMessage(): HostToWebview {
+		return { kind: 'state', state: this.currentState() };
+	}
+
+	private postState(): void {
+		this.postToMessagesWebviews(this.hostStateMessage());
 	}
 
 	private postToMessagesWebviews(hostMessage: HostToWebview): void {

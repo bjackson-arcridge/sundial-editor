@@ -1,6 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
+	appendAgentEvent,
 	isValidHostToWebviewMessage,
 	isValidWebviewToHostMessage,
 } from '../webviews/messages/messages';
@@ -13,24 +14,42 @@ const prompt = {
 	sourceText: '%W @G',
 } as const;
 
-const draft = '[Integration stub] Sundial received %W for project scope.';
+const draft = 'Please update the project.';
 
 describe('messages protocol guards', () => {
+	test('coalesces adjacent streamed output without inserting whitespace', () => {
+		const events = appendAgentEvent(
+			appendAgentEvent(
+				[{ kind: 'status', status: 'working', message: 'Codex is working.' }],
+				{ kind: 'output', text: 'First line' },
+			),
+			{ kind: 'output', text: '\n\n**Second line**' },
+		);
+
+		assert.deepEqual(events, [
+			{ kind: 'status', status: 'working', message: 'Codex is working.' },
+			{ kind: 'output', text: 'First line\n\n**Second line**' },
+		]);
+	});
+
 	test('accepts every defined host message', () => {
-		assert.equal(isValidHostToWebviewMessage({ kind: 'state' }), true);
-		assert.equal(isValidHostToWebviewMessage({ kind: 'state', prompt, draft }), true);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: {} }), true);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: { prompt, draft } }), true);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state',
+			state: { run: { status: 'working', events: [{ kind: 'output', text: 'Editing files.' }] } },
+		}), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'focusComposer' }), true);
-		assert.equal(isValidHostToWebviewMessage({ kind: 'clearPrompt' }), true);
-		assert.equal(isValidHostToWebviewMessage({ kind: 'submissionAcknowledged' }), true);
 	});
 
 	test('rejects malformed host messages', () => {
-		assert.equal(isValidHostToWebviewMessage({ kind: 'state', prompt, draft: 12 }), false);
-		assert.equal(isValidHostToWebviewMessage({ kind: 'state', prompt }), false);
-		assert.equal(isValidHostToWebviewMessage({ kind: 'state', draft }), false);
-		assert.equal(isValidHostToWebviewMessage({ kind: 'state', prompt: { ...prompt, scope: 'global' }, draft }), false);
-		assert.equal(isValidHostToWebviewMessage({ kind: 'state', prompt: { ...prompt, sourceLine: -1 }, draft }), false);
-		assert.equal(isValidHostToWebviewMessage({ kind: 'state', prompt: { ...prompt, preset: '%X' }, draft }), false);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: { prompt, draft: 12 } }), false);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: { prompt } }), false);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: { draft } }), false);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: { prompt: { ...prompt, scope: 'global' }, draft } }), false);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: { prompt: { ...prompt, sourceLine: -1 }, draft } }), false);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: { prompt: { ...prompt, preset: '%X' }, draft } }), false);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: { run: { status: 'busy', events: [] } } }), false);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'other' }), false);
 		assert.equal(isValidHostToWebviewMessage(null), false);
 	});

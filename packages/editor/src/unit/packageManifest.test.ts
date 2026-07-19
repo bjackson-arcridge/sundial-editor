@@ -24,6 +24,7 @@ interface PackageManifest {
 			readonly secondarySidebar?: readonly { readonly id?: unknown; readonly icon?: unknown; readonly title?: unknown }[];
 		};
 		readonly views?: Record<string, readonly ViewContribution[]>;
+		readonly configuration?: { readonly properties?: Record<string, { readonly default?: unknown }> };
 		readonly configurationDefaults?: Record<string, unknown>;
 		readonly menus?: { readonly commandPalette?: readonly { readonly command?: unknown }[] };
 	};
@@ -34,14 +35,15 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.3.0 extension package', () => {
+	test('is an independent 0.4.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.3.0');
+		assert.equal(manifest.version, '0.4.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
+		assert.equal(manifest.dependencies?.['markdown-it'], '^14.3.0');
 		assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-dependencies');
 	});
 
@@ -52,6 +54,7 @@ describe('Sundial Editor manifest', () => {
 
 		assert.equal(manifest.contributes?.configurationDefaults?.['files.autoSave'], 'afterDelay');
 		assert.equal(manifest.contributes?.configurationDefaults?.['files.autoSaveDelay'], 1000);
+		assert.equal(manifest.contributes?.configuration?.properties?.['sundialEditor.cliPath']?.default, 'sundial-editor-cli');
 		assert.equal(commands.some(command => command.command === 'sundialEditor.submitPrompt' && command.title === 'Sundial Editor: Submit Prompt'), true);
 		assert.equal(manifest.contributes?.menus?.commandPalette?.some(item => item.command === 'sundialEditor.submitPrompt'), true);
 		assert.equal(manifest.activationEvents?.includes('onStartupFinished'), true);
@@ -77,7 +80,7 @@ describe('Sundial Editor manifest', () => {
 		assert.match(readme, /Secondary Side Bar/);
 		assert.match(readme, /Sundial Agents/);
 		assert.match(readme, /`%F`/);
-		assert.match(readme, /\[Integration stub\]/);
+		assert.match(readme, /Codex/);
 		assert.equal(rootManifest.workspaces?.some(workspace => workspace === 'packages/editor' || workspace === 'packages/*'), true);
 		assert.equal(rootManifest.scripts?.test, 'npm run test --workspaces --if-present');
 	});
@@ -105,8 +108,8 @@ describe('Sundial Editor manifest', () => {
 		const extensionSource = fs.readFileSync(path.resolve(__dirname, '../../src/extension.ts'), 'utf8');
 		const providerSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/messages/messagesWebviewProvider.ts'), 'utf8');
 
-		assert.match(providerSource, /case 'submit':\s*void this\.acknowledgePendingSubmission\(\)/);
-		assert.match(providerSource, /await this\.services\.returnToSource\(prompt\)/);
+		assert.match(providerSource, /case 'submit':\s*void this\.startSubmission\(inboundMessage\.message\)/);
+		assert.match(providerSource, /await this\.services\.returnToSource\(pending\.prompt\)/);
 		assert.match(extensionSource, /showTextDocument\(vscode\.Uri\.parse\(prompt\.sourceUri\), \{ preserveFocus: false \}\)/);
 		assert.match(extensionSource, /returnToVSCodeVimNormalMode/);
 	});

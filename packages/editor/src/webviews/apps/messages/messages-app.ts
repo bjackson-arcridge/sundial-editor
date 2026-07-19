@@ -1,14 +1,17 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { messageComposerKeyAction } from '../../../messageComposerKeyboard.js';
 import type { PromptContext } from '../../../promptCommand.js';
 import {
+	type AgentRunState,
 	type HostToWebview,
 	type WebviewToHost,
 	isValidHostToWebviewMessage,
 } from '../../messages/messages.js';
 import { getHost, readInitialState } from '../shared/host.js';
 import { tokenStyles } from '../shared/styles.js';
+import { renderMarkdown } from './markdown.js';
 
 @customElement('se-messages-app')
 export class MessagesApp extends LitElement {
@@ -135,6 +138,43 @@ export class MessagesApp extends LitElement {
 				opacity: var(--vscode-disabledOpacity);
 				cursor: default;
 			}
+
+			.events {
+				display: grid;
+				gap: 6px;
+				margin: 8px 0;
+			}
+
+			.event {
+				overflow-wrap: anywhere;
+			}
+
+			.event.output > :first-child {
+				margin-top: 0;
+			}
+
+			.event.output > :last-child {
+				margin-bottom: 0;
+			}
+
+			.event.output pre {
+				overflow-x: auto;
+				padding: 8px;
+				border: 1px solid var(--se-border);
+				background: var(--se-surface-bg);
+			}
+
+			.event.output blockquote {
+				margin-inline: 0;
+				padding-inline-start: 10px;
+				border-inline-start: 2px solid var(--se-border);
+				color: var(--se-muted-fg);
+			}
+
+			.event.status,
+			.event.error {
+				color: var(--se-muted-fg);
+			}
 		`,
 	];
 
@@ -143,6 +183,7 @@ export class MessagesApp extends LitElement {
 	@state() private messageText = '';
 	@state() private isSubmitting = false;
 	@state() private statusMessage = '';
+	@state() private run: AgentRunState | undefined;
 
 	connectedCallback(): void {
 		super.connectedCallback();
@@ -172,7 +213,9 @@ export class MessagesApp extends LitElement {
 		if (this.prompt === undefined) {
 			return html`
 				<h1>Messages</h1>
-				<p class="empty">Run Sundial Editor: Submit Prompt from a supported command line to begin a message.</p>
+				${this.run === undefined
+					? html`<p class="empty">Run Sundial Editor: Submit Prompt from a supported command line to begin a message.</p>`
+					: this.renderRun(this.run)}
 				${this.statusMessage === '' ? nothing : html`<p class="status" role="status">${this.statusMessage}</p>`}
 			`;
 		}
@@ -190,7 +233,8 @@ export class MessagesApp extends LitElement {
 					<dd>Line ${this.prompt.sourceLine + 1}</dd>
 				</dl>
 			</section>
-			<form @submit=${this.submitComposer} @keydown=${this.handleComposerKeydown}>
+			${this.run === undefined ? nothing : this.renderRun(this.run)}
+			${this.run?.status === 'working' ? nothing : html`<form @submit=${this.submitComposer} @keydown=${this.handleComposerKeydown}>
 				<label for="message">Message</label>
 				<textarea
 					id="message"
@@ -203,7 +247,23 @@ export class MessagesApp extends LitElement {
 					<button type="submit" ?disabled=${this.isSubmitting}>Send</button>
 					<button class="secondary" type="button" ?disabled=${this.isSubmitting} @click=${this.cancelComposer}>Cancel</button>
 				</div>
-			</form>
+			</form>`}
+		`;
+	}
+
+	private renderRun(run: AgentRunState) {
+		return html`
+			<section aria-label="Agent activity">
+				<p class="status" role="status">Agent status: ${run.status}</p>
+				<div class="events" role="log" aria-live="polite" aria-label="Agent output">
+					${run.events.map(event => event.kind === 'output'
+						? html`<div class="event output">${unsafeHTML(renderMarkdown(event.text))}</div>`
+						: html`<div class="event ${event.kind}">${event.message ?? (event.kind === 'status' ? event.status : '')}</div>`)}
+				</div>
+				${run.status === 'working'
+					? html`<button class="secondary" type="button" @click=${this.cancelComposer}>Cancel</button>`
+					: nothing}
+			</section>
 		`;
 	}
 
@@ -217,31 +277,21 @@ export class MessagesApp extends LitElement {
 		switch (hostMessage.kind) {
 			case 'state':
 				this.webviewHost.setState(hostMessage);
-				const isOpeningPrompt = this.prompt === undefined && hostMessage.prompt !== undefined;
-				this.prompt = hostMessage.prompt;
-				if (hostMessage.prompt === undefined) {
+				const isOpeningPrompt = this.prompt === undefined && hostMessage.state.prompt !== undefined;
+				this.prompt = hostMessage.state.prompt;
+				this.run = hostMessage.state.run;
+				this.isSubmitting = hostMessage.state.run?.status === 'working';
+				if (hostMessage.state.prompt === undefined) {
 					this.messageText = '';
 				} else {
 					this.statusMessage = '';
 					if (isOpeningPrompt) {
-						this.messageText = hostMessage.draft;
+						this.messageText = hostMessage.state.draft ?? '';
 					}
 				}
 				return;
 			case 'focusComposer':
 				void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLTextAreaElement>('#message')?.focus());
-				return;
-			case 'clearPrompt':
-				this.prompt = undefined;
-				this.messageText = '';
-				this.isSubmitting = false;
-				this.statusMessage = '';
-				return;
-			case 'submissionAcknowledged':
-				this.prompt = undefined;
-				this.messageText = '';
-				this.isSubmitting = false;
-				this.statusMessage = 'Message acknowledged. Agent delivery is not part of this release.';
 				return;
 			default: {
 				const unhandledMessage: never = hostMessage;
@@ -269,7 +319,7 @@ export class MessagesApp extends LitElement {
 	}
 
 	private cancelComposer = (): void => {
-		if (!this.isSubmitting && this.prompt !== undefined) {
+		if (this.prompt !== undefined) {
 			this.webviewHost.postMessage({ kind: 'cancel' });
 		}
 	};

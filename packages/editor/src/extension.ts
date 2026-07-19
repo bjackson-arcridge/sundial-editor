@@ -25,7 +25,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			),
 		})),
 		vscode.commands.registerCommand('sundialEditor.internal.messagesDiagnostics', () => messagesProvider.diagnostics()),
-		vscode.commands.registerCommand('sundialEditor.internal.submitPendingMessage', () => messagesProvider.acknowledgePendingSubmission()),
+		vscode.commands.registerCommand('sundialEditor.internal.submitPendingMessage', (message?: string) => messagesProvider.submitPendingMessage(message)),
 		...registerPromptCommandMode(),
 	);
 

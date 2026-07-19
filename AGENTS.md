@@ -2,7 +2,7 @@
 
 ## Version Management
 
-`packages/editor/package.json` owns the Sundial Editor extension version. Increment the patch version for bug fixes and existing-behavior adjustments; increment the minor version when adding or removing user-facing functionality. Major versions require explicit user direction.
+`packages/editor/package.json` owns the Sundial Editor extension version. Determine the required release increment relative to the committed version: use a patch for bug fixes and existing-behavior adjustments, or a minor for added or removed user-facing functionality. Multiple changes within the same uncommitted release share that release's single increment; do not stack version bumps merely because an earlier change already updated the uncommitted manifest. Major versions require explicit user direction.
 
 ## VS Code Integration Tests
 

@@ -1,11 +1,11 @@
 import * as assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import * as vscode from 'vscode';
 
 interface MessagesDiagnostics {
 	readonly viewResolved: boolean;
 	readonly viewVisible: boolean;
 	readonly state: {
-		readonly kind: string;
 		readonly prompt?: {
 			readonly preset: string;
 			readonly scope: string;
@@ -13,6 +13,10 @@ interface MessagesDiagnostics {
 			readonly sourceText: string;
 		};
 		readonly draft?: string;
+		readonly run?: {
+			readonly status: string;
+			readonly events: readonly { readonly kind: string; readonly text?: string }[];
+		};
 	};
 }
 
@@ -30,6 +34,8 @@ suite('Scenario: prompt-to-messages', () => {
 		}
 
 		const uri = vscode.Uri.joinPath(workspaceFolder.uri, 'prompt.txt');
+		const fakeCli = vscode.Uri.joinPath(workspaceFolder.uri, 'fake-cli.js');
+		await vscode.workspace.getConfiguration('sundialEditor').update('cliPath', fakeCli.fsPath, vscode.ConfigurationTarget.Workspace);
 		const document = await vscode.workspace.openTextDocument(uri);
 		const editor = await vscode.window.showTextDocument(document);
 		editor.selection = new vscode.Selection(0, 1, 0, 1);
@@ -52,7 +58,6 @@ suite('Scenario: prompt-to-messages', () => {
 		assert.equal(diagnostics.viewResolved, true);
 		assert.equal(diagnostics.viewVisible, true);
 		assert.deepEqual(diagnostics.state, {
-			kind: 'state',
 			prompt: {
 				preset: '%F',
 				scope: 'line',
@@ -60,10 +65,27 @@ suite('Scenario: prompt-to-messages', () => {
 				sourceLine: 0,
 				sourceText: '%F',
 			},
-			draft: '[Integration stub] Sundial received %F for source line 1.',
+			draft: '',
 		});
 
-		await vscode.commands.executeCommand('sundialEditor.internal.submitPendingMessage');
+		await vscode.commands.executeCommand('sundialEditor.internal.submitPendingMessage', 'Fix this through the fake provider.');
+		const completed = await waitForCompletedRun();
+		assert.equal(completed.state.run?.status, 'waiting');
+		assert.deepEqual(completed.state.run?.events.filter(event => event.kind === 'output'), [{
+			kind: 'output',
+			text: 'Applied the requested **fake patch**.\n\n- Done',
+		}]);
+
+		const received = JSON.parse(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'received-request.json').fsPath, 'utf8'));
+		assert.equal(received.provider, 'codex');
+		assert.equal(received.workspace.cwd, workspaceFolder.uri.fsPath);
+		assert.deepEqual(received.document, {
+			uri: uri.toString(), line: 0, text: '%F',
+		});
+		assert.deepEqual(received.prompt, {
+			preset: '%F', scope: 'line', text: 'Fix this through the fake provider.',
+		});
+
 		const returnedEditor = vscode.window.activeTextEditor;
 		assert.ok(returnedEditor, 'Expected focus to return to a text editor after submission');
 		assert.equal(returnedEditor.document.uri.toString(), uri.toString());
@@ -93,4 +115,17 @@ async function waitForMessagesState(timeoutMs = 6000): Promise<MessagesDiagnosti
 	}
 
 	throw new Error(`Timed out waiting for Messages state: ${JSON.stringify(latest)}`);
+}
+
+async function waitForCompletedRun(timeoutMs = 6000): Promise<MessagesDiagnostics> {
+	const started = Date.now();
+	let latest: MessagesDiagnostics | undefined;
+	while (Date.now() - started < timeoutMs) {
+		latest = await vscode.commands.executeCommand<MessagesDiagnostics>('sundialEditor.internal.messagesDiagnostics');
+		if (latest.state.prompt === undefined && latest.state.run?.status === 'waiting') {
+			return latest;
+		}
+		await new Promise(resolve => setTimeout(resolve, 50));
+	}
+	throw new Error(`Timed out waiting for completed agent run: ${JSON.stringify(latest)}`);
 }
