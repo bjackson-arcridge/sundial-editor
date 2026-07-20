@@ -3,7 +3,7 @@ id: SPEC-0015
 title: Companion lifecycle safety
 status: Backlog
 created: 2026-07-13
-updated: 2026-07-13
+updated: 2026-07-19
 created_by: bjackson
 parent: SPEC-0008
 domain: editor

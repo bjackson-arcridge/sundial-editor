@@ -3,7 +3,7 @@ id: SPEC-0008
 title: An interactive editor.
 status: Backlog
 created: 2026-07-12
-updated: 2026-07-13
+updated: 2026-07-20
 created_by: bjackson
 ---
 
@@ -77,9 +77,9 @@ Whenever a source file is committed, its dirty `.comments` companion is included
 
 An agent works directly against the dirty shared tree. If it cannot safely complete its targeted task, it pauses and sets its status to `blocked`. An agent creates an isolated snapshot only when it encounters test failures or instability that it must address and needs a stable environment to do so. The snapshot is a temporary Git worktree under the repository-root `.worktrees/` directory, created from the current dirty tree without moving the shared `HEAD` or adding to the user's temporary-commit stack. The `.worktrees/` directory is local, user-inspectable, and gitignored. The agent works in that worktree, reconciles its targeted diff into the current dirty tree, and then removes the worktree.
 
-The user and agents appear in one awareness list with status `waiting`, `working`, or `blocked`. A `working` or `blocked` participant publishes a title and one paragraph of approximately 100 words describing the current task; `waiting` has no active-task description. Participants update and check this state whenever useful, with prompt guidance adjusted from observed coordination problems rather than a fixed cadence.
+Current Sundial-managed agents appear in the control surface with status `waiting`, `working`, or `blocked`. Each status mutation appends a free-form update to that session's ordered history; the collapsed card shows the latest update and an expanded card shows the scrollable history. Participants update and check this state whenever useful, with prompt guidance adjusted from observed coordination problems rather than a fixed cadence. Shared user awareness and cross-agent coordination arrive later.
 
-Awareness is stored in a dedicated gitignored runtime-state file under `.sundial/` and managed through the CLI. It is repairable cache state: startup or an explicit repair command preserves entries backed by expected live processes or sessions and removes stale entries.
+Each current managed session has its own gitignored runtime-state file under `.sundial/agents/`, managed only through the CLI. Reset deletes that session's old file and creates a new provider session/file. Later shared-awareness work may repair or coordinate these records but does not replace their per-session ownership.
 
 ### Comments and Anchoring
 
@@ -89,7 +89,7 @@ Agent prompts instruct agents to use a Sundial move command that relocates a sou
 
 A Sundial repair operation deterministically follows Git's reported diff status: a reported rename moves the companion to the mirrored destination, a reported deletion deletes the companion, and other statuses do not relocate it. Repair runs automatically before `:::F`, `:::A`, and `:::M`, and manually through `:::R`. A verify operation then fails if the resulting companion state does not match those reported statuses.
 
-There are two annotation types: user-command annotations initially anchored to one line, and agent annotations attached to a code range through the CLI. Initial automatic anchoring uses surrounding prefix and suffix text, bounded match and distance thresholds, and TTL-throttled re-anchoring for visible annotations in changed files. A failed match becomes explicitly file-anchored rather than claiming an incorrect line.
+There are user-prompt annotation points, agent file annotations, and official-response entries. Each user-prompt point and agent file annotation has an opaque stable `AnnotationId`, initially using SPEC-0011's UUID-backed format. An agent file annotation references its originating user annotation. An official response appends to and carries the existing user annotation's ID rather than receiving a new annotation identity. File annotations use surrounding prefix and suffix text for anchoring. A failed or ambiguous match becomes explicitly file-anchored rather than claiming an incorrect line.
 
 Agents may explicitly update anchors through the CLI. A dedicated re-anchor operation may launch an LLM subagent to compare file-anchored annotations and their original context with the current file, re-anchor confident matches, and leave ambiguous annotations at file scope. The user is not expected to re-anchor comments manually. Visible annotations follow the selected diff scope.
 
@@ -102,7 +102,7 @@ Prompt presets and agent move instructions are advisory and may not be followed.
 
 Each slice should leave a usable end-to-end workflow and preserve the behavior delivered by earlier slices. The order is an initial proposal and can change with use.
 
-Prove out the primary user interactions first, then expand to multiple subagents as the final step.
+Prove out the primary interactions and independent multi-session management first, then add shared awareness and cross-agent coordination as the final step.
 
 ### Function 1: Editor Plugin 
 Create the separate Sundial Editor extension package. Configure VS Code's built-in delayed autosave to default to one second and implement the source-line-to-message-box prompt UX through the UI boundary; submitting a prompt does not yet contact an agent.
@@ -113,11 +113,11 @@ Add the provider-agnostic CLI agent-control surface and its first Codex app-serv
 ### Function 3: Companion File
 Persist each submitted user command as a line-anchored annotation in a lazily created YAML companion file. Load the annotation after restart and show it when its source location is active.
 
-### Function 4: Iterative Diff and Commit Workflow
-Add latest-code and editable diff views with `:::+`, `:::-`, `:::0`, `:::F`, `:::A`, and `:::M`. Support iteration and cumulative baselines, marked temporary commits, consolidation into a real commit, stable annotation identities through consolidation, and inclusion of dirty companion files whenever their source files are committed.
+### Function 4: Agent Controls, Feedback, and Code Annotations
+Implement the ideal provider-neutral control and feedback surface against deterministic fixtures, then connect it to independently persistent managed sessions through CLI-mediated operations. Show every current agent, its latest status update, expandable update history, transcript, Open in Provider, Interrupt, and Reset. Give each session its own gitignored `.sundial/agents/` runtime file and associate its provider conversation with the active user annotation without exposing annotation IDs to the agent. Extend Function 3's implemented companion repository and resizable annotation pane: Annotate File creates a prefix/suffix-anchored agent annotation linked to the active user annotation, while Official Response appends to and carries that existing annotation's ID. Show agent annotations at the latest active source location or explicit file scope. Cross-agent interaction, prompt routing, and all version/diff behavior remain deferred.
 
-### Function 5: Agent Code Annotations
-Add CLI operations for an agent to attach comments to code ranges and explicitly update their anchors. Show annotations for the current cursor location and selected diff scope, use surrounding text to resolve moved ranges, and fall back to explicit file scope when a range cannot be resolved.
+### Function 5: Iterative Diff and Commit Workflow
+After Function 4, extend the established control, feedback, and annotation contracts with latest-code and editable diff views plus version-aware annotation presentation. Add `:::+`, `:::-`, `:::0`, `:::F`, `:::A`, and `:::M`; support iteration and cumulative baselines, marked temporary commits, consolidation into a real commit, stable annotation identities through consolidation, and inclusion of dirty companion files whenever their source files are committed.
 
 ### Function 6: Isolated Test Recovery
 When the agent encounters test failures or instability it must address, allow it to create a private snapshot in `.worktrees/`, work and test in that linked worktree, reconcile only its targeted diff into the current dirty tree, and remove the worktree afterward.
@@ -128,8 +128,8 @@ Add the agent-facing move command, deterministic repair based on Git diff status
 ### Function 8: Resilient Re-anchoring
 Add TTL-throttled re-anchoring for visible annotations and clearly present annotations that remain at file scope. Add the dedicated LLM re-anchor operation for semantic relocation when deterministic surrounding-text matching cannot recover a range.
 
-### Function 9: Multiple Agents and Shared Awareness
-Extend single-agent control to multiple managed Codex sessions, route commands by agent number, and support add, remove, and context reset. Show the user and agents with `waiting`, `working`, or `blocked` status plus current-task summaries. Persist and repair the gitignored awareness state, and let agents inspect and update it through the CLI.
+### Function 9: Shared Awareness and Agent Coordination
+Build on Function 4's multiple independently persistent sessions. Add prompt routing, agent-to-agent interaction, user awareness, shared task summaries, and stale multi-process repair without replacing the per-session status histories or reset semantics.
 
 
 ## Longer Term Enhancements 

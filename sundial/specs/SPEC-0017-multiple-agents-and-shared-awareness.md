@@ -1,20 +1,20 @@
 ---
 id: SPEC-0017
-title: Multiple agents and shared awareness
+title: Shared awareness and agent coordination
 status: Backlog
 created: 2026-07-13
-updated: 2026-07-13
+updated: 2026-07-20
 created_by: bjackson
 parent: SPEC-0008
 domain: editor
 slice: 9
 ---
 
-# Multiple agents and shared awareness
+# Shared awareness and agent coordination
 
 ## Discovery
 
-This is functional slice 9 from SPEC-0008. It extends control to multiple Sundial-managed Codex sessions, routes commands by agent, exposes lifecycle operations, and persists repairable shared awareness for user and agent statuses and task summaries.
+This is functional slice 9 from SPEC-0008. SPEC-0013 already supplies the UI, per-session persistence, ordered status histories, transcript access, interruption, reset, and companion-backed feedback for multiple independently managed sessions. This slice adds the interactions among those sessions: prompt routing, agent-to-agent coordination, user awareness, shared task summaries, and repair of stale multi-process awareness. It extends rather than replaces SPEC-0013's per-session files and lifecycle semantics.
 
 ## Applicable Decision Records
 

@@ -4,7 +4,7 @@ title: Provider command surfaces for agent control
 domain: vscode.extension
 summary: Local inspection and official docs show that Codex and Claude Code VS Code commands are mostly UI/context surfaces, while programmatic agent control is more likely through Codex app-server and Claude Code CLI/background-agent surfaces. Load this before designing Sundial editor provider-control adapters.
 created: 2026-07-13
-updated: 2026-07-16
+updated: 2026-07-19
 ---
 
 ## Research
@@ -74,6 +74,16 @@ Codex CLI and app-server:
 - Generated `ThreadInjectItemsParams` appends raw Responses API items to a thread's model-visible history without starting a user turn.
 - Official Codex app-server docs describe starting the server, connecting a client, sending `initialize` followed by `initialized`, starting a thread and a turn, and reading notifications.
 - Official Codex app-server source: https://learn.chatgpt.com/docs/app-server
+- Official app-server documentation fetched on 2026-07-19 says `thread/start` creates a persisted thread when `ephemeral` is false and returns a `thread` containing `id`, `sessionId`, and `ephemeral`.
+- The same documentation says `thread/resume` accepts `{ threadId: string }`, returns the same thread shape as `thread/start`, and continues the stored session identified by the previously recorded thread id.
+- The same documentation says `thread/read` accepts `{ threadId: string, includeTurns?: boolean }`; with `includeTurns: true`, it returns the stored thread and its turns without loading/resuming the thread or subscribing the caller to events.
+- The same documentation says `thread/list` can filter by `cwd` and source kinds and returns persisted thread summaries, but a client that already owns an agent identity can read the recorded thread id directly rather than rediscovering it heuristically.
+- The same documentation describes `thread/status/changed` payloads as `{ threadId, status }`, where the runtime status can be `notLoaded`, `idle`, `systemError`, or `active` with active flags. Those provider runtime values are distinct from Sundial's user-facing `waiting`, `working`, and `blocked` vocabulary.
+
+Codex VS Code transcript opening:
+
+- The locally installed Codex extension inspected on 2026-07-19 was `openai.chatgpt 26.715.31925` at `/Users/bjackson/.vscode/extensions/openai.chatgpt-26.715.31925-darwin-arm64`.
+- Static inspection of its bundled `out/extension.js` found `chatgpt.openSidebar` opens the provider UI and `chatgpt.newCodexPanel` calls `createNewPanel()`; the latter only inspects an optional analytics `source` value. No verified public command argument for opening a specific externally created app-server thread was found.
 
 Claude Code VS Code extension:
 
