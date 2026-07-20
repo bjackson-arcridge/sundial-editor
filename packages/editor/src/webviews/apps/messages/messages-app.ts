@@ -809,9 +809,9 @@ export class MessagesApp extends LitElement {
 						aria-describedby=${createsFreshSession ? 'fresh-session-warning' : nothing}
 						required
 					>
-						<option value="" disabled>Select a current agent</option>
+						<option value="" disabled .selected=${this.targetAgentId === undefined}>Select a current agent</option>
 						${availableAgents.map(agent => html`
-							<option value=${agent.id}>${`>${agent.slot} ${agent.name} — ${this.sessionLabel(agent)}`}</option>
+							<option value=${agent.id} .selected=${agent.id === this.targetAgentId}>${`>${agent.slot} ${agent.name} — ${this.sessionLabel(agent)}`}</option>
 						`)}
 					</select>
 					${createsFreshSession

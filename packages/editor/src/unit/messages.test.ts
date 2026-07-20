@@ -144,6 +144,9 @@ describe('messages protocol guards', () => {
 			state: { agents: { kind: 'error', message: 'CLI unavailable.', recoverable: true }, work: [], paneSplitPercent },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: readyState() }), true);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { ...readyState(), targetAgentId: amyId },
+		}), true, 'an agent without an active session remains a valid preselected target');
 		assert.equal(isValidHostToWebviewMessage({ kind: 'focusComposer' }), true);
 	});
 

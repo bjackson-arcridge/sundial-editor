@@ -1,4 +1,4 @@
-version: 1
+version: 2
 annotations:
   - id: "5036bd1a-224e-4231-9acb-f4d3c4e554c6"
     message: "When I type %Q>2 to Amy, the messages dialogue doesn't prepopulate with >2 Amy from the dropdown, can you check why this doesn't work propertly?\n\n(note: she didn't have an active session, maybe relevant maybe not)."
@@ -9,3 +9,9 @@ annotations:
       text: "import {"
       before: []
       after: ["\tisAgentId,","\tisAgentsViewState,","\tisUserAnnotationId,"]
+    officialResponses:
+      - userAnnotationId: "5036bd1a-224e-4231-9acb-f4d3c4e554c6"
+        agentId: "329dcccb-9f05-454e-9c49-4e0cdee57f55"
+        agentSessionId: "ddf0f022-6deb-46b1-ab28-0f82d35e522b"
+        body: "Fixed the `%Q>2` recipient prepopulation defect.\n\nThe host already resolved `>2` to Amy correctly. The problem was in the Lit dropdown: the `<select>` value could be applied before its dynamically rendered `<option>` elements existed, leaving the browser's visual selection on the wrong entry. Each option now explicitly reflects `targetAgentId`, so `>2 Amy` is selected when the composer first opens. Agents without an active session remain valid targets and continue to show the fresh-session warning.\n\n### Changed\n- Updated `packages/editor/src/webviews/apps/messages/messages-app.ts` to initialize the selected option reliably.\n- Added focused regressions for dropdown initialization and targeting an agent without an active session.\n- Bumped the editor extension patch version from `0.9.0` to `0.9.1` in `packages/editor/package.json` and `package-lock.json`.\n- Applied DR-0003, DR-0004, DR-0008, and DR-0037; no new Decision Record is needed for this one-off rendering fix.\n\n### Validation\n- `npm --prefix packages/editor run test:unit` — passed, 77 tests.\n- `npm --prefix packages/editor run check-types` — passed for host and webview.\n- `npm run lint` — passed.\n- `git diff --check` — passed.\n- `npm --prefix packages/editor test` — could not complete because the sandbox could not resolve `update.code.visualstudio.com` while preparing the pinned VS Code runtime (`ENOTFOUND`). Its compile and type-check pretest stages passed before that blocker.\n"
+        createdAt: "2026-07-20T21:47:29.106Z"

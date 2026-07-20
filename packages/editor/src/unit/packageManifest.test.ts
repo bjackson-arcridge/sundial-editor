@@ -43,11 +43,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.9.0 extension package', () => {
+	test('is an independent 0.9.1 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.9.0');
+		assert.equal(manifest.version, '0.9.1');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -128,6 +128,12 @@ describe('Sundial Editor manifest', () => {
 		assert.match(providerSource, /await this\.services\.returnToSource\(pending\.prompt\)/);
 		assert.match(extensionSource, /showTextDocument\(vscode\.Uri\.parse\(prompt\.sourceUri\), \{ preserveFocus: false \}\)/);
 		assert.match(extensionSource, /returnToVSCodeVimNormalMode/);
+	});
+
+	test('initializes the targeted agent option when the composer opens', () => {
+		const messagesSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
+
+		assert.match(messagesSource, /<option value=\$\{agent\.id\} \.selected=\$\{agent\.id === this\.targetAgentId\}>/);
 	});
 
 	test('renders icon agent controls, a status-history takeover, and independently scrolling split panes', () => {
