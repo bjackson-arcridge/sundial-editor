@@ -1,13 +1,12 @@
 import {
 	isAgentId,
 	isAgentsViewState,
-	isAgentTranscriptViewState,
 	isUserAnnotationId,
 	isUserAnnotationWorkItem,
 	type AgentId,
 	type AgentsViewState,
-	type AgentTranscriptViewState,
 	type NamedAgent,
+	type WorkUpdate,
 	type UserAnnotationId,
 	type UserAnnotationWorkItem,
 } from '../../agentProtocol.js';
@@ -24,7 +23,6 @@ interface MessagesStateBase {
 	readonly work: readonly UserAnnotationWorkItem[];
 	readonly busy?: boolean;
 	readonly notice?: HostNotice;
-	readonly transcript?: AgentTranscriptViewState;
 	readonly annotationViewer?: AnnotationViewerState;
 }
 
@@ -70,6 +68,41 @@ export function currentWorkForAgent(
 		: work.find(item => item.id === currentWorkId && item.agentId === agent.id && item.status === 'working');
 }
 
+export function latestSessionStatusForAgent(
+	work: readonly UserAnnotationWorkItem[],
+	agent: NamedAgent,
+): WorkUpdate | undefined {
+	return sessionStatusHistoryGroupsForAgent(work, agent).at(-1)?.updates.at(-1);
+}
+
+export interface SessionStatusHistoryGroup {
+	readonly annotationId: UserAnnotationId;
+	readonly userMessage: string;
+	readonly updates: readonly WorkUpdate[];
+}
+
+export function sessionStatusHistoryGroupsForAgent(
+	work: readonly UserAnnotationWorkItem[],
+	agent: NamedAgent,
+): readonly SessionStatusHistoryGroup[] {
+	if (agent.session.state !== 'available') {
+		return [];
+	}
+	const groups: SessionStatusHistoryGroup[] = [];
+	for (const item of work) {
+		if (item.agentId !== agent.id || item.assignment?.sessionId !== agent.session.id) {
+			continue;
+		}
+		const updates = item.updates
+			.filter(update => update.kind === 'status')
+			.sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+		if (updates.length > 0) {
+			groups.push({ annotationId: item.id, userMessage: item.prompt.text, updates });
+		}
+	}
+	return groups.sort((left, right) => Date.parse(left.updates[0].at) - Date.parse(right.updates[0].at));
+}
+
 export function waitingAgentForAnnotation(
 	work: readonly UserAnnotationWorkItem[],
 	agents: readonly NamedAgent[],
@@ -89,7 +122,6 @@ export type WebviewToHost =
 	| { readonly kind: 'cancel' }
 	| { readonly kind: 'refresh' }
 	| { readonly kind: 'renameAgent'; readonly agentId: AgentId; readonly name: string }
-	| { readonly kind: 'showTranscript'; readonly agentId: AgentId }
 	| { readonly kind: 'openAgent'; readonly agentId: AgentId }
 	| { readonly kind: 'interruptAgent'; readonly agentId: AgentId }
 	| { readonly kind: 'resetAgent'; readonly agentId: AgentId }
@@ -127,7 +159,6 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 			return hasExactKeys(value, ['kind', 'agentId', 'name'])
 				&& isAgentId(value.agentId)
 				&& isAgentName(value.name);
-		case 'showTranscript':
 		case 'openAgent':
 		case 'interruptAgent':
 		case 'resetAgent':
@@ -147,7 +178,7 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 function isMessagesState(value: unknown): value is MessagesState {
 	if (!isRecord(value)
 		|| !hasAllowedKeys(value, [
-			'agents', 'work', 'prompt', 'draft', 'targetAgentId', 'busy', 'notice', 'transcript', 'annotationViewer',
+			'agents', 'work', 'prompt', 'draft', 'targetAgentId', 'busy', 'notice', 'annotationViewer',
 		])
 		|| !hasRequiredKeys(value, ['agents', 'work'])
 		|| !isAgentsViewState(value.agents)
@@ -156,7 +187,6 @@ function isMessagesState(value: unknown): value is MessagesState {
 		|| !hasUniqueWork(value.work)
 		|| (value.busy !== undefined && typeof value.busy !== 'boolean')
 		|| (value.notice !== undefined && !isNotice(value.notice))
-		|| (value.transcript !== undefined && !isAgentTranscriptViewState(value.transcript))
 		|| (value.annotationViewer !== undefined && !isAnnotationViewerState(value.annotationViewer))) {
 		return false;
 	}
@@ -176,7 +206,6 @@ function isMessagesState(value: unknown): value is MessagesState {
 	}
 	const agentIds = new Set<AgentId>(value.agents.agents.map(agent => agent.id));
 	return value.work.every(item => agentIds.has(item.agentId))
-		&& (value.transcript === undefined || agentIds.has(value.transcript.agentId))
 		&& (value.prompt === undefined || (value.targetAgentId !== undefined && agentIds.has(value.targetAgentId)));
 }
 

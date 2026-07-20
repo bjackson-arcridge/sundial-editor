@@ -12,6 +12,8 @@ import {
 	currentWorkForAgent,
 	isValidHostToWebviewMessage,
 	isValidWebviewToHostMessage,
+	latestSessionStatusForAgent,
+	sessionStatusHistoryGroupsForAgent,
 	waitingAgentForAnnotation,
 } from '../webviews/messages/messages';
 
@@ -108,7 +110,7 @@ const annotationViewer = {
 	canNext: true,
 } as const;
 
-function readyState(transcript?: unknown) {
+function readyState() {
 	return {
 		agents: readyAgents,
 		work: [work],
@@ -117,7 +119,6 @@ function readyState(transcript?: unknown) {
 		targetAgentId: bobId,
 		busy: false,
 		notice: { tone: 'info', message: 'Agent state refreshed.' },
-		...(transcript === undefined ? {} : { transcript }),
 		annotationViewer,
 	};
 }
@@ -136,24 +137,6 @@ describe('messages protocol guards', () => {
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: readyState() }), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'focusComposer' }), true);
-	});
-
-	test('accepts every transcript disclosure state', () => {
-		const transcriptStates = [
-			{ kind: 'loading', agentId: bobId },
-			{ kind: 'missing', agentId: amyId },
-			{ kind: 'uninitialized', agentId: bobId, sessionId: bobSessionId },
-			{ kind: 'empty', agentId: bobId, sessionId: bobSessionId },
-			{
-				kind: 'ready', agentId: bobId, sessionId: bobSessionId,
-				entries: [{ role: 'assistant', text: 'Implemented the change.', timestamp: enqueuedAt }],
-			},
-			{ kind: 'error', agentId: bobId, message: 'Transcript unavailable.', recoverable: true },
-		] as const;
-
-		for (const transcript of transcriptStates) {
-			assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: readyState(transcript) }), true, transcript.kind);
-		}
 	});
 
 	test('rejects malformed or internally inconsistent host states', () => {
@@ -178,7 +161,7 @@ describe('messages protocol guards', () => {
 			kind: 'state', state: { ...readyState(), draft: 12 },
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({
-			kind: 'state', state: readyState({ agentId: bobId, state: 'available', sessionId: bobSessionId, entries: [] }),
+			kind: 'state', state: { ...readyState(), transcript: { kind: 'empty', agentId: bobId, sessionId: bobSessionId } },
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { ...readyState(), annotationViewer: { ...annotationViewer, position: 3 } },
@@ -195,7 +178,6 @@ describe('messages protocol guards', () => {
 			{ kind: 'cancel' },
 			{ kind: 'refresh' },
 			{ kind: 'renameAgent', agentId: bobId, name: 'Robert' },
-			{ kind: 'showTranscript', agentId: bobId },
 			{ kind: 'openAgent', agentId: bobId },
 			{ kind: 'interruptAgent', agentId: bobId },
 			{ kind: 'resetAgent', agentId: bobId },
@@ -218,6 +200,7 @@ describe('messages protocol guards', () => {
 		assert.equal(isValidWebviewToHostMessage({ kind: 'renameAgent', agentId: bobId, name: ' Bob ' }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'refresh', extra: true }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'refreshAgents' }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'showTranscript', agentId: bobId }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'cancel', message: 'unexpected' }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'send', message: draft }), false);
 	});
@@ -249,6 +232,70 @@ describe('messages view projections', () => {
 
 		assert.equal(currentWorkForAgent([work, amyWork, current], workingBob)?.id, current.id);
 		assert.equal(currentWorkForAgent([work, amyWork, current], bob), undefined);
+	});
+
+	test('groups ordered current-session status history by annotation and user message', () => {
+		const claimedAt = '2026-07-20T14:01:00.000Z';
+		const statusAt = '2026-07-20T14:02:00.000Z';
+		const latestStatusAt = '2026-07-20T14:02:30.000Z';
+		const completedAt = '2026-07-20T14:03:00.000Z';
+		const secondClaimedAt = '2026-07-20T14:04:00.000Z';
+		const secondStatusAt = '2026-07-20T14:05:00.000Z';
+		const secondCompletedAt = '2026-07-20T14:06:00.000Z';
+		const claimedUpdate = { at: claimedAt, kind: 'claimed', message: 'Bob started work.' } as const;
+		const statusUpdate = { at: statusAt, kind: 'status', message: 'Reviewing the final diff.' } as const;
+		const latestStatusUpdate = { at: latestStatusAt, kind: 'status', message: 'Running the focused tests.' } as const;
+		const completedUpdate = { at: completedAt, kind: 'completed', message: 'Completed assignment.' } as const;
+		const completed: UserAnnotationWorkItem = {
+			...work,
+			status: 'completed',
+			updatedAt: completedAt,
+			latestUpdate: completedUpdate,
+			assignment: { sessionId: bobSessionId, sequence: 1, claimedAt },
+			updates: [enqueuedUpdate, claimedUpdate, statusUpdate, latestStatusUpdate, completedUpdate],
+		};
+		const secondStatusUpdate = { at: secondStatusAt, kind: 'status', message: 'Checking the second annotation.' } as const;
+		const secondCompletedUpdate = { at: secondCompletedAt, kind: 'completed', message: 'Completed second assignment.' } as const;
+		const secondCompleted: UserAnnotationWorkItem = {
+			...completed,
+			id: parseUserAnnotationId('annotation-work-second'),
+			prompt: { ...completed.prompt, text: 'Please update the second annotation.' },
+			updatedAt: secondCompletedAt,
+			latestUpdate: secondCompletedUpdate,
+			assignment: { sessionId: bobSessionId, sequence: 1, claimedAt: secondClaimedAt },
+			updates: [
+				enqueuedUpdate,
+				{ ...claimedUpdate, at: secondClaimedAt },
+				secondStatusUpdate,
+				secondCompletedUpdate,
+			],
+		};
+		const oldSessionWork: UserAnnotationWorkItem = {
+			...completed,
+			id: parseUserAnnotationId('annotation-work-old-session'),
+			updatedAt: '2026-07-20T14:08:00.000Z',
+			latestUpdate: { ...completedUpdate, at: '2026-07-20T14:08:00.000Z' },
+			assignment: { sessionId: parseAgentSessionId('session-bob-old'), sequence: 1, claimedAt },
+			updates: [
+				enqueuedUpdate,
+				claimedUpdate,
+				{ ...statusUpdate, at: '2026-07-20T14:07:00.000Z', message: 'Status from an old session.' },
+				{ ...completedUpdate, at: '2026-07-20T14:08:00.000Z' },
+			],
+		};
+
+		const groups = sessionStatusHistoryGroupsForAgent([secondCompleted, oldSessionWork, completed], bob);
+		assert.deepEqual(
+			groups.map(group => ({ userMessage: group.userMessage, updates: group.updates.map(update => update.message) })),
+			[
+				{ userMessage: completed.prompt.text, updates: [statusUpdate.message, latestStatusUpdate.message] },
+				{ userMessage: secondCompleted.prompt.text, updates: [secondStatusUpdate.message] },
+			],
+		);
+		assert.equal(latestSessionStatusForAgent([completed, secondCompleted, oldSessionWork], bob)?.message, secondStatusUpdate.message);
+		assert.deepEqual(sessionStatusHistoryGroupsForAgent([completed], { ...bob, session: { state: 'missing' } }), []);
+		assert.equal(latestSessionStatusForAgent([completed], { ...bob, session: { state: 'missing' } }), undefined);
+		assert.equal(latestSessionStatusForAgent([completed], amy), undefined);
 	});
 
 	test('projects a waiting work item onto its annotation target', () => {

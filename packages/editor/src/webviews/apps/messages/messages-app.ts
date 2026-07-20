@@ -4,9 +4,7 @@ import { repeat } from 'lit/directives/repeat.js';
 import type {
 	AgentId,
 	AgentsViewState,
-	AgentTranscriptViewState,
 	NamedAgent,
-	TranscriptRole,
 	UserAnnotationWorkItem,
 	WorkUpdateKind,
 } from '../../../agentProtocol.js';
@@ -26,6 +24,8 @@ import {
 	type WebviewToHost,
 	currentWorkForAgent,
 	isValidHostToWebviewMessage,
+	latestSessionStatusForAgent,
+	sessionStatusHistoryGroupsForAgent,
 	waitingAgentForAnnotation,
 } from '../../messages/messages.js';
 import { getHost, readInitialState } from '../shared/host.js';
@@ -40,7 +40,7 @@ const toolbarIconPaths = {
 	'open-external': 'M15 9.5V12.5C15 13.879 13.879 15 12.5 15H3.5C2.121 15 1 13.879 1 12.5V3.5C1 2.121 2.121 1 3.5 1H6.5C6.776 1 7 1.224 7 1.5C7 1.776 6.776 2 6.5 2H3.5C2.673 2 2 2.673 2 3.5V12.5C2 13.327 2.673 14 3.5 14H12.5C13.327 14 14 13.327 14 12.5V9.5C14 9.224 14.224 9 14.5 9C14.776 9 15 9.224 15 9.5ZM14.5 1H9.5C9.224 1 9 1.224 9 1.5C9 1.776 9.224 2 9.5 2H13.293L9.147 6.146C8.952 6.341 8.952 6.658 9.147 6.853C9.245 6.951 9.373 6.999 9.501 6.999C9.629 6.999 9.757 6.95 9.855 6.853L14.001 2.707V6.5C14.001 6.776 14.225 7 14.501 7C14.777 7 15.001 6.776 15.001 6.5V1.5C15.001 1.224 14.777 1 14.501 1H14.5Z',
 	question: 'M8 11C8.41421 11 8.75 11.3358 8.75 11.75C8.75 12.1642 8.41421 12.5 8 12.5C7.58579 12.5 7.25 12.1642 7.25 11.75C7.25 11.3358 7.58579 11 8 11ZM8 4C9.262 4 10.25 4.988 10.25 6.25C10.25 7.333 9.68352 7.89852 9.22852 8.35352C8.82052 8.76052 8.5 9.082 8.5 9.75C8.5 10.026 8.276 10.25 8 10.25C7.724 10.25 7.5 10.026 7.5 9.75C7.5 8.667 8.06648 8.10148 8.52148 7.64648C8.92948 7.23948 9.25 6.918 9.25 6.25C9.25 5.538 8.712 5 8 5C7.288 5 6.75 5.538 6.75 6.25C6.75 6.526 6.526 6.75 6.25 6.75C5.974 6.75 5.75 6.526 5.75 6.25C5.75 4.988 6.738 4 8 4Z',
 	edit: 'M14.236 1.76386C13.2123 0.740172 11.5525 0.740171 10.5289 1.76386L2.65722 9.63549C2.28304 10.0097 2.01623 10.4775 1.88467 10.99L1.01571 14.3755C0.971767 14.5467 1.02148 14.7284 1.14646 14.8534C1.27144 14.9783 1.45312 15.028 1.62432 14.9841L5.00978 14.1151C5.52234 13.9836 5.99015 13.7168 6.36433 13.3426L14.236 5.47097C15.2596 4.44728 15.2596 2.78755 14.236 1.76386ZM11.236 2.47097C11.8691 1.8378 12.8957 1.8378 13.5288 2.47097C14.162 3.10413 14.162 4.1307 13.5288 4.76386L12.75 5.54269L10.4571 3.24979L11.236 2.47097ZM9.75002 3.9569L12.0429 6.24979L5.65722 12.6355C5.40969 12.883 5.10023 13.0595 4.76117 13.1465L2.19447 13.8053L2.85327 11.2386C2.9403 10.8996 3.1168 10.5901 3.36433 10.3426L9.75002 3.9569Z',
-	transcript: 'M14.56 7.44049C14.28 7.16049 13.9 7.00049 13.5 7.00049H13V4.00049C13 2.90049 12.1 2.00049 11 2.00049H3C1.9 2.00049 1 2.90049 1 4.00049V9.00049C1 10.1005 1.9 11.0005 3 11.0005V12.0005C3 12.8205 3.93 13.2905 4.59 12.8105L7 11.0505V11.5005C7 11.9005 7.16 12.2805 7.44 12.5605C7.72 12.8405 8.1 13.0005 8.5 13.0005H10.29L12.15 14.8505C12.19 14.9005 12.25 14.9405 12.31 14.9605C12.37 14.9905 12.43 15.0005 12.5 15.0005C12.57 15.0005 12.63 14.9905 12.69 14.9605C12.78 14.9205 12.86 14.8605 12.92 14.7805C12.97 14.7005 13 14.6005 13 14.5005V13.0005H13.5C13.9 13.0005 14.28 12.8405 14.56 12.5605C14.84 12.2805 15 11.9005 15 11.5005V8.50049C15 8.10049 14.84 7.72049 14.56 7.44049ZM6.75 10.0005L4 12.0005V10.0005H3C2.45 10.0005 2 9.55049 2 9.00049V4.00049C2 3.45049 2.45 3.00049 3 3.00049H11C11.55 3.00049 12 3.45049 12 4.00049V7.00049H8.5C8.1 7.00049 7.72 7.16049 7.44 7.44049C7.16 7.72049 7 8.10049 7 8.50049V10.0005H6.75ZM14 11.5005C14 11.6305 13.95 11.7605 13.85 11.8505C13.76 11.9505 13.63 12.0005 13.5 12.0005H12.5C12.37 12.0005 12.24 12.0505 12.15 12.1505C12.05 12.2405 12 12.3705 12 12.5005V13.2905L10.85 12.1505C10.81 12.1005 10.75 12.0605 10.69 12.0405C10.63 12.0105 10.57 12.0005 10.5 12.0005H8.5C8.37 12.0005 8.24 11.9505 8.15 11.8505C8.05 11.7605 8 11.6305 8 11.5005V8.50049C8 8.37049 8.05 8.24049 8.15 8.15049C8.24 8.05049 8.37 8.00049 8.5 8.00049H13.5C13.63 8.00049 13.76 8.05049 13.85 8.15049C13.95 8.24049 14 8.37049 14 8.50049V11.5005Z',
+	history: 'M14.56 7.44049C14.28 7.16049 13.9 7.00049 13.5 7.00049H13V4.00049C13 2.90049 12.1 2.00049 11 2.00049H3C1.9 2.00049 1 2.90049 1 4.00049V9.00049C1 10.1005 1.9 11.0005 3 11.0005V12.0005C3 12.8205 3.93 13.2905 4.59 12.8105L7 11.0505V11.5005C7 11.9005 7.16 12.2805 7.44 12.5605C7.72 12.8405 8.1 13.0005 8.5 13.0005H10.29L12.15 14.8505C12.19 14.9005 12.25 14.9405 12.31 14.9605C12.37 14.9905 12.43 15.0005 12.5 15.0005C12.57 15.0005 12.63 14.9905 12.69 14.9605C12.78 14.9205 12.86 14.8605 12.92 14.7805C12.97 14.7005 13 14.6005 13 14.5005V13.0005H13.5C13.9 13.0005 14.28 12.8405 14.56 12.5605C14.84 12.2805 15 11.9005 15 11.5005V8.50049C15 8.10049 14.84 7.72049 14.56 7.44049ZM6.75 10.0005L4 12.0005V10.0005H3C2.45 10.0005 2 9.55049 2 9.00049V4.00049C2 3.45049 2.45 3.00049 3 3.00049H11C11.55 3.00049 12 3.45049 12 4.00049V7.00049H8.5C8.1 7.00049 7.72 7.16049 7.44 7.44049C7.16 7.72049 7 8.10049 7 8.50049V10.0005H6.75ZM14 11.5005C14 11.6305 13.95 11.7605 13.85 11.8505C13.76 11.9505 13.63 12.0005 13.5 12.0005H12.5C12.37 12.0005 12.24 12.0505 12.15 12.1505C12.05 12.2405 12 12.3705 12 12.5005V13.2905L10.85 12.1505C10.81 12.1005 10.75 12.0605 10.69 12.0405C10.63 12.0105 10.57 12.0005 10.5 12.0005H8.5C8.37 12.0005 8.24 11.9505 8.15 11.8505C8.05 11.7605 8 11.6305 8 11.5005V8.50049C8 8.37049 8.05 8.24049 8.15 8.15049C8.24 8.05049 8.37 8.00049 8.5 8.00049H13.5C13.63 8.00049 13.76 8.05049 13.85 8.15049C13.95 8.24049 14 8.37049 14 8.50049V11.5005Z',
 	pin: 'M13.5 3C13.303 3 13.109 3.038 12.923 3.114L8.481 4.967L5.659 4.026C5.505 3.976 5.339 4.001 5.209 4.095C5.078 4.189 5.001 4.339 5.001 4.5V7H1.257L0.5 7.5L1.257 8H5V10.5C5 10.661 5.077 10.812 5.208 10.905C5.338 11 5.504 11.023 5.658 10.974L8.48 10.033L12.925 11.887C13.109 11.962 13.302 12 13.499 12C14.326 12 14.999 11.327 14.999 10.5V4.5C14.999 3.673 14.326 3 13.499 3H13.5ZM14 10.5C14 10.843 13.615 11.09 13.308 10.962L8.693 9.038C8.631 9.013 8.566 9 8.501 9C8.447 9 8.395 9.009 8.343 9.025L6.001 9.806V5.193L8.343 5.974C8.457 6.011 8.581 6.007 8.694 5.961L13.306 4.038C13.629 3.902 14.001 4.156 14.001 4.499V10.499L14 10.5Z',
 	'screen-full': 'M3.75 3C3.33579 3 3 3.33579 3 3.75V5.5C3 5.77614 2.77614 6 2.5 6C2.22386 6 2 5.77614 2 5.5V3.75C2 2.7835 2.7835 2 3.75 2H5.5C5.77614 2 6 2.22386 6 2.5C6 2.77614 5.77614 3 5.5 3H3.75ZM10 2.5C10 2.22386 10.2239 2 10.5 2H12.25C13.2165 2 14 2.7835 14 3.75V5.5C14 5.77614 13.7761 6 13.5 6C13.2239 6 13 5.77614 13 5.5V3.75C13 3.33579 12.6642 3 12.25 3H10.5C10.2239 3 10 2.77614 10 2.5ZM2.5 10C2.77614 10 3 10.2239 3 10.5V12.25C3 12.6642 3.33579 13 3.75 13H5.5C5.77614 13 6 13.2239 6 13.5C6 13.7761 5.77614 14 5.5 14H3.75C2.7835 14 2 13.2165 2 12.25V10.5C2 10.2239 2.22386 10 2.5 10ZM13.5 10C13.7761 10 14 10.2239 14 10.5V12.25C14 13.2165 13.2165 14 12.25 14H10.5C10.2239 14 10 13.7761 10 13.5C10 13.2239 10.2239 13 10.5 13H12.25C12.6642 13 13 12.6642 13 12.25V10.5C13 10.2239 13.2239 10 13.5 10Z',
 	'screen-normal': 'M11 4C11 4.55228 11.4477 5 12 5H13.5C13.7761 5 14 5.22386 14 5.5C14 5.77614 13.7761 6 13.5 6H12C10.8954 6 10 5.10457 10 4V2.5C10 2.22386 10.2239 2 10.5 2C10.7761 2 11 2.22386 11 2.5V4ZM11 12C11 11.4477 11.4477 11 12 11H13.5C13.7761 11 14 10.7761 14 10.5C14 10.2239 13.7761 10 13.5 10H12C10.8954 10 10 10.8954 10 12V13.5C10 13.7761 10.2239 14 10.5 14C10.7761 14 11 13.7761 11 13.5V12ZM4 11C4.55228 11 5 11.4477 5 12V13.5C5 13.7761 5.22386 14 5.5 14C5.77614 14 6 13.7761 6 13.5V12C6 10.8954 5.10457 10 4 10H2.5C2.22386 10 2 10.2239 2 10.5C2 10.7761 2.22386 11 2.5 11H4ZM5 4C5 4.55228 4.55228 5 4 5H2.5C2.22386 5 2 5.22386 2 5.5C2 5.77614 2.22386 6 2.5 6H4C5.10457 6 6 5.10457 6 4V2.5C6 2.22386 5.77614 2 5.5 2C5.22386 2 5 2.22386 5 2.5V4Z',
@@ -311,6 +311,15 @@ export class MessagesApp extends LitElement {
 				margin: 0;
 			}
 
+			.agent-last-status {
+				overflow: hidden;
+				margin: 4px 0 0;
+				color: var(--se-muted-fg);
+				line-height: 1.4;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
 			.agent-actions {
 				display: flex;
 				flex-wrap: wrap;
@@ -334,11 +343,42 @@ export class MessagesApp extends LitElement {
 				background: var(--vscode-editorWarning-foreground);
 			}
 
-			.work-list,
-			.transcript-entries {
+			.work-list {
 				display: grid;
 				gap: 8px;
 				margin-top: 10px;
+			}
+
+			.history-groups,
+			.history-entries {
+				display: grid;
+				gap: 8px;
+			}
+
+			.history-groups {
+				gap: 14px;
+				margin-top: 10px;
+			}
+
+			.history-group + .history-group {
+				padding-top: 14px;
+				border-top: 1px solid var(--se-border);
+			}
+
+			.history-group h2 {
+				margin: 0;
+				font-size: 1rem;
+			}
+
+			.history-user-message {
+				margin: 4px 0 0;
+				white-space: pre-wrap;
+				overflow-wrap: anywhere;
+			}
+
+			.history-entries {
+				margin: 10px 0 0;
+				padding-inline-start: 24px;
 			}
 
 			.work-card {
@@ -348,8 +388,7 @@ export class MessagesApp extends LitElement {
 				background: var(--se-bg);
 			}
 
-			.work-card-header,
-			.transcript-entry-header {
+			.work-card-header {
 				display: flex;
 				align-items: baseline;
 				justify-content: space-between;
@@ -367,7 +406,7 @@ export class MessagesApp extends LitElement {
 
 			.work-message,
 			.latest-update p,
-			.transcript-text {
+			.history-text {
 				white-space: pre-wrap;
 				overflow-wrap: anywhere;
 			}
@@ -410,23 +449,17 @@ export class MessagesApp extends LitElement {
 				overflow-wrap: anywhere;
 			}
 
-			.transcript-error {
-				display: grid;
-				justify-items: start;
-				gap: 6px;
-			}
-
-			.transcript-entry {
+			.history-entry {
 				padding-top: 8px;
 				border-top: 1px solid var(--se-border);
 			}
 
-			.transcript-entry:first-child {
+			.history-entry:first-child {
 				padding-top: 0;
 				border-top: 0;
 			}
 
-			.transcript-text {
+			.history-text {
 				margin: 4px 0 0;
 			}
 
@@ -483,7 +516,7 @@ export class MessagesApp extends LitElement {
 				height: 100%;
 			}
 
-			.transcript-takeover {
+			.history-takeover {
 				display: flex;
 				box-sizing: border-box;
 				flex-direction: column;
@@ -491,7 +524,7 @@ export class MessagesApp extends LitElement {
 				min-height: 0;
 			}
 
-			.transcript-toolbar {
+			.history-toolbar {
 				display: flex;
 				align-items: center;
 				justify-content: space-between;
@@ -502,7 +535,7 @@ export class MessagesApp extends LitElement {
 				background: var(--se-toolbar-bg);
 			}
 
-			.transcript-toolbar h1 {
+			.history-toolbar h1 {
 				margin: 0;
 				overflow: hidden;
 				font-size: 1rem;
@@ -510,7 +543,7 @@ export class MessagesApp extends LitElement {
 				white-space: nowrap;
 			}
 
-			.transcript-content {
+			.history-content {
 				flex: 1;
 				min-height: 0;
 				overflow: auto;
@@ -622,8 +655,7 @@ export class MessagesApp extends LitElement {
 	@state() private targetAgentId: AgentId | undefined;
 	@state() private busy = false;
 	@state() private notice: HostNotice | undefined;
-	@state() private transcript: AgentTranscriptViewState | undefined;
-	@state() private openTranscriptAgentId: AgentId | undefined;
+	@state() private openHistoryAgentId: AgentId | undefined;
 	@state() private editingAgentId: AgentId | undefined;
 	@state() private renameText = '';
 	@state() private annotationViewer: AnnotationViewerState | undefined;
@@ -664,11 +696,11 @@ export class MessagesApp extends LitElement {
 	}
 
 	render() {
-		const transcriptAgent = this.agents.kind === 'ready'
-			? this.agents.agents.find(agent => agent.id === this.openTranscriptAgentId)
+		const historyAgent = this.agents.kind === 'ready'
+			? this.agents.agents.find(agent => agent.id === this.openHistoryAgentId)
 			: undefined;
-		if (transcriptAgent !== undefined) {
-			return this.renderTranscriptTakeover(this.transcript, transcriptAgent);
+		if (historyAgent !== undefined) {
+			return this.renderHistoryTakeover(historyAgent);
 		}
 		const normalMessages = this.renderNormalMessages();
 		const annotationPane = this.renderAnnotationPane();
@@ -799,6 +831,9 @@ export class MessagesApp extends LitElement {
 
 	private renderAgent(agent: NamedAgent, agentIndex: number) {
 		const currentWork = currentWorkForAgent(this.work, agent);
+		const latestSessionStatus = currentWork === undefined
+			? latestSessionStatusForAgent(this.work, agent)
+			: undefined;
 		const isRenaming = agent.controls.canRename && this.editingAgentId === agent.id;
 		const isCurrentTarget = this.prompt !== undefined && this.targetAgentId === agent.id;
 		return html`
@@ -838,13 +873,13 @@ export class MessagesApp extends LitElement {
 							${agent.session.state === 'available'
 								? html`
 									<button
-										class="icon transcript-button"
+										class="icon history-button"
 										type="button"
 										data-agent-id=${agent.id}
-										aria-label="View transcript for ${agent.name}"
-										title="View transcript for ${agent.name}"
-										@click=${() => this.openTranscript(agent.id)}
-									>${this.renderToolbarIcon('transcript')}</button>
+										aria-label="View history for ${agent.name}"
+										title="View history for ${agent.name}"
+										@click=${() => this.openHistory(agent.id)}
+									>${this.renderToolbarIcon('history')}</button>
 								`
 								: nothing}
 							${agent.controls.canOpen
@@ -874,6 +909,9 @@ export class MessagesApp extends LitElement {
 						></span>
 					</div>
 				</header>
+				${latestSessionStatus === undefined
+					? nothing
+					: html`<p class="agent-last-status" title=${latestSessionStatus.message}>${latestSessionStatus.message}</p>`}
 				${agent.controls.canInterrupt
 					? html`
 						<div class="agent-actions">
@@ -927,66 +965,44 @@ export class MessagesApp extends LitElement {
 		`;
 	}
 
-	private renderTranscriptTakeover(transcript: AgentTranscriptViewState | undefined, agent: NamedAgent) {
+	private renderHistoryTakeover(agent: NamedAgent) {
+		const historyGroups = sessionStatusHistoryGroupsForAgent(this.work, agent);
 		return html`
 			<section
-				class="transcript-takeover"
-				aria-labelledby="transcript-heading"
-				@keydown=${(event: KeyboardEvent) => this.handleTranscriptKeydown(event, agent.id)}
+				class="history-takeover"
+				aria-labelledby="history-heading"
+				@keydown=${(event: KeyboardEvent) => this.handleHistoryKeydown(event, agent.id)}
 			>
-				<header class="transcript-toolbar">
-					<h1 id="transcript-heading">${`>${agent.slot} ${agent.name} — Transcript`}</h1>
-					<button class="icon transcript-close-button" type="button"
-						aria-label="Close transcript for ${agent.name}" title="Close transcript"
-						@click=${() => this.closeTranscript(agent.id)}>${this.renderToolbarIcon('close')}</button>
+				<header class="history-toolbar">
+					<h1 id="history-heading">${`>${agent.slot} ${agent.name} — History`}</h1>
+					<button class="icon history-close-button" type="button"
+						aria-label="Close history for ${agent.name}" title="Close history"
+						@click=${() => this.closeHistory(agent.id)}>${this.renderToolbarIcon('close')}</button>
 				</header>
-				<div class="transcript-content">
-					${transcript === undefined || transcript.agentId !== agent.id
-						? html`<p class="status" role="status" aria-live="polite">Loading transcript…</p>`
-						: this.renderTranscriptState(transcript, agent)}
+				<div class="history-content">
+					${historyGroups.length === 0
+						? html`<p class="status">${agent.name} has no status updates yet.</p>`
+						: html`
+							<div class="history-groups">
+								${repeat(historyGroups, group => group.annotationId, (group, groupIndex) => html`
+									<section class="history-group" aria-labelledby="history-group-${groupIndex}-heading">
+										<h2 id="history-group-${groupIndex}-heading">User message</h2>
+										<p class="history-user-message">${group.userMessage}</p>
+										<ol class="history-entries" aria-label="Status updates">
+											${group.updates.map(update => html`
+												<li class="history-entry">
+													<p class="history-text">${update.message}</p>
+													<time datetime=${update.at}>${this.formatTimestamp(update.at)}</time>
+												</li>
+											`)}
+										</ol>
+									</section>
+								`)}
+							</div>
+						`}
 				</div>
 			</section>
 		`;
-	}
-
-	private renderTranscriptState(transcript: AgentTranscriptViewState, agent: NamedAgent) {
-		switch (transcript.kind) {
-			case 'loading':
-				return html`<p class="status" role="status" aria-live="polite">Loading transcript…</p>`;
-			case 'missing':
-				return html`<p class="status">This agent has a missing session.</p>`;
-			case 'uninitialized':
-				return html`<p class="status">This agent has an uninitialized session.</p>`;
-			case 'empty':
-				return html`<p class="status">${agent.name} has no transcript entries yet.</p>`;
-			case 'error':
-				return html`
-					<div class="transcript-error" role="alert">
-						<p class="status">${transcript.message}</p>
-						${transcript.recoverable
-							? html`<button class="secondary" type="button" @click=${() => this.requestTranscript(transcript.agentId)}>Try again</button>`
-							: nothing}
-					</div>
-				`;
-			case 'ready':
-				return html`
-					<div class="transcript-entries">
-						${transcript.entries.map(entry => html`
-							<article class="transcript-entry">
-								<header class="transcript-entry-header">
-									<strong>${this.transcriptRoleLabel(entry.role)}</strong>
-									${entry.timestamp === undefined ? nothing : html`<time datetime=${entry.timestamp}>${this.formatTimestamp(entry.timestamp)}</time>`}
-								</header>
-								<p class="transcript-text">${entry.text}</p>
-							</article>
-						`)}
-					</div>
-				`;
-			default: {
-				const unhandledState: never = transcript;
-				throw new Error(`Unexpected transcript state: ${JSON.stringify(unhandledState)}`);
-			}
-		}
 	}
 
 	private renderAnnotationPane() {
@@ -1089,7 +1105,6 @@ export class MessagesApp extends LitElement {
 				this.prompt = hostMessage.state.prompt;
 				this.busy = hostMessage.state.busy === true;
 				this.notice = hostMessage.state.notice;
-				this.transcript = hostMessage.state.transcript;
 				this.annotationViewer = hostMessage.state.annotationViewer;
 				this.hostTargetAgentId = hostMessage.state.targetAgentId;
 				const editingAgent = this.agents.kind === 'ready'
@@ -1100,8 +1115,8 @@ export class MessagesApp extends LitElement {
 					this.renameText = '';
 				}
 				if (this.agents.kind !== 'ready'
-					|| !this.agents.agents.some(agent => agent.id === this.openTranscriptAgentId && agent.session.state === 'available')) {
-					this.openTranscriptAgentId = undefined;
+					|| !this.agents.agents.some(agent => agent.id === this.openHistoryAgentId && agent.session.state === 'available')) {
+					this.openHistoryAgentId = undefined;
 				}
 				if (hostMessage.state.annotationViewer?.annotation.id !== previousAnnotationId) {
 					this.metadataExpanded = false;
@@ -1230,34 +1245,29 @@ export class MessagesApp extends LitElement {
 		});
 	}
 
-	private openTranscript(agentId: AgentId): void {
-		this.openTranscriptAgentId = agentId;
-		this.requestTranscript(agentId);
+	private openHistory(agentId: AgentId): void {
+		this.openHistoryAgentId = agentId;
 		void this.updateComplete.then(() => {
-			this.renderRoot.querySelector<HTMLButtonElement>('.transcript-close-button')?.focus();
+			this.renderRoot.querySelector<HTMLButtonElement>('.history-close-button')?.focus();
 		});
 	}
 
-	private requestTranscript(agentId: AgentId): void {
-		this.webviewHost.postMessage({ kind: 'showTranscript', agentId });
-	}
-
-	private handleTranscriptKeydown(keyboardEvent: KeyboardEvent, agentId: AgentId): void {
+	private handleHistoryKeydown(keyboardEvent: KeyboardEvent, agentId: AgentId): void {
 		if (keyboardEvent.key !== 'Escape') {
 			return;
 		}
 		keyboardEvent.preventDefault();
 		keyboardEvent.stopPropagation();
-		this.closeTranscript(agentId);
+		this.closeHistory(agentId);
 	}
 
-	private closeTranscript(agentId: AgentId): void {
-		if (this.openTranscriptAgentId !== agentId) {
+	private closeHistory(agentId: AgentId): void {
+		if (this.openHistoryAgentId !== agentId) {
 			return;
 		}
-		this.openTranscriptAgentId = undefined;
+		this.openHistoryAgentId = undefined;
 		void this.updateComplete.then(() => {
-			const button = [...this.renderRoot.querySelectorAll<HTMLButtonElement>('.transcript-button')]
+			const button = [...this.renderRoot.querySelectorAll<HTMLButtonElement>('.history-button')]
 				.find(candidate => candidate.dataset.agentId === agentId);
 			button?.focus();
 		});
@@ -1470,23 +1480,6 @@ export class MessagesApp extends LitElement {
 			default: {
 				const unhandledKind: never = kind;
 				throw new Error(`Unexpected work update kind: ${unhandledKind}`);
-			}
-		}
-	}
-
-	private transcriptRoleLabel(role: TranscriptRole): string {
-		switch (role) {
-			case 'user':
-				return 'User';
-			case 'assistant':
-				return 'Assistant';
-			case 'system':
-				return 'System';
-			case 'tool':
-				return 'Tool';
-			default: {
-				const unhandledRole: never = role;
-				throw new Error(`Unexpected transcript role: ${unhandledRole}`);
 			}
 		}
 	}

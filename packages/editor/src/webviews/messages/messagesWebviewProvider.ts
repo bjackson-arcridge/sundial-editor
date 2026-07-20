@@ -1,8 +1,6 @@
 import * as vscode from 'vscode';
 import {
-	projectAgentTranscript,
 	type AgentId,
-	type AgentTranscriptViewState,
 	type NamedAgent,
 	type UserAnnotationWorkItem,
 } from '../../agentProtocol.js';
@@ -24,7 +22,6 @@ import {
 	requeueWorkViaCli,
 	resetAgentViaCli,
 	startManagedAgentRun,
-	transcriptViaCli,
 	type AgentRun,
 } from '../../cliRunner.js';
 import { resolvePromptTargetSelector, type PromptContext } from '../../promptCommand.js';
@@ -53,7 +50,6 @@ export interface MessagesServices {
 	readonly claimWork?: typeof claimWorkViaCli;
 	readonly completeWork?: typeof completeWorkViaCli;
 	readonly requeueWork?: typeof requeueWorkViaCli;
-	readonly transcript?: typeof transcriptViaCli;
 	readonly openAgent?: typeof openAgentViaCli;
 	readonly interruptAgent?: typeof interruptAgentViaCli;
 	readonly resetAgent?: typeof resetAgentViaCli;
@@ -104,7 +100,6 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	private work: readonly UserAnnotationWorkItem[] = [];
 	private busy = false;
 	private notice: MessagesState['notice'];
-	private transcript: AgentTranscriptViewState | undefined;
 	private activeLocation: ActiveLocation | undefined;
 	private loadedAnnotations: { readonly sourceUri: string; readonly cwd: string; readonly annotations: readonly UserAnnotation[] } | undefined;
 	private viewedAnnotation: { readonly sourceUri: string; readonly cwd: string; readonly annotation: UserAnnotation } | undefined;
@@ -400,7 +395,6 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			case 'cancel': this.cancelPendingMessage(); return;
 			case 'refresh': void this.refreshAgentState(); return;
 			case 'renameAgent': void this.renameAgent(message.agentId, message.name); return;
-			case 'showTranscript': void this.showTranscript(message.agentId); return;
 			case 'openAgent': void this.openAgent(message.agentId); return;
 			case 'interruptAgent': void this.interruptAgent(message.agentId); return;
 			case 'resetAgent': void this.resetAgent(message.agentId); return;
@@ -549,18 +543,6 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		} catch (error) { await this.refreshAgentState(cwd); this.setError(`Agent could not be renamed. ${errorMessage(error)}`); }
 	}
 
-	private async showTranscript(agentId: AgentId): Promise<void> {
-		const cwd = this.currentCwd();
-		if (cwd === undefined) { return; }
-		try {
-			this.transcript = projectAgentTranscript(
-				await (this.services.transcript ?? transcriptViaCli)(this.cliPath(), cwd, agentId),
-			);
-			this.notice = undefined;
-			this.postState();
-		} catch (error) { this.setError(`Transcript could not be loaded. ${errorMessage(error)}`); }
-	}
-
 	private async openAgent(agentId: AgentId): Promise<void> {
 		const cwd = this.currentCwd();
 		const agent = this.currentAgents().find(candidate => candidate.id === agentId);
@@ -600,7 +582,6 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		if (active !== undefined) { active.cancelReason = 'Session reset by the user.'; active.run.cancel(); }
 		try {
 			await (this.services.resetAgent ?? resetAgentViaCli)(this.cliPath(), cwd, agentId);
-			this.transcript = undefined;
 			await this.refreshAgentState(cwd);
 		} catch (error) { await this.refreshAgentState(cwd); this.setError(`Agent session could not be reset. ${errorMessage(error)}`); }
 	}
@@ -653,7 +634,6 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			work: this.work,
 			...(this.busy ? { busy: true as const } : {}),
 			...(this.notice === undefined ? {} : { notice: this.notice }),
-			...(this.transcript === undefined ? {} : { transcript: this.transcript }),
 			...(viewer === undefined ? {} : { annotationViewer: viewer }),
 		};
 		if (this.pendingPrompt === undefined) {
