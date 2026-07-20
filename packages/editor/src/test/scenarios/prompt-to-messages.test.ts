@@ -63,15 +63,16 @@ suite('Scenario: prompt-to-messages', () => {
 		const completionList = await vscode.commands.executeCommand<vscode.CompletionList>(
 			'vscode.executeCompletionItemProvider',
 			uri,
-			new vscode.Position(1, 1),
+			new vscode.Position(1, document.lineAt(1).text.length),
 			'%',
 		);
-		const fixCompletion = completionList.items.find(item => item.label === '%F');
-		assert.ok(fixCompletion, 'Expected the %F command completion');
+		const fixCompletion = completionList.items.find(item => item.label === '%F>1');
+		assert.ok(fixCompletion, 'Expected the targeted %F>1 command completion');
+		assert.equal(fixCompletion.insertText, '%F>1');
 		assert.equal(fixCompletion.command?.command, 'sundialEditor.submitPrompt');
 
 		editor.selection = new vscode.Selection(1, document.lineAt(1).text.length, 1, document.lineAt(1).text.length);
-		await vscode.commands.executeCommand('sundialEditor.submitPrompt');
+		await vscode.commands.executeCommand(fixCompletion.command.command);
 
 		assert.equal(document.lineAt(0).text, 'code before the command');
 		assert.equal(document.lineAt(1).text, 'keep this line');

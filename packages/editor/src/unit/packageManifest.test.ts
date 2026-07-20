@@ -35,11 +35,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.6.1 extension package', () => {
+	test('is an independent 0.6.2 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.6.1');
+		assert.equal(manifest.version, '0.6.2');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -114,7 +114,7 @@ describe('Sundial Editor manifest', () => {
 		assert.match(extensionSource, /returnToVSCodeVimNormalMode/);
 	});
 
-	test('renders agents and annotations as independently scrolling split panes with named toolbar icons', () => {
+	test('renders icon agent controls, a transcript takeover, and independently scrolling split panes', () => {
 		const messagesSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
 		const sharedStyles = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/shared/styles.ts'), 'utf8');
 
@@ -126,9 +126,23 @@ describe('Sundial Editor manifest', () => {
 		assert.match(messagesSource, /title="Previous annotation"/);
 		assert.match(messagesSource, /title="Next annotation"/);
 		assert.match(messagesSource, /title="Delete annotation"/);
-		assert.match(messagesSource, /No current work\./);
+		assert.doesNotMatch(messagesSource, /No current work\./);
 		assert.match(messagesSource, /Waiting for \$\{waitingAgent\.name\}/);
 		assert.match(messagesSource, /class="toolbar-icon"/);
+		assert.match(messagesSource, /class="agent-title-actions" role="toolbar"/);
+		assert.match(messagesSource, /renderToolbarIcon\('edit'\)/);
+		assert.match(messagesSource, /renderToolbarIcon\('transcript'\)/);
+		assert.match(messagesSource, /renderToolbarIcon\('open-external'\)/);
+		assert.match(messagesSource, /renderToolbarIcon\('clear-agent'\)/);
+		assert.match(messagesSource, /return this\.renderTranscriptTakeover\(this\.transcript, transcriptAgent\)/);
+		assert.match(messagesSource, /class="transcript-takeover"/);
+		assert.match(messagesSource, /class="icon transcript-close-button"/);
+		assert.doesNotMatch(messagesSource, /transcriptExpanded \? this\.renderTranscript/);
+		assert.match(messagesSource, /agent\.session\.state === 'available'/);
+		assert.match(messagesSource, /class="session-indicator \$\{agent\.session\.state\}"/);
+		assert.match(messagesSource, /role="img"[\s\S]*?aria-label=\$\{this\.sessionBadgeLabel\(agent\)\}/);
+		assert.match(messagesSource, /class="rename-input"/);
+		assert.doesNotMatch(messagesSource, /class="rename-actions"/);
 		assert.match(messagesSource, /fill: currentColor/);
 		assert.doesNotMatch(messagesSource, /class="codicon/);
 		assert.match(sharedStyles, /--se-icon-fg: var\(--vscode-foreground\)/);

@@ -43,6 +43,7 @@ describe('prompt command completions', () => {
 		assert.equal(isPromptCommandMode('%F'), true);
 		assert.equal(isPromptCommandMode('%F @'), true);
 		assert.equal(isPromptCommandMode(' \t%F'), true);
+		assert.equal(isPromptCommandMode('%Q>1'), true);
 		assert.equal(isPromptCommandMode('%Q>Build Bob @G'), true);
 		assert.equal(isPromptCommandMode('const value = %'), false);
 		assert.equal(isPromptCommandMode('%unknown'), false);
@@ -57,5 +58,22 @@ describe('prompt command completions', () => {
 			completionsForPromptCommandPrefix('%F @').map(completion => completion.insertText),
 			['%F @G'],
 		);
+	});
+
+	test('preserves typed slot and name selectors in submit completions', () => {
+		assert.deepEqual(
+			completionsForPromptCommandPrefix('%Q>1').map(completion => completion.insertText),
+			['%Q>1', '%Q>1 @G'],
+		);
+		assert.deepEqual(
+			completionsForPromptCommandPrefix('%R>Build Bob').map(completion => completion.insertText),
+			['%R>Build Bob', '%R>Build Bob @G'],
+		);
+		assert.deepEqual(
+			completionsForPromptCommandPrefix('%R>Build Bob @').map(completion => completion.insertText),
+			['%R>Build Bob @G'],
+		);
+		assert.deepEqual(completionsForPromptCommandPrefix('%Q>'), []);
+		assert.deepEqual(completionsForPromptCommandPrefix('%Q>0'), []);
 	});
 });

@@ -20,7 +20,7 @@ export function registerPromptCommandMode(): readonly vscode.Disposable[] {
 				provideCompletionItems(document, position) {
 					const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
 					const completions = completionsForPromptCommandPrefix(linePrefix);
-					if (completions.length === 0) {
+					if (completions.length === 0 && !isPromptCommandMode(linePrefix)) {
 						return undefined;
 					}
 
