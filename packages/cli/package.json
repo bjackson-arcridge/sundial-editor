@@ -1,6 +1,6 @@
 {
   "name": "@arcridge/sundial-editor-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local provider bridge for Sundial Editor.",
   "license": "Apache-2.0",
   "repository": {
@@ -20,7 +20,8 @@
     "LICENSE"
   ],
   "bin": {
-    "sundial-editor-cli": "dist/main.js"
+    "sundial-editor-cli": "dist/main.js",
+    "sundial-annotations-cli": "dist/annotations-main.js"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

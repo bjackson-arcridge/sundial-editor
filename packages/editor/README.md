@@ -6,7 +6,7 @@ Marketplace id: `arcridge.sundial-editor`.
 
 ## Prompt commands
 
-Type `%` as the first character of a source line. Sundial takes over the triggered completion list while the prefix remains a valid command. Choosing a completion inserts and immediately submits it:
+Type `%` on its own source line, with optional leading whitespace. Sundial takes over the triggered completion list while the prefix remains a valid command. Choosing a completion inserts and immediately submits it:
 
 - `%Q` — question / no-code guidance
 - `%F` — fix guidance
@@ -15,7 +15,9 @@ Type `%` as the first character of a source line. Sundial takes over the trigger
 - `%C` — cleanup guidance
 - `%T` — test guidance
 
-Each command also has a project-scoped `@G` variant, such as `%F @G`. Commands do not select an agent; agent routing is deferred. The command line is removed in one undoable edit and the Messages view opens a message box identified by its named source, such as `User %Q`. Submitted messages are delivered through the companion CLI.
+Each command also has a project-scoped `@G` variant, such as `%F @G`, and accepts an optional agent selector. The command line is removed in one undoable edit and the Messages view opens a message box identified by its named source, such as `User %Q`. Submitted messages are delivered through the editor CLI.
+
+Target a named agent by adding its stable slot or name after the command, such as `%Q>1` or `%Q>Bob`. Names match without regard to case. The composer preselects that agent and shows the current agent dropdown so you can confirm or change the target before sending.
 
 Place a command immediately after the source line it concerns. The resulting interaction anchors to that preceding physical line. A command on the first line falls forward to the following line because there is no preceding target.
 
@@ -31,7 +33,11 @@ Annotated source lines carry an editor marker. Agent activity and annotations oc
 
 Sundial Editor contributes the **Sundial Agents** panel to VS Code's right-hand Secondary Side Bar, beside other collaboration surfaces such as Codex and Claude Code. The extension reveals it once on first activation after installation; afterwards VS Code remembers whether you close or move it.
 
-Streamed agent responses are rendered as Markdown, preserving the structure supplied by the agent without adding spacing between stream chunks.
+Each named agent has its own persistent queue. Submitted interactions move independently through **waiting**, **working**, and **completed**, so a busy agent can finish older work in order while other agents continue. A collapsed work card shows its latest status; expand its history to see ordered progress updates.
+
+Agent controls let you rename the logical agent, read the current transcript, choose **Open in Codex**, interrupt current work, or reset the provider session. Interrupting or resetting returns unfinished work to that agent's queue without discarding its history, stable identity, slot, or editable name. If a recorded conversation is no longer available, the agent shows **missing session**. Sending new work then asks, “No active session found; this operation will create a fresh session,” and creates one only after confirmation.
+
+Agent queues, session records, and status histories survive VS Code restarts in CLI-owned runtime state under `.sundial/agents/`, and current-session transcripts can be reopened after restart. The directory is gitignored and remains separate from checked-in source-annotation companions.
 
 ## Autosave
 

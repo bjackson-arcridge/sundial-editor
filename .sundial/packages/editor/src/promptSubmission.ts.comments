@@ -1,11 +1,2 @@
 version: 1
 annotations:
-  - id: "632fca2a-8d7f-4185-9819-814c08306091"
-    message: "Describe the anchor we are capturing here."
-    preset: "%Q"
-    scope: "line"
-    anchor:
-      line: 81
-      text: "export function captureAnchorContext("
-      before: ["\t));","\treturn true;","}"]
-      after: ["\tdocument: PromptEditor['document'],","\tcommandLine: number,","): AnchorContext {"]

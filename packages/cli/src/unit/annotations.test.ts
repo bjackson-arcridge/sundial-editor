@@ -11,6 +11,7 @@ import {
 	parseAnnotationCompanion,
 	readUserAnnotations,
 } from '../annotations';
+import { enqueueWork, listAgents, listWork } from '../agentStore';
 
 const temporaryDirectories: string[] = [];
 
@@ -45,6 +46,16 @@ describe('annotation companions', () => {
 				annotation: { message, preset: '%Q', scope: 'line' },
 			}, { createId: () => `annotation-${++nextId}` });
 		}
+		const agent = (await listAgents(context.root))[0];
+		for (const id of ['annotation-1', 'annotation-2']) {
+			await enqueueWork({
+				workspaceCwd: context.root,
+				agentSelector: agent.id,
+				userAnnotationId: id,
+				source: { uri: context.sourceUri, path: 'src/example.ts', line: 0, text: 'line 0', before: [], after: [] },
+				prompt: { preset: '%Q', scope: 'line', text: `Handle ${id}.` },
+			});
+		}
 
 		const deleted = await deleteUserAnnotation({
 			workspace: { cwd: context.root }, document: { uri: context.sourceUri },
@@ -54,6 +65,7 @@ describe('annotation companions', () => {
 		assert.deepEqual((await readUserAnnotations({
 			workspace: { cwd: context.root }, document: { uri: context.sourceUri },
 		})).annotations.map(annotation => annotation.id), ['annotation-2']);
+		assert.deepEqual((await listWork(context.root)).map(work => work.id), ['annotation-2']);
 		await assert.rejects(() => deleteUserAnnotation({
 			workspace: { cwd: context.root }, document: { uri: context.sourceUri },
 			annotation: { id: 'missing' },
@@ -94,6 +106,25 @@ describe('annotation companions', () => {
 		assert.equal(loaded.annotations[0].message, 'Fix "this".\nPlease.');
 		assert.deepEqual(loaded.annotations[0].anchor.before, ['import value from "value";', 'function calculate() {']);
 		assert.deepEqual(loaded.annotations[0].anchor.after, ['return value;', '}']);
+	});
+
+	test('persists an editor-preallocated user annotation identity idempotently', async () => {
+		const context = await workspace();
+		const request = {
+			workspace: { cwd: context.root },
+			document: { uri: context.sourceUri, line: 2, text: 'code', before: [], after: [] },
+			annotation: { id: 'reserved-work-id', message: 'Fix it.', preset: '%F', scope: 'line' },
+		} as const;
+		assert.equal((await appendUserAnnotation(request)).id, 'reserved-work-id');
+		assert.equal((await appendUserAnnotation(request)).id, 'reserved-work-id');
+		assert.equal((await readUserAnnotations({
+			workspace: request.workspace, document: { uri: context.sourceUri },
+		})).annotations.length, 1);
+
+		await assert.rejects(() => appendUserAnnotation({
+			...request,
+			annotation: { ...request.annotation, message: 'Different content.' },
+		}), /already reserved with different content/);
 	});
 
 	test('returns an empty collection for a source without a companion', async () => {

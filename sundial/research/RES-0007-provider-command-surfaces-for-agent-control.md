@@ -4,7 +4,7 @@ title: Provider command surfaces for agent control
 domain: vscode.extension
 summary: Local inspection and official docs show that Codex and Claude Code VS Code commands are mostly UI/context surfaces, while programmatic agent control is more likely through Codex app-server and Claude Code CLI/background-agent surfaces. Load this before designing Sundial editor provider-control adapters.
 created: 2026-07-13
-updated: 2026-07-19
+updated: 2026-07-20
 ---
 
 ## Research
@@ -40,11 +40,14 @@ Codex VS Code extension:
 
 Codex CLI and app-server:
 
+- A 2026-07-20 compatibility follow-up resolved PATH `codex` to `/opt/homebrew/bin/codex`, which reported `codex-cli 0.144.6`. The installed OpenAI VS Code extension `openai.chatgpt 26.715.31925` separately bundles `/Users/bjackson/.vscode/extensions/openai.chatgpt-26.715.31925-darwin-arm64/bin/macos-aarch64/codex`, whose `codex-package.json` and `--version` report `0.145.0-alpha.18`. The current `sundial-editor-cli health` result includes the exact executable path and version it resolved.
 - `codex --help` lists interactive commands including `resume`, `fork`, `mcp`, `mcp-server`, `app-server`, `remote-control`, `exec`, and `review`.
 - `codex resume [SESSION_ID] [PROMPT]` can resume an interactive session and optionally start with a prompt, but this is a TUI-oriented surface rather than a verified append-to-running-session API.
 - `codex exec` and `codex exec resume [SESSION_ID] [PROMPT]` provide non-interactive one-shot/resume flows, with flags such as `--json`, `--output-last-message`, and `--output-schema`.
 - `codex app-server --help` labels the app-server as experimental and supports transports `stdio://`, `unix://`, `unix://PATH`, `ws://IP:PORT`, and `off`.
 - `codex app-server` provides `generate-ts` and `generate-json-schema`. Official Codex docs say generated artifacts are specific to the Codex version that produced them.
+- Official app-server documentation fetched on 2026-07-20 lists the stable RPC surface but does not document a runtime RPC that returns the complete supported-method inventory. Generated Codex 0.144.6 `ClientRequest.json` contains a version-specific static request union including Sundial's required operations; it is not behavioral discovery and cannot justify exact-version equality as a compatibility rule.
+- The current Sundial adapter uses Codex `0.131.0` as the minimum already validated by this research, rejects older builds, and behaviorally probes safe operations on the resolved installation. Its compatibility result does not use an exact minor-version allowlist.
 - Generated app-server v2 protocol files from local Codex 0.131.0 include request methods:
   - `thread/start`
   - `thread/resume`
@@ -67,6 +70,7 @@ Codex CLI and app-server:
 - A live `model/list` probe on 2026-07-16 against authenticated Codex 0.131.0 returned four visible models and `nextCursor: null`. It marked `gpt-5.5` as `isDefault: true`; the other returned model strings were `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.3-codex-spark`.
 - During that live probe, Codex logged that its cached model data contained an unrecognized reasoning-effort value `max`, then still returned the four-model response above.
 - A manual Sundial run that left `ThreadStartParams.model` null failed with an error naming configured model `gpt-5.6-sol`, even though the same installed app-server's visible model list identified `gpt-5.5` as its default. This establishes that a null thread model does not necessarily resolve to the visible `model/list` default when local Codex configuration selects another model.
+- Current official model documentation describes `isDefault` as the recommended default for client model pickers. It does not state that the catalog row replaces app-server configuration when the optional model override is omitted. The current Sundial adapter queries `model/list`, validates and passes an explicit request, and omits `model` when Sundial has no explicit choice.
 - Generated `TurnStartParams` is `{ threadId: string, input: Array<UserInput>, cwd?, approvalPolicy?, approvalsReviewer?, sandboxPolicy?, model?, serviceTier?, effort?, summary?, personality?, outputSchema? }`.
 - Generated `TurnSteerParams` is `{ threadId: string, input: Array<UserInput>, expectedTurnId: string }`; the comment says `expectedTurnId` is a required active-turn precondition and the request fails if it does not match the currently active turn.
 - Generated `ThreadStartParams` supports fields including `model`, `modelProvider`, `serviceTier`, `cwd`, `approvalPolicy`, `approvalsReviewer`, `sandbox`, `config`, `serviceName`, `baseInstructions`, `developerInstructions`, `personality`, `ephemeral`, `sessionStartSource`, and `threadSource`.
@@ -79,6 +83,12 @@ Codex CLI and app-server:
 - The same documentation says `thread/read` accepts `{ threadId: string, includeTurns?: boolean }`; with `includeTurns: true`, it returns the stored thread and its turns without loading/resuming the thread or subscribing the caller to events.
 - The same documentation says `thread/list` can filter by `cwd` and source kinds and returns persisted thread summaries, but a client that already owns an agent identity can read the recorded thread id directly rather than rediscovering it heuristically.
 - The same documentation describes `thread/status/changed` payloads as `{ threadId, status }`, where the runtime status can be `notLoaded`, `idle`, `systemError`, or `active` with active flags. Those provider runtime values are distinct from Sundial's user-facing `waiting`, `working`, and `blocked` vocabulary.
+- A live Codex 0.131.0 probe on 2026-07-20 found that `thread/start` with `ephemeral: false` returned an id and emitted `thread/started`, but no rollout file existed after the app-server process closed when no history item or turn had been written. A new process returned `thread not loaded: <id>` from `thread/read`, `no rollout found for thread id <id>` from `thread/resume`, omitted the id from `thread/list`, and returned an empty `thread/loaded/list`.
+- Generated Codex 0.131.0 `ThreadInjectItemsParams` is `{ threadId: string, items: Array<JsonValue> }`; its generated comment says the raw Responses API items are appended to model-visible history.
+- On that empty live thread, `thread/inject_items` accepted `{ threadId, items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: "Managed Sundial session initialized." }] }] }` and returned `{}` without starting a turn. It created the rollout file immediately. After restarting app-server, `thread/read` returned the same id with `status: { type: "notLoaded" }` and `thread/resume` succeeded.
+- The materialized rollout's `session_meta` retained the `baseInstructions` supplied to the original `thread/start`; the injected developer item was recorded separately. `thread/read(includeTurns: true)` returned an empty `turns` array because the injected history item did not create a user turn.
+- A live Sundial compatibility probe against PATH-resolved Codex 0.144.6 on 2026-07-20 completed `initialize`, `model/list`, `thread/start`, `thread/read`, `thread/inject_items`, `thread/resume`, and `thread/archive`. It also sent deliberately incomplete parameters to `turn/start` and `turn/interrupt`; both returned parameter errors, proving the RPCs were recognized without starting a model turn. The probe archived its thread afterward.
+- In that 0.144.6 probe, a second initialized app-server process could not read the empty non-ephemeral thread immediately after `thread/start`; after the first process applied `thread/inject_items`, a fresh process could read and resume it. Thus current 0.144.6 still requires Sundial's materialization marker in practice. The adapter's missing-method branch accepts an absent `thread/inject_items` only after a fresh connection reads that specific new thread; otherwise it returns an error naming the missing RPC and durability failure.
 
 Codex VS Code transcript opening:
 
@@ -131,7 +141,7 @@ Claude Code Remote Control:
 
 ### Unknowns
 
-- Codex app-server is marked experimental; protocol stability and compatibility across CLI versions must be checked against the exact version Sundial targets.
+- Codex app-server is marked experimental and its generated schemas are version-specific. Sundial compatibility currently combines the `0.131.0` minimum with safe behavioral checks instead of exact generated-schema version equality. Turn notifications remain covered by fake-app-server integration tests because the live compatibility probe does not start a model turn.
 - It was not verified whether Sundial can attach to the same Codex app-server instance used by the VS Code extension, or whether it should run its own app-server process.
 - No public Codex VS Code command was found for arbitrary prompt submission or live-turn steering.
 - No public Claude Code VS Code command was found for arbitrary prompt submission to an already-running session.

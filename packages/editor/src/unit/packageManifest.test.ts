@@ -35,11 +35,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.5.0 extension package', () => {
+	test('is an independent 0.6.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.5.0');
+		assert.equal(manifest.version, '0.6.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -108,7 +108,7 @@ describe('Sundial Editor manifest', () => {
 		const extensionSource = fs.readFileSync(path.resolve(__dirname, '../../src/extension.ts'), 'utf8');
 		const providerSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/messages/messagesWebviewProvider.ts'), 'utf8');
 
-		assert.match(providerSource, /case 'submit':\s*void this\.startSubmission\(inboundMessage\.message\)/);
+		assert.match(providerSource, /case 'submit':\s*void this\.startSubmission\(message\.message, message\.targetAgentId\)/);
 		assert.match(providerSource, /await this\.services\.returnToSource\(pending\.prompt\)/);
 		assert.match(extensionSource, /showTextDocument\(vscode\.Uri\.parse\(prompt\.sourceUri\), \{ preserveFocus: false \}\)/);
 		assert.match(extensionSource, /returnToVSCodeVimNormalMode/);

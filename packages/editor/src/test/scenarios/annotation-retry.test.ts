@@ -5,9 +5,13 @@ import * as vscode from 'vscode';
 interface MessagesDiagnostics {
 	readonly state: {
 		readonly prompt?: unknown;
-		readonly annotationSaved?: true;
-		readonly deliveryComplete?: true;
-		readonly run?: { readonly status: string; readonly events: readonly { readonly kind: string; readonly message?: string }[] };
+		readonly work: readonly {
+			readonly id: string;
+			readonly status: string;
+			readonly ready: boolean;
+			readonly prompt: { readonly text: string };
+		}[];
+		readonly notice?: { readonly tone: string; readonly message: string };
 	};
 }
 
@@ -27,14 +31,22 @@ suite('Scenario: annotation-retry', () => {
 		await vscode.commands.executeCommand('sundialEditor.submitPrompt');
 		await vscode.commands.executeCommand('sundialEditor.internal.submitPendingMessage', 'Persist this once.');
 
-		const failedSave = await waitForState(state => state.deliveryComplete === true && state.run?.status === 'blocked');
+		const failedSave = await waitForState(state => state.prompt !== undefined && state.notice?.tone === 'error');
 		assert.notEqual(failedSave.state.prompt, undefined);
-		assert.equal(failedSave.state.annotationSaved, undefined);
-		assert.match(failedSave.state.run?.events.at(-1)?.message ?? '', /will not redeliver/);
-		assert.equal(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'delivery-count.txt').fsPath, 'utf8'), '1');
+		assert.match(failedSave.state.notice?.message ?? '', /Retry preserves its identity/);
+		await assert.rejects(readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'delivery-count.txt').fsPath, 'utf8'), /ENOENT/);
+		const failedStore = JSON.parse(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, '.test-agent-state.json').fsPath, 'utf8'));
+		assert.equal(failedStore.work.length, 1);
+		assert.equal(failedStore.work[0].status, 'waiting');
+		assert.equal(failedStore.work[0].ready, false);
+		assert.equal(failedStore.work[0].prompt.text, 'Persist this once.');
 
 		await vscode.commands.executeCommand('sundialEditor.internal.submitPendingMessage', 'This replacement must not be sent.');
-		await waitForState(state => state.prompt === undefined && state.run?.status === 'waiting');
+		const completed = await waitForState(state => state.prompt === undefined && state.work.some(work => work.status === 'completed'));
+		assert.equal(completed.state.work.length, 1);
+		assert.equal(completed.state.work[0].id, failedStore.work[0].id);
+		assert.equal(completed.state.work[0].ready, true);
+		assert.equal(completed.state.work[0].prompt.text, 'Persist this once.');
 		assert.equal(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'delivery-count.txt').fsPath, 'utf8'), '1');
 		const companion = await readFile(vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', 'prompt.txt.comments').fsPath, 'utf8');
 		assert.match(companion, /message: "Persist this once\."/);

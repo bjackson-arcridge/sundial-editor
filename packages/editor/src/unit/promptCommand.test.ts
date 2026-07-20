@@ -1,6 +1,13 @@
 import * as assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { commandLineDeletionRange, createPromptContext, parsePromptCommand, promptPresets } from '../promptCommand';
+import {
+	commandLineDeletionRange,
+	createPromptContext,
+	parsePromptCommand,
+	PromptTargetResolutionError,
+	promptPresets,
+	resolvePromptTargetSelector,
+} from '../promptCommand';
 
 describe('prompt command parser', () => {
 	test('accepts every preset with optional global scope', () => {
@@ -9,7 +16,31 @@ describe('prompt command parser', () => {
 			assert.deepEqual(parsePromptCommand(`${preset} @G`), { preset, scope: 'project' });
 		}
 
-		assert.deepEqual(parsePromptCommand('%F @G\t '), { preset: '%F', scope: 'project' });
+		assert.deepEqual(parsePromptCommand('\u2003\t   %F @G\t '), { preset: '%F', scope: 'project' });
+	});
+
+	test('parses stable slot and named target selectors before optional project scope', () => {
+		assert.deepEqual(parsePromptCommand('%Q>1'), {
+			preset: '%Q', scope: 'line', targetSelector: { kind: 'slot', slot: 1 },
+		});
+		assert.deepEqual(parsePromptCommand('   %W>27 @G'), {
+			preset: '%W', scope: 'project', targetSelector: { kind: 'slot', slot: 27 },
+		});
+		assert.deepEqual(parsePromptCommand('%R>Bob'), {
+			preset: '%R', scope: 'line', targetSelector: { kind: 'name', name: 'Bob' },
+		});
+		assert.deepEqual(parsePromptCommand('\t%C>build-agent_2 @G  '), {
+			preset: '%C', scope: 'project', targetSelector: { kind: 'name', name: 'build-agent_2' },
+		});
+		assert.deepEqual(parsePromptCommand('%T>Build Bob @G'), {
+			preset: '%T', scope: 'project', targetSelector: { kind: 'name', name: 'Build Bob' },
+		});
+		assert.deepEqual(parsePromptCommand('%F>123Bob'), {
+			preset: '%F', scope: 'line', targetSelector: { kind: 'name', name: '123Bob' },
+		});
+		assert.deepEqual(parsePromptCommand('%F>Bob@G'), {
+			preset: '%F', scope: 'line', targetSelector: { kind: 'name', name: 'Bob@G' },
+		});
 	});
 
 	test('rejects source text, unrecognised presets, and malformed modifiers', () => {
@@ -25,10 +56,64 @@ describe('prompt command parser', () => {
 			'%F @G trailing',
 			'%Q @G @G',
 			'% F',
-			' \t%F',
+			'%Q >1',
+			'%Q>0',
+			'%Q>01',
+			'%Q>',
+			'%Q>   ',
+			'%Q> @G',
+			'%Q>Bob\n@G',
+			'%Q>Bob\u2028@G',
+			`%Q>${Number.MAX_SAFE_INTEGER}0`,
+			`%Q>${'a'.repeat(81)}`,
 		]) {
 			assert.equal(parsePromptCommand(sourceLine), undefined, sourceLine);
 		}
+	});
+});
+
+describe('prompt target selector resolution', () => {
+	const bob = { id: 'agent-bob', slot: 4, name: 'Build Bob' } as const;
+	const amy = { id: 'agent-amy', slot: 1, name: 'Amy' } as const;
+
+	test('resolves slots by stable slot value rather than array position', () => {
+		assert.equal(resolvePromptTargetSelector({ kind: 'slot', slot: 1 }, [bob, amy]), amy);
+		assert.equal(resolvePromptTargetSelector({ kind: 'slot', slot: 4 }, [amy, bob]), bob);
+	});
+
+	test('resolves names case-insensitively while retaining the stored agent', () => {
+		assert.equal(resolvePromptTargetSelector({ kind: 'name', name: 'build BOB' }, [amy, bob]), bob);
+	});
+
+	test('reports unknown and ambiguous selectors without choosing an agent', () => {
+		assert.throws(
+			() => resolvePromptTargetSelector({ kind: 'slot', slot: 2 }, [amy, bob]),
+			(error: unknown) => {
+				assert.ok(error instanceof PromptTargetResolutionError);
+				assert.equal(error.code, 'unknown');
+				assert.match(error.message, />2/);
+				return true;
+			},
+		);
+		assert.throws(
+			() => resolvePromptTargetSelector({ kind: 'name', name: 'SAM' }, [
+				{ id: 'agent-sam-1', slot: 2, name: 'Sam' },
+				{ id: 'agent-sam-2', slot: 3, name: 'sam' },
+			]),
+			(error: unknown) => {
+				assert.ok(error instanceof PromptTargetResolutionError);
+				assert.equal(error.code, 'ambiguous');
+				assert.match(error.message, />SAM/);
+				return true;
+			},
+		);
+		assert.throws(
+			() => resolvePromptTargetSelector({ kind: 'slot', slot: 3 }, [
+				{ id: 'agent-one', slot: 3, name: 'One' },
+				{ id: 'agent-two', slot: 3, name: 'Two' },
+			]),
+			(error: unknown) => error instanceof PromptTargetResolutionError && error.code === 'ambiguous',
+		);
 	});
 });
 
@@ -58,8 +143,8 @@ describe('command line deletion ranges', () => {
 	});
 });
 
-test('creates prompt context without changing the original source text', () => {
-	const parsed = parsePromptCommand('%C @G');
+test('creates prompt context without changing the original source text or target selector', () => {
+	const parsed = parsePromptCommand('  %C>Ty @G');
 	if (parsed === undefined) {
 		throw new Error('Expected the preset to parse.');
 	}
@@ -68,7 +153,7 @@ test('creates prompt context without changing the original source text', () => {
 		parsed,
 		'file:///workspace/src/example.ts',
 		8,
-		'%C @G',
+		'  %C>Ty @G',
 		'const value = 1;',
 		['function calculate() {'],
 		['return value;', '}'],
@@ -76,9 +161,10 @@ test('creates prompt context without changing the original source text', () => {
 	assert.deepEqual(context, {
 		preset: '%C',
 		scope: 'project',
+		targetSelector: { kind: 'name', name: 'Ty' },
 		sourceUri: 'file:///workspace/src/example.ts',
 		sourceLine: 8,
-		sourceText: '%C @G',
+		sourceText: '  %C>Ty @G',
 		anchorText: 'const value = 1;',
 		anchorBefore: ['function calculate() {'],
 		anchorAfter: ['return value;', '}'],

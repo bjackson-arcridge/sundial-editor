@@ -27,7 +27,12 @@ export interface AnnotationAppendRequest {
 		readonly before: readonly string[];
 		readonly after: readonly string[];
 	};
-	readonly annotation: { readonly message: string; readonly preset: PromptPreset; readonly scope: PromptScope };
+	readonly annotation: {
+		readonly id?: string;
+		readonly message: string;
+		readonly preset: PromptPreset;
+		readonly scope: PromptScope;
+	};
 }
 
 export interface AnnotationReadRequest {

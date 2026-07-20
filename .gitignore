@@ -19,3 +19,6 @@ npm-debug.log*
 # Env
 .env
 .env.local
+
+# Sundial runtime state
+.sundial/agents/

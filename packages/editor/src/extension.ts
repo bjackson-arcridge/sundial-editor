@@ -41,6 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			reportValidationFailure: message => vscode.window.showWarningMessage(message),
 			openComposer: prompt => messagesProvider.openPrompt(prompt),
 			workspaceCwd: sourceUri => workspaceCwdForSource(vscode.Uri.parse(sourceUri)),
+			validatePrompt: (prompt, cwd) => messagesProvider.validatePromptTarget(prompt, cwd),
 			createDeletionRange: range => new vscode.Range(
 				new vscode.Position(range.start.line, range.start.character),
 				new vscode.Position(range.end.line, range.end.character),

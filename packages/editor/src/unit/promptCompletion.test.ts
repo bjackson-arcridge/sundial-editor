@@ -22,11 +22,28 @@ describe('prompt command completions', () => {
 		);
 	});
 
-	test('enters command mode only when a viable percent command starts in column zero', () => {
+	test('uses clear action descriptions in completion detail labels', () => {
+		assert.deepEqual(
+			promptCommandCompletions
+				.filter(completion => completion.scope === 'line')
+				.map(completion => completion.detail),
+			[
+				'Ask a question — current line',
+				'Fix code — current line',
+				'Write code — current line',
+				'Refactor code — current line',
+				'Clean up code — current line',
+				'Create tests — current line',
+			],
+		);
+	});
+
+	test('enters command mode for viable commands after optional indentation and while targeting', () => {
 		assert.equal(isPromptCommandMode('%'), true);
 		assert.equal(isPromptCommandMode('%F'), true);
 		assert.equal(isPromptCommandMode('%F @'), true);
-		assert.equal(isPromptCommandMode(' %F'), false);
+		assert.equal(isPromptCommandMode(' \t%F'), true);
+		assert.equal(isPromptCommandMode('%Q>Build Bob @G'), true);
 		assert.equal(isPromptCommandMode('const value = %'), false);
 		assert.equal(isPromptCommandMode('%unknown'), false);
 	});

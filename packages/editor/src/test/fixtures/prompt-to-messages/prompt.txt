@@ -1,4 +1,4 @@
 code before the command
-%F
+%F>1
 keep this line
 and this second line

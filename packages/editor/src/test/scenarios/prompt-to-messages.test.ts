@@ -7,9 +7,17 @@ interface MessagesDiagnostics {
 	readonly viewVisible: boolean;
 	readonly annotationMarkerLines: readonly number[];
 	readonly state: {
+		readonly agents: { readonly kind: string; readonly agents?: readonly { readonly id: string; readonly name: string }[] };
+		readonly work: readonly {
+			readonly id: string; readonly agentId: string; readonly status: 'waiting' | 'working' | 'completed';
+			readonly latestUpdate?: { readonly message: string };
+			readonly assignment?: { readonly sequence: number };
+		}[];
 		readonly prompt?: {
 			readonly preset: string;
 			readonly scope: string;
+			readonly targetSelector?: { readonly kind: string; readonly slot?: number; readonly name?: string };
+			readonly sourceUri: string;
 			readonly sourceLine: number;
 			readonly sourceText: string;
 			readonly anchorText: string;
@@ -17,10 +25,7 @@ interface MessagesDiagnostics {
 			readonly anchorAfter: readonly string[];
 		};
 		readonly draft?: string;
-		readonly run?: {
-			readonly status: string;
-			readonly events: readonly { readonly kind: string; readonly text?: string }[];
-		};
+		readonly targetAgentId?: string;
 		readonly annotationViewer?: {
 			readonly sourceUri: string;
 			readonly annotation: {
@@ -73,31 +78,30 @@ suite('Scenario: prompt-to-messages', () => {
 		const diagnostics = await waitForMessagesState();
 		assert.equal(diagnostics.viewResolved, true);
 		assert.equal(diagnostics.viewVisible, true);
-		assert.deepEqual(diagnostics.state, {
-			prompt: {
-				preset: '%F',
-				scope: 'line',
-				sourceUri: uri.toString(),
-				sourceLine: 0,
-				sourceText: '%F',
+		assert.equal(diagnostics.state.agents.kind, 'ready');
+		assert.deepEqual(diagnostics.state.agents.agents?.map(agent => agent.name), ['Bob', 'Amy']);
+		assert.deepEqual(diagnostics.state.work, []);
+		assert.deepEqual(diagnostics.state.prompt, {
+			preset: '%F',
+			scope: 'line',
+			targetSelector: { kind: 'slot', slot: 1 },
+			sourceUri: uri.toString(),
+			sourceLine: 0,
+			sourceText: '%F>1',
 				anchorText: 'code before the command',
 				anchorBefore: [],
 				anchorAfter: ['keep this line', 'and this second line'],
-			},
-			draft: '',
 		});
+		assert.equal(diagnostics.state.draft, '');
+		assert.equal(diagnostics.state.targetAgentId, 'agent-bob');
 
 		const submission = vscode.commands.executeCommand('sundialEditor.internal.submitPendingMessage', 'Fix this through the test provider.');
 		const savedDuringRun = await waitForAnnotationState(state => state.annotationViewer?.annotation.message === 'Fix this through the test provider.');
-		assert.equal(savedDuringRun.state.run?.status, 'working', 'Expected annotation persistence before agent completion');
 		assert.deepEqual(savedDuringRun.annotationMarkerLines, [0]);
 		await submission;
-		const completed = await waitForCompletedRun();
-		assert.equal(completed.state.run?.status, 'waiting');
-		assert.deepEqual(completed.state.run?.events.filter(event => event.kind === 'output'), [{
-			kind: 'output',
-			text: 'Applied the requested **test patch**.\n\n- Done',
-		}]);
+		const completed = await waitForCompletedRun(1);
+		assert.equal(completed.state.work[0].status, 'completed');
+		assert.equal(completed.state.work[0].latestUpdate?.message, 'Completed assignment.');
 
 		const companionPath = vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', 'prompt.txt.comments').fsPath;
 		const companionYaml = await readFile(companionPath, 'utf8');
@@ -110,10 +114,18 @@ suite('Scenario: prompt-to-messages', () => {
 		const received = JSON.parse(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'received-request.json').fsPath, 'utf8'));
 		assert.equal(received.provider, 'codex');
 		assert.equal(received.workspace.cwd, workspaceFolder.uri.fsPath);
-		assert.deepEqual(received.document, {
-			uri: uri.toString(), line: 0, text: '%F',
+		assert.deepEqual(received.managed, {
+			agentId: 'agent-bob', agentSessionId: 'session-bob', userAnnotationId: completed.state.work[0].id,
+			assignmentSequence: completed.state.work[0].assignment?.sequence,
 		});
-		assert.deepEqual(received.prompt, {
+		assert.equal(received.document, undefined);
+		assert.equal(received.prompt, undefined);
+		const persistedState = JSON.parse(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, '.test-agent-state.json').fsPath, 'utf8'));
+		assert.deepEqual(persistedState.work[0].source, {
+			uri: uri.toString(), line: 0, text: 'code before the command',
+			before: [], after: ['keep this line', 'and this second line'],
+		});
+		assert.deepEqual(persistedState.work[0].prompt, {
 			preset: '%F', scope: 'line', text: 'Fix this through the test provider.',
 		});
 
@@ -143,17 +155,22 @@ suite('Scenario: prompt-to-messages', () => {
 		assert.equal(retained.state.annotationViewer?.pinned, false, 'Expected the last viewed annotation to remain without explicit pinning');
 		await returnedEditor.edit(edit => edit.insert(
 			new vscode.Position(2, returnedEditor.document.lineAt(2).text.length),
-			'\n%Q',
+			'\n%Q>2',
 		));
-		returnedEditor.selection = new vscode.Selection(3, 2, 3, 2);
+		returnedEditor.selection = new vscode.Selection(3, 4, 3, 4);
 		await vscode.commands.executeCommand('sundialEditor.submitPrompt');
+		assert.equal((await waitForMessagesState()).state.targetAgentId, 'agent-amy');
 		await vscode.commands.executeCommand('sundialEditor.internal.submitPendingMessage', 'Explain the second source line.');
 		const secondViewed = await waitForAnnotationState(state => state.annotationViewer?.annotation.message === 'Explain the second source line.');
 		assert.equal(secondViewed.state.annotationViewer?.position, 2);
 		assert.equal(secondViewed.state.annotationViewer?.total, 2);
 		const secondAnnotationId = secondViewed.state.annotationViewer?.annotation.id;
 		assert.ok(secondAnnotationId);
-		await waitForCompletedRun();
+		const secondCompleted = await waitForCompletedRun(2);
+		assert.equal(secondCompleted.state.work.find(work => work.id === secondAnnotationId)?.agentId, 'agent-amy');
+		const secondReceived = JSON.parse(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'received-request.json').fsPath, 'utf8'));
+		assert.equal(secondReceived.managed.agentId, 'agent-amy');
+		assert.equal(secondReceived.managed.agentSessionId, 'session-amy');
 
 		await vscode.commands.executeCommand('sundialEditor.internal.previousAnnotation');
 		const previous = await waitForAnnotationState(state => state.annotationViewer?.annotation.id === annotationId);
@@ -175,8 +192,11 @@ suite('Scenario: prompt-to-messages', () => {
 		assert.equal(reopened.state.annotationViewer?.annotation.message, 'Explain the second source line.');
 
 		await vscode.commands.executeCommand('sundialEditor.internal.deleteAnnotation');
-		const afterDelete = await waitForAnnotationState(state => state.annotationViewer?.annotation.id === annotationId && state.annotationViewer.total === 1);
+		const afterDelete = await waitForAnnotationState(state => state.annotationViewer?.annotation.id === annotationId
+			&& state.annotationViewer.total === 1
+			&& state.work.every(work => work.id !== secondAnnotationId));
 		assert.deepEqual(afterDelete.annotationMarkerLines, [0]);
+		assert.deepEqual(afterDelete.state.work.map(work => work.id), [annotationId]);
 		const afterDeleteYaml = await readFile(companionPath, 'utf8');
 		assert.match(afterDeleteYaml, /Fix this through the test provider/);
 		assert.doesNotMatch(afterDeleteYaml, /Explain the second source line/);
@@ -212,12 +232,12 @@ async function waitForMessagesViewReady(timeoutMs = 6000): Promise<void> {
 	throw new Error('Timed out waiting for the first-run Messages view reveal');
 }
 
-async function waitForCompletedRun(timeoutMs = 6000): Promise<MessagesDiagnostics> {
+async function waitForCompletedRun(completedCount: number, timeoutMs = 6000): Promise<MessagesDiagnostics> {
 	const started = Date.now();
 	let latest: MessagesDiagnostics | undefined;
 	while (Date.now() - started < timeoutMs) {
 		latest = await vscode.commands.executeCommand<MessagesDiagnostics>('sundialEditor.internal.messagesDiagnostics');
-		if (latest.state.prompt === undefined && latest.state.run?.status === 'waiting') {
+		if (latest.state.prompt === undefined && latest.state.work.filter(work => work.status === 'completed').length >= completedCount) {
 			return latest;
 		}
 		await new Promise(resolve => setTimeout(resolve, 50));

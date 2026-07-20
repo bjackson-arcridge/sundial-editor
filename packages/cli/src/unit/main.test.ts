@@ -1,4 +1,7 @@
 import * as assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, test } from 'node:test';
 import type { ProviderAdapter } from '../adapters/adapter';
@@ -37,7 +40,7 @@ describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.2.0\n');
+		assert.equal(version.stdout.join(''), '0.3.0\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
@@ -89,8 +92,16 @@ describe('main', () => {
 		assert.equal(await main(['health'], run.io, { adapters: { codex: adapter() }, readFile: async () => '' }), 0);
 		assert.deepEqual(JSON.parse(run.stdout[0]), {
 			kind: 'capabilities',
-			protocolVersion: 1,
-			statuses: ['waiting', 'working', 'blocked'],
+			protocolVersion: 2,
+			workStatuses: ['waiting', 'working', 'completed'],
+			providers: ['codex'],
+			commands: [
+				'annotations append', 'annotations read', 'annotations delete',
+				'agent list', 'agent show', 'agent rename', 'agent session ensure',
+				'agent work enqueue', 'agent work ready', 'agent work list', 'agent work show',
+				'agent work claim', 'agent work complete', 'agent work requeue',
+				'agent transcript', 'agent open', 'agent interrupt', 'agent reset', 'prompt',
+			],
 			health: { provider: 'codex', available: true, compatible: true, version: '0.131.0' },
 		});
 	});
@@ -131,5 +142,116 @@ describe('main', () => {
 		const run = harness();
 		assert.equal(await main(['nope'], run.io, { adapters: {}, readFile: async () => '' }), 2);
 		assert.match(run.stderr.join(''), /Unknown command/);
+	});
+
+	test('drives the persistent agent queue through the machine command surface', async () => {
+		const cwd = await mkdtemp(path.join(os.tmpdir(), 'sundial-main-agent-'));
+		const services = {
+			adapters: {
+				codex: {
+					...adapter(),
+					createSession: async () => ({ providerSessionId: 'thread-1' }),
+					readSession: async () => ({ providerSessionId: 'thread-1', available: true, transcript: [] }),
+				},
+			},
+			readFile: async () => '',
+		};
+		const invoke = async (args: readonly string[], request: unknown): Promise<unknown> => {
+			const run = harness(JSON.stringify(request));
+			assert.equal(await main(args, run.io, services), 0, run.stderr.join(''));
+			return JSON.parse(run.stdout.join(''));
+		};
+		try {
+			const listed = await invoke(['agent', 'list'], { workspace: { cwd } }) as { agents: Array<{ id: string; name: string }> };
+			assert.equal(listed.agents.length, 5);
+			const agent = listed.agents[0];
+			const ensured = await invoke(['agent', 'session', 'ensure'], {
+				workspace: { cwd }, agent: { id: agent.id }, confirmedFreshSession: true,
+			}) as { agent: { session: { state: string } } };
+			assert.equal(ensured.agent.session.state, 'available');
+			const shown = await invoke(['agent', 'show'], {
+				workspace: { cwd }, agent: { id: agent.id },
+			});
+			assert.equal(JSON.stringify(shown).includes('providerSessionId'), false);
+
+			const enqueued = await invoke(['agent', 'work', 'enqueue'], {
+				workspace: { cwd }, agent: { id: agent.id }, work: {
+					source: { uri: new URL('file.ts', `file://${cwd}/`).toString(), line: 0, text: 'code', before: [], after: [] },
+					prompt: { preset: '%W', scope: 'line', text: 'Implement this.' },
+				},
+			}) as { id: string; ready: boolean; source: { path: string }; latestUpdate: { kind: string } };
+			assert.equal(enqueued.ready, false);
+			assert.equal(enqueued.source.path, 'file.ts');
+			assert.equal(enqueued.latestUpdate.kind, 'enqueued');
+			await invoke(['agent', 'work', 'ready'], { workspace: { cwd }, agentId: agent.id, work: { id: enqueued.id } });
+			const claimed = await invoke(['agent', 'work', 'claim'], {
+				workspace: { cwd }, agent: { id: agent.id },
+			}) as { work: { id: string; assignment: { sessionId: string; sequence: number } } };
+			assert.equal(claimed.work.id, enqueued.id);
+			await invoke(['agent', 'work', 'complete'], {
+				workspace: { cwd }, agent: { id: agent.id }, work: {
+					id: enqueued.id,
+					agentSessionId: claimed.work.assignment.sessionId,
+					assignmentSequence: claimed.work.assignment.sequence,
+				}, finalUpdate: 'Completed assignment.',
+			});
+			const work = await invoke(['agent', 'work', 'list'], { workspace: { cwd } }) as { work: Array<{ status: string; latestUpdate: { kind: string; message: string } }> };
+			assert.equal(work.work[0].status, 'completed');
+			assert.equal(work.work[0].latestUpdate.kind, 'completed');
+			assert.equal(work.work[0].latestUpdate.message, 'Completed assignment.');
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test('marks a managed session missing when Codex reports no rollout', async () => {
+		const cwd = await mkdtemp(path.join(os.tmpdir(), 'sundial-main-missing-session-'));
+		const provider = {
+			...adapter(),
+			createSession: async () => ({ providerSessionId: 'thread-lost' }),
+			readSession: async () => ({ providerSessionId: 'thread-lost', available: true, transcript: [] }),
+			runSession: async (): Promise<never> => { throw new Error('no rollout found for thread id thread-lost'); },
+		};
+		const services = { adapters: { codex: provider }, readFile: async () => '' };
+		const invoke = async (args: readonly string[], value: unknown): Promise<unknown> => {
+			const run = harness(JSON.stringify(value));
+			assert.equal(await main(args, run.io, services), 0, run.stderr.join(''));
+			return JSON.parse(run.stdout.join(''));
+		};
+		try {
+			const listed = await invoke(['agent', 'list'], { workspace: { cwd } }) as { agents: Array<{ id: string }> };
+			const agentId = listed.agents[0].id;
+			const ensured = await invoke(['agent', 'session', 'ensure'], {
+				workspace: { cwd }, agent: { id: agentId }, confirmedFreshSession: true,
+			}) as { session: { id: string } };
+			const queued = await invoke(['agent', 'work', 'enqueue'], {
+				workspace: { cwd }, agent: { id: agentId }, work: {
+					source: { uri: new URL('file.ts', `file://${cwd}/`).toString(), line: 0, text: 'code', before: [], after: [] },
+					prompt: { preset: '%Q', scope: 'line', text: 'Explain this.' },
+				},
+			}) as { id: string };
+			await invoke(['agent', 'work', 'ready'], { workspace: { cwd }, agentId, work: { id: queued.id } });
+			const claimed = await invoke(['agent', 'work', 'claim'], {
+				workspace: { cwd }, agent: { id: agentId }, expectedSessionId: ensured.session.id,
+			}) as { work: { assignment: { sequence: number } } };
+
+			const promptRun = harness(JSON.stringify({
+				provider: 'codex', workspace: { cwd }, managed: {
+					agentId,
+					agentSessionId: ensured.session.id,
+					userAnnotationId: queued.id,
+					assignmentSequence: claimed.work.assignment.sequence,
+				},
+			}));
+			assert.equal(await main(['prompt'], promptRun.io, services), 1);
+			assert.match(promptRun.stderr.join(''), /no rollout found/);
+
+			const detail = await invoke(['agent', 'show'], { workspace: { cwd }, agent: { id: agentId } }) as {
+				session: { state: string };
+			};
+			assert.equal(detail.session.state, 'missing');
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 });

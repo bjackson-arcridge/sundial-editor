@@ -14,12 +14,12 @@ export interface PromptCommandCompletion {
 }
 
 const presetDescriptions: Readonly<Record<PromptPreset, string>> = {
-	'%Q': 'Question / no-code guidance',
-	'%F': 'Fix guidance',
-	'%W': 'Write guidance',
-	'%R': 'Refactor guidance',
-	'%C': 'Cleanup guidance',
-	'%T': 'Test guidance',
+	'%Q': 'Ask a question',
+	'%F': 'Fix code',
+	'%W': 'Write code',
+	'%R': 'Refactor code',
+	'%C': 'Clean up code',
+	'%T': 'Create tests',
 };
 
 export const promptCommandCompletions: readonly PromptCommandCompletion[] = promptPresets.flatMap(
@@ -42,14 +42,15 @@ export const promptCommandCompletions: readonly PromptCommandCompletion[] = prom
 );
 
 export function completionsForPromptCommandPrefix(linePrefix: string): readonly PromptCommandCompletion[] {
-	if (!linePrefix.startsWith(promptCommandPrefix)) {
+	const commandPrefix = linePrefix.trimStart();
+	if (!commandPrefix.startsWith(promptCommandPrefix)) {
 		return [];
 	}
 
-	const normalized = linePrefix.toUpperCase();
+	const normalized = commandPrefix.toUpperCase();
 	return promptCommandCompletions.filter(completion => completion.insertText.toUpperCase().startsWith(normalized));
 }
 
 export function isPromptCommandMode(linePrefix: string): boolean {
-	return completionsForPromptCommandPrefix(linePrefix).length > 0;
+	return /^[ \t]*%(?:[QFWRCT](?:>[^\r\n@]*)?)?(?:[ \t]+@G?)?[ \t]*$/i.test(linePrefix);
 }

@@ -1,21 +1,44 @@
-import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';
-import type { AgentEvent, AgentStatus } from '../../agentProtocol.js';
+import {
+	isAgentId,
+	isAgentsViewState,
+	isAgentTranscriptViewState,
+	isUserAnnotationId,
+	isUserAnnotationWorkItem,
+	type AgentId,
+	type AgentsViewState,
+	type AgentTranscriptViewState,
+	type UserAnnotationId,
+	type UserAnnotationWorkItem,
+} from '../../agentProtocol.js';
 import { isUserAnnotation, type UserAnnotation } from '../../annotationProtocol.js';
+import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';
 
-export interface AgentRunState {
-	readonly status: AgentStatus;
-	readonly events: readonly AgentEvent[];
+export interface HostNotice {
+	readonly tone: 'info' | 'error';
+	readonly message: string;
 }
 
-export interface MessagesState {
-	readonly prompt?: PromptContext;
-	readonly draft?: string;
-	readonly submitted?: true;
-	readonly annotationSaved?: true;
-	readonly deliveryComplete?: true;
-	readonly run?: AgentRunState;
+interface MessagesStateBase {
+	readonly agents: AgentsViewState;
+	readonly work: readonly UserAnnotationWorkItem[];
+	readonly busy?: boolean;
+	readonly notice?: HostNotice;
+	readonly transcript?: AgentTranscriptViewState;
 	readonly annotationViewer?: AnnotationViewerState;
 }
+
+export type MessagesState = MessagesStateBase & (
+	| {
+		readonly prompt: PromptContext;
+		readonly draft: string;
+		readonly targetAgentId?: AgentId;
+	}
+	| {
+		readonly prompt?: undefined;
+		readonly draft?: undefined;
+		readonly targetAgentId?: undefined;
+	}
+);
 
 export interface AnnotationViewerState {
 	readonly sourceUri: string;
@@ -36,92 +59,128 @@ export function annotationForLine(
 	return onLine.find(annotation => annotation.id === preferredId) ?? onLine[0];
 }
 
-export function appendAgentEvent(events: readonly AgentEvent[], event: AgentEvent): readonly AgentEvent[] {
-	const previous = events.at(-1);
-	if (event.kind === 'output' && previous?.kind === 'output') {
-		return [
-			...events.slice(0, -1),
-			{ kind: 'output', text: previous.text + event.text },
-		];
-	}
-	return [...events, event];
+export function workForAgentInFifoOrder(
+	work: readonly UserAnnotationWorkItem[],
+	agentId: AgentId,
+): readonly UserAnnotationWorkItem[] {
+	return work
+		.filter(item => item.agentId === agentId)
+		.sort((left, right) => left.enqueuedAt.localeCompare(right.enqueuedAt) || left.id.localeCompare(right.id));
 }
 
 export type HostToWebview =
-	| { kind: 'state'; state: MessagesState }
-	| { kind: 'focusComposer' };
+	| { readonly kind: 'state'; readonly state: MessagesState }
+	| { readonly kind: 'focusComposer' };
 
 export type WebviewToHost =
-	| { kind: 'submit'; message: string }
-	| { kind: 'cancel' }
-	| { kind: 'previousAnnotation' }
-	| { kind: 'nextAnnotation' }
-	| { kind: 'toggleAnnotationPin' }
-	| { kind: 'deleteAnnotation' };
+	| { readonly kind: 'submit'; readonly message: string; readonly targetAgentId: AgentId }
+	| { readonly kind: 'selectTarget'; readonly targetAgentId: AgentId }
+	| { readonly kind: 'cancel' }
+	| { readonly kind: 'refresh' }
+	| { readonly kind: 'renameAgent'; readonly agentId: AgentId; readonly name: string }
+	| { readonly kind: 'showTranscript'; readonly agentId: AgentId }
+	| { readonly kind: 'openAgent'; readonly agentId: AgentId }
+	| { readonly kind: 'interruptAgent'; readonly agentId: AgentId }
+	| { readonly kind: 'resetAgent'; readonly agentId: AgentId }
+	| { readonly kind: 'previousAnnotation' }
+	| { readonly kind: 'nextAnnotation' }
+	| { readonly kind: 'toggleAnnotationPin' }
+	| { readonly kind: 'deleteAnnotation' };
 
 export function isValidHostToWebviewMessage(value: unknown): value is HostToWebview {
-	if (!isRecord(value)) {
+	if (!isRecord(value) || typeof value.kind !== 'string') {
 		return false;
 	}
-
-	if (value.kind === 'focusComposer') {
-		return true;
-	}
-
-	if (value.kind !== 'state' || !isRecord(value.state)) {
-		return false;
-	}
-	const state = value.state;
-	if (state.prompt === undefined) {
-		if (state.draft !== undefined || state.submitted !== undefined || state.annotationSaved !== undefined || state.deliveryComplete !== undefined) {
+	switch (value.kind) {
+		case 'state':
+			return hasExactKeys(value, ['kind', 'state']) && isMessagesState(value.state);
+		case 'focusComposer':
+			return hasExactKeys(value, ['kind']);
+		default:
 			return false;
-		}
-	} else if (!isPromptContext(state.prompt)
-		|| typeof state.draft !== 'string'
-		|| (state.submitted !== undefined && state.submitted !== true)
-		|| (state.annotationSaved !== undefined && state.annotationSaved !== true)
-		|| (state.deliveryComplete !== undefined && state.deliveryComplete !== true)) {
-		return false;
 	}
-	return (state.run === undefined || isAgentRunState(state.run))
-		&& (state.annotationViewer === undefined || isAnnotationViewerState(state.annotationViewer));
-}
-
-function isAgentRunState(value: unknown): boolean {
-	if (!isRecord(value)
-		|| (value.status !== 'waiting' && value.status !== 'working' && value.status !== 'blocked')
-		|| !Array.isArray(value.events)) {
-		return false;
-	}
-	return value.events.every(isAgentEvent);
-}
-
-function isAgentEvent(value: unknown): boolean {
-	if (!isRecord(value)) {
-		return false;
-	}
-	return (value.kind === 'status'
-			&& (value.status === 'waiting' || value.status === 'working' || value.status === 'blocked')
-			&& (value.message === undefined || typeof value.message === 'string'))
-		|| (value.kind === 'output' && typeof value.text === 'string')
-		|| (value.kind === 'error' && typeof value.message === 'string' && typeof value.recoverable === 'boolean');
 }
 
 export function isValidWebviewToHostMessage(value: unknown): value is WebviewToHost {
-	if (!isRecord(value)) {
+	if (!isRecord(value) || typeof value.kind !== 'string') {
+		return false;
+	}
+	switch (value.kind) {
+		case 'submit':
+			return hasExactKeys(value, ['kind', 'message', 'targetAgentId'])
+				&& isNonEmptyString(value.message)
+				&& isAgentId(value.targetAgentId);
+		case 'selectTarget':
+			return hasExactKeys(value, ['kind', 'targetAgentId']) && isAgentId(value.targetAgentId);
+		case 'renameAgent':
+			return hasExactKeys(value, ['kind', 'agentId', 'name'])
+				&& isAgentId(value.agentId)
+				&& isAgentName(value.name);
+		case 'showTranscript':
+		case 'openAgent':
+		case 'interruptAgent':
+		case 'resetAgent':
+			return hasExactKeys(value, ['kind', 'agentId']) && isAgentId(value.agentId);
+		case 'cancel':
+		case 'refresh':
+		case 'previousAnnotation':
+		case 'nextAnnotation':
+		case 'toggleAnnotationPin':
+		case 'deleteAnnotation':
+			return hasExactKeys(value, ['kind']);
+		default:
+			return false;
+	}
+}
+
+function isMessagesState(value: unknown): value is MessagesState {
+	if (!isRecord(value)
+		|| !hasAllowedKeys(value, [
+			'agents', 'work', 'prompt', 'draft', 'targetAgentId', 'busy', 'notice', 'transcript', 'annotationViewer',
+		])
+		|| !hasRequiredKeys(value, ['agents', 'work'])
+		|| !isAgentsViewState(value.agents)
+		|| !Array.isArray(value.work)
+		|| !value.work.every(isUserAnnotationWorkItem)
+		|| !hasUniqueWork(value.work)
+		|| (value.busy !== undefined && typeof value.busy !== 'boolean')
+		|| (value.notice !== undefined && !isNotice(value.notice))
+		|| (value.transcript !== undefined && !isAgentTranscriptViewState(value.transcript))
+		|| (value.annotationViewer !== undefined && !isAnnotationViewerState(value.annotationViewer))) {
 		return false;
 	}
 
-	return (value.kind === 'submit' && typeof value.message === 'string')
-		|| value.kind === 'cancel'
-		|| value.kind === 'previousAnnotation'
-		|| value.kind === 'nextAnnotation'
-		|| value.kind === 'toggleAnnotationPin'
-		|| value.kind === 'deleteAnnotation';
+	if (value.prompt === undefined) {
+		if (value.draft !== undefined || value.targetAgentId !== undefined) {
+			return false;
+		}
+	} else if (!isPromptContext(value.prompt)
+		|| typeof value.draft !== 'string'
+		|| (value.targetAgentId !== undefined && !isAgentId(value.targetAgentId))) {
+		return false;
+	}
+
+	if (value.agents.kind !== 'ready') {
+		return true;
+	}
+	const agentIds = new Set<AgentId>(value.agents.agents.map(agent => agent.id));
+	return value.work.every(item => agentIds.has(item.agentId))
+		&& (value.transcript === undefined || agentIds.has(value.transcript.agentId))
+		&& (value.prompt === undefined || (value.targetAgentId !== undefined && agentIds.has(value.targetAgentId)));
 }
 
-function isAnnotationViewerState(value: unknown): boolean {
+function isNotice(value: unknown): value is HostNotice {
 	return isRecord(value)
+		&& hasExactKeys(value, ['tone', 'message'])
+		&& (value.tone === 'info' || value.tone === 'error')
+		&& isNonEmptyString(value.message);
+}
+
+function isAnnotationViewerState(value: unknown): value is AnnotationViewerState {
+	return isRecord(value)
+		&& hasExactKeys(value, [
+			'sourceUri', 'annotation', 'position', 'total', 'pinned', 'canPrevious', 'canNext',
+		])
 		&& typeof value.sourceUri === 'string'
 		&& isUserAnnotation(value.annotation)
 		&& Number.isInteger(value.position)
@@ -134,20 +193,37 @@ function isAnnotationViewerState(value: unknown): boolean {
 }
 
 function isPromptContext(value: unknown): value is PromptContext {
-	if (!isRecord(value)) {
+	if (!isRecord(value)
+		|| !hasAllowedKeys(value, [
+			'preset', 'scope', 'targetSelector', 'sourceUri', 'sourceLine', 'sourceText', 'anchorText', 'anchorBefore', 'anchorAfter',
+		])
+		|| !hasRequiredKeys(value, [
+			'preset', 'scope', 'sourceUri', 'sourceLine', 'sourceText', 'anchorText', 'anchorBefore', 'anchorAfter',
+		])) {
 		return false;
 	}
-
 	return isPromptPreset(value.preset)
 		&& isPromptScope(value.scope)
+		&& (value.targetSelector === undefined || isPromptTargetSelector(value.targetSelector))
 		&& typeof value.sourceUri === 'string'
-		&& typeof value.sourceLine === 'number'
 		&& Number.isInteger(value.sourceLine)
-		&& value.sourceLine >= 0
+		&& (value.sourceLine as number) >= 0
 		&& typeof value.sourceText === 'string'
 		&& typeof value.anchorText === 'string'
 		&& isStringArray(value.anchorBefore)
 		&& isStringArray(value.anchorAfter);
+}
+
+function isPromptTargetSelector(value: unknown): boolean {
+	return isRecord(value) && (
+		(value.kind === 'slot'
+			&& hasExactKeys(value, ['kind', 'slot'])
+			&& Number.isSafeInteger(value.slot)
+			&& (value.slot as number) >= 1)
+		|| (value.kind === 'name'
+			&& hasExactKeys(value, ['kind', 'name'])
+			&& isAgentName(value.name))
+	);
 }
 
 function isStringArray(value: unknown): value is readonly string[] {
@@ -164,6 +240,36 @@ function isPromptScope(value: unknown): value is PromptScope {
 	return value === 'line' || value === 'project';
 }
 
+function isAgentName(value: unknown): value is string {
+	return typeof value === 'string'
+		&& value === value.trim()
+		&& value !== ''
+		&& !/[\r\n]/.test(value)
+		&& [...value].length <= 80
+		&& !/^\d+$/.test(value);
+}
+
+function hasUniqueWork(work: readonly UserAnnotationWorkItem[]): boolean {
+	return new Set<UserAnnotationId>(work.map(item => item.id)).size === work.length
+		&& work.every(item => isUserAnnotationId(item.id));
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === 'string' && value.trim() !== '';
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+	return hasAllowedKeys(value, keys) && hasRequiredKeys(value, keys);
+}
+
+function hasAllowedKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+	return Object.keys(value).every(key => keys.includes(key));
+}
+
+function hasRequiredKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+	return keys.every(key => Object.hasOwn(value, key));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null;
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

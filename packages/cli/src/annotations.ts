@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deleteWork } from './agentStore.js';
 
 export const annotationCompanionVersion = 1;
 
@@ -29,7 +30,12 @@ export interface AnnotationAppendRequest {
 		readonly before: readonly string[];
 		readonly after: readonly string[];
 	};
-	readonly annotation: { readonly message: string; readonly preset: string; readonly scope: 'line' | 'project' };
+	readonly annotation: {
+		readonly id?: string;
+		readonly message: string;
+		readonly preset: string;
+		readonly scope: 'line' | 'project';
+	};
 }
 
 export interface AnnotationReadRequest {
@@ -60,7 +66,7 @@ export async function appendUserAnnotation(
 	const companionPath = companionPathForSource(request.workspace.cwd, request.document.uri);
 	const existing = await readCompanionFile(companionPath);
 	const annotation: UserAnnotation = {
-		id: services.createId(),
+		id: request.annotation.id ?? services.createId(),
 		message: request.annotation.message,
 		preset: request.annotation.preset,
 		scope: request.annotation.scope,
@@ -72,6 +78,13 @@ export async function appendUserAnnotation(
 		},
 	};
 	validateAnnotation(annotation);
+	const alreadyPersisted = existing.annotations.find(candidate => candidate.id === annotation.id);
+	if (alreadyPersisted !== undefined) {
+		if (JSON.stringify(alreadyPersisted) !== JSON.stringify(annotation)) {
+			throw new Error(`Annotation ID is already reserved with different content: ${annotation.id}`);
+		}
+		return alreadyPersisted;
+	}
 	const companion: AnnotationCompanion = {
 		version: annotationCompanionVersion,
 		annotations: [...existing.annotations, annotation],
@@ -93,6 +106,7 @@ export async function deleteUserAnnotation(value: unknown): Promise<UserAnnotati
 	if (deleted === undefined) {
 		throw new Error(`Annotation not found: ${request.annotation.id}`);
 	}
+	await deleteWork({ workspaceCwd: request.workspace.cwd, userAnnotationId: deleted.id });
 	await writeCompanionFile(companionPath, {
 		version: annotationCompanionVersion,
 		annotations: existing.annotations.filter(annotation => annotation.id !== request.annotation.id),
@@ -204,6 +218,7 @@ export function parseAnnotationAppendRequest(value: unknown): AnnotationAppendRe
 		|| !isAnchorContext(value.document.before)
 		|| !isAnchorContext(value.document.after)
 		|| !isRecord(value.annotation)
+		|| (value.annotation.id !== undefined && !isNonEmptyString(value.annotation.id))
 		|| !isNonEmptyString(value.annotation.message)
 		|| !isPromptPreset(value.annotation.preset)
 		|| (value.annotation.scope !== 'line' && value.annotation.scope !== 'project')) {

@@ -1,6 +1,15 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+import { repeat } from 'lit/directives/repeat.js';
+import type {
+	AgentId,
+	AgentsViewState,
+	AgentTranscriptViewState,
+	NamedAgent,
+	TranscriptRole,
+	UserAnnotationWorkItem,
+	WorkUpdateKind,
+} from '../../../agentProtocol.js';
 import { messageComposerKeyAction } from '../../../messageComposerKeyboard.js';
 import {
 	defaultPaneSplitPercent,
@@ -12,14 +21,14 @@ import {
 import type { PromptContext } from '../../../promptCommand.js';
 import {
 	type AnnotationViewerState,
-	type AgentRunState,
+	type HostNotice,
 	type HostToWebview,
 	type WebviewToHost,
 	isValidHostToWebviewMessage,
+	workForAgentInFifoOrder,
 } from '../../messages/messages.js';
 import { getHost, readInitialState } from '../shared/host.js';
 import { tokenStyles } from '../shared/styles.js';
-import { renderMarkdown } from './markdown.js';
 
 const toolbarIconPaths = {
 	'chevron-up': 'M3.14603 9.85423C3.34103 10.0492 3.65803 10.0492 3.85303 9.85423L7.99903 5.70823L12.145 9.85423C12.34 10.0492 12.657 10.0492 12.852 9.85423C13.047 9.65923 13.047 9.34223 12.852 9.14723L8.35203 4.64723C8.15703 4.45223 7.84003 4.45223 7.64503 4.64723L3.14503 9.14723C2.95003 9.34223 2.95103 9.65923 3.14603 9.85423Z',
@@ -54,11 +63,32 @@ export class MessagesApp extends LitElement {
 				font-weight: 600;
 			}
 
+			h2,
+			h3,
+			h4 {
+				margin: 0;
+				font-size: 1rem;
+				font-weight: 600;
+			}
+
 			.empty,
 			.status {
 				margin: 0;
 				line-height: 1.45;
 				color: var(--se-muted-fg);
+			}
+
+			.notice {
+				margin: 10px 0;
+				padding: 8px 10px;
+				border: 1px solid var(--se-border);
+				border-radius: 3px;
+				background: var(--se-surface-bg);
+				line-height: 1.45;
+			}
+
+			.notice.error {
+				color: var(--vscode-errorForeground);
 			}
 
 			.context {
@@ -70,9 +100,7 @@ export class MessagesApp extends LitElement {
 			}
 
 			.context h2 {
-				margin: 0 0 8px;
-				font-size: 1rem;
-				font-weight: 600;
+				margin-bottom: 8px;
 			}
 
 			dl {
@@ -97,8 +125,19 @@ export class MessagesApp extends LitElement {
 				font-size: var(--vscode-editor-font-size);
 			}
 
-			form {
+			.composer,
+			.rename-form {
 				display: grid;
+				gap: 8px;
+			}
+
+			.composer {
+				margin-bottom: 16px;
+			}
+
+			.composer-fields {
+				display: grid;
+				grid-template-columns: minmax(0, 1fr);
 				gap: 8px;
 			}
 
@@ -106,11 +145,11 @@ export class MessagesApp extends LitElement {
 				font-weight: 600;
 			}
 
+			input,
+			select,
 			textarea {
 				box-sizing: border-box;
 				width: 100%;
-				min-height: 112px;
-				resize: vertical;
 				padding: 8px;
 				border: 1px solid var(--se-input-border);
 				border-radius: 3px;
@@ -121,8 +160,16 @@ export class MessagesApp extends LitElement {
 				line-height: 1.4;
 			}
 
+			textarea {
+				min-height: 112px;
+				resize: vertical;
+			}
+
+			input:focus-visible,
+			select:focus-visible,
 			textarea:focus-visible,
 			button:focus-visible,
+			summary:focus-visible,
 			.pane-separator:focus-visible {
 				outline: 1px solid var(--se-focus);
 				outline-offset: 2px;
@@ -164,41 +211,201 @@ export class MessagesApp extends LitElement {
 				cursor: default;
 			}
 
-			.events {
+			.agents-header {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 8px;
+				margin-bottom: 8px;
+			}
+
+			.agents-state {
 				display: grid;
-				gap: 6px;
-				margin: 8px 0;
-			}
-
-			.event {
-				overflow-wrap: anywhere;
-			}
-
-			.event.output > :first-child {
-				margin-top: 0;
-			}
-
-			.event.output > :last-child {
-				margin-bottom: 0;
-			}
-
-			.event.output pre {
-				overflow-x: auto;
-				padding: 8px;
+				justify-items: start;
+				gap: 8px;
+				padding: 10px;
 				border: 1px solid var(--se-border);
+				border-radius: 3px;
 				background: var(--se-surface-bg);
 			}
 
-			.event.output blockquote {
-				margin-inline: 0;
-				padding-inline-start: 10px;
-				border-inline-start: 2px solid var(--se-border);
+			.agent-list {
+				display: grid;
+				gap: 12px;
+			}
+
+			.agent-section {
+				padding: 10px;
+				border: 1px solid var(--se-border);
+				border-radius: 3px;
+				background: var(--se-surface-bg);
+			}
+
+			.agent-section.current-target {
+				border-color: var(--se-focus);
+			}
+
+			.agent-header {
+				display: flex;
+				align-items: flex-start;
+				justify-content: space-between;
+				gap: 8px;
+			}
+
+			.agent-slot,
+			.agent-session,
+			.queue-counts,
+			.fresh-session-warning,
+			.work-meta,
+			time {
 				color: var(--se-muted-fg);
 			}
 
-			.event.status,
-			.event.error {
-				color: var(--se-muted-fg);
+			.agent-slot,
+			.agent-session,
+			.queue-counts {
+				margin: 2px 0 0;
+				line-height: 1.4;
+			}
+
+			.agent-actions,
+			.rename-actions {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 6px;
+			}
+
+			.agent-actions {
+				margin-top: 10px;
+			}
+
+			.rename-form {
+				grid-template-columns: minmax(0, 1fr) auto;
+				align-items: end;
+				margin-top: 10px;
+			}
+
+			.rename-form label {
+				display: grid;
+				gap: 4px;
+			}
+
+			.rename-actions {
+				padding-bottom: 1px;
+			}
+
+			.work-list,
+			.transcript-entries {
+				display: grid;
+				gap: 8px;
+				margin-top: 10px;
+			}
+
+			.work-empty {
+				margin-top: 10px;
+			}
+
+			.work-card,
+			.transcript {
+				padding: 9px;
+				border: 1px solid var(--se-border);
+				border-radius: 3px;
+				background: var(--se-bg);
+			}
+
+			.work-card-header,
+			.transcript-entry-header {
+				display: flex;
+				align-items: baseline;
+				justify-content: space-between;
+				gap: 8px;
+			}
+
+			.work-status {
+				padding: 1px 6px;
+				border-radius: 9px;
+				background: var(--vscode-badge-background);
+				color: var(--vscode-badge-foreground);
+				font-size: 0.9em;
+				white-space: nowrap;
+			}
+
+			.work-message,
+			.latest-update p,
+			.transcript-text {
+				white-space: pre-wrap;
+				overflow-wrap: anywhere;
+			}
+
+			.work-message {
+				margin: 8px 0;
+			}
+
+			.work-meta {
+				margin: 0 0 8px;
+			}
+
+			.latest-update {
+				padding: 8px;
+				border-inline-start: 2px solid var(--se-border);
+			}
+
+			.latest-update p {
+				margin: 4px 0;
+			}
+
+			details {
+				margin-top: 8px;
+			}
+
+			summary {
+				cursor: pointer;
+			}
+
+			.history {
+				display: grid;
+				gap: 8px;
+				margin-bottom: 0;
+				padding-inline-start: 24px;
+			}
+
+			.history p {
+				margin: 2px 0;
+				white-space: pre-wrap;
+				overflow-wrap: anywhere;
+			}
+
+			.transcript {
+				margin-top: 10px;
+			}
+
+			.transcript[open] > summary {
+				margin-bottom: 8px;
+			}
+
+			.transcript > .status {
+				margin-top: 6px;
+			}
+
+			.transcript-error {
+				display: grid;
+				justify-items: start;
+				gap: 6px;
+				margin-top: 6px;
+			}
+
+			.transcript-entry {
+				padding-top: 8px;
+				border-top: 1px solid var(--se-border);
+			}
+
+			.transcript-entry:first-child {
+				padding-top: 0;
+				border-top: 0;
+			}
+
+			.transcript-text {
+				margin: 4px 0 0;
 			}
 
 			.layout {
@@ -341,14 +548,18 @@ export class MessagesApp extends LitElement {
 	];
 
 	private readonly webviewHost = getHost<WebviewToHost, HostToWebview>();
+	private hostTargetAgentId: AgentId | undefined;
+	@state() private agents: AgentsViewState = { kind: 'loading' };
+	@state() private work: readonly UserAnnotationWorkItem[] = [];
 	@state() private prompt: PromptContext | undefined;
 	@state() private messageText = '';
-	@state() private isSubmitting = false;
-	@state() private statusMessage = '';
-	@state() private run: AgentRunState | undefined;
-	@state() private submitted = false;
-	@state() private annotationSaved = false;
-	@state() private deliveryComplete = false;
+	@state() private targetAgentId: AgentId | undefined;
+	@state() private busy = false;
+	@state() private notice: HostNotice | undefined;
+	@state() private transcript: AgentTranscriptViewState | undefined;
+	@state() private openTranscriptAgentId: AgentId | undefined;
+	@state() private editingAgentId: AgentId | undefined;
+	@state() private renameText = '';
 	@state() private annotationViewer: AnnotationViewerState | undefined;
 	@state() private metadataExpanded = false;
 	@state() private takeoverExpanded = false;
@@ -417,40 +628,277 @@ export class MessagesApp extends LitElement {
 	}
 
 	private renderNormalMessages() {
-		if (this.prompt === undefined) {
-			return html`
-				<h1>Messages</h1>
-				${this.run === undefined
-					? html`<p class="empty">Run Sundial Editor: Submit Prompt from a supported command line to begin a message.</p>`
-					: this.renderRun(this.run)}
-				${this.statusMessage === '' ? nothing : html`<p class="status" role="status">${this.statusMessage}</p>`}
-			`;
-		}
-
 		return html`
-			<h1>New message</h1>
-			<section class="context" aria-label="Prompt context">
-				<h2>Source: User ${this.prompt.preset}</h2>
-			</section>
-			${this.run === undefined ? nothing : this.renderRun(this.run)}
-			${this.run?.status === 'working' ? nothing : html`<form @submit=${this.submitComposer} @keydown=${this.handleComposerKeydown}>
-				<label for="message">Message</label>
-				<textarea
-					id="message"
-					.value=${this.messageText}
-					?readonly=${this.submitted}
-					@input=${this.updateMessageText}
-					aria-describedby="message-help"
-				></textarea>
-				<div id="message-help" class="status">${this.submitted
-					? this.retryDescription()
-					: 'Press Enter to send, Shift+Enter for a new line, or Escape to cancel.'}</div>
-				<div class="actions">
-					<button type="submit" ?disabled=${this.isSubmitting}>${this.retryLabel()}</button>
-					<button class="secondary" type="button" ?disabled=${this.isSubmitting} @click=${this.cancelComposer}>Cancel</button>
-				</div>
-			</form>`}
+			<h1>Messages</h1>
+			${this.prompt === undefined ? nothing : this.renderComposer(this.prompt)}
+			${this.notice === undefined
+				? nothing
+				: html`<p class="notice ${this.notice.tone}" role=${this.notice.tone === 'error' ? 'alert' : 'status'}>${this.notice.message}</p>`}
+			<div class="agents-header">
+				<h2>Agents</h2>
+				<button class="secondary" type="button" ?disabled=${this.busy} @click=${this.refreshAgents}>Refresh</button>
+			</div>
+			${this.renderAgents()}
 		`;
+	}
+
+	private renderComposer(prompt: PromptContext) {
+		const availableAgents = this.agents.kind === 'ready' ? this.agents.agents : [];
+		const selectedAgent = availableAgents.find(agent => agent.id === this.targetAgentId);
+		const canSubmit = !this.busy && this.messageText.trim() !== '' && selectedAgent !== undefined;
+		const createsFreshSession = selectedAgent !== undefined && selectedAgent.session.state !== 'available';
+		return html`
+			<section class="context" aria-label="Prompt context">
+				<h2>New message</h2>
+				<p class="status">Source: User ${prompt.preset}</p>
+			</section>
+			<form class="composer" @submit=${this.submitComposer} @keydown=${this.handleComposerKeydown}>
+				<div class="composer-fields">
+					<label for="target-agent">Current agent</label>
+					<select
+						id="target-agent"
+						.value=${this.targetAgentId ?? ''}
+						?disabled=${this.busy || availableAgents.length === 0}
+						@change=${this.updateTargetAgent}
+						aria-describedby=${createsFreshSession ? 'fresh-session-warning' : nothing}
+						required
+					>
+						<option value="" disabled>Select a current agent</option>
+						${availableAgents.map(agent => html`
+							<option value=${agent.id}>${`>${agent.slot} ${agent.name} — ${this.sessionLabel(agent)}`}</option>
+						`)}
+					</select>
+					${createsFreshSession
+						? html`<p id="fresh-session-warning" class="fresh-session-warning">No active session found; this operation will create a fresh session.</p>`
+						: nothing}
+					<label for="message">Message</label>
+					<textarea
+						id="message"
+						.value=${this.messageText}
+						?readonly=${this.busy}
+						@input=${this.updateMessageText}
+						aria-describedby=${createsFreshSession ? 'message-help fresh-session-warning' : 'message-help'}
+						required
+					></textarea>
+				</div>
+				<div id="message-help" class="status">Press Enter to send, Shift+Enter for a new line, or Escape to cancel.</div>
+				<div class="actions">
+					<button type="submit" ?disabled=${!canSubmit}>Send</button>
+					<button class="secondary" type="button" ?disabled=${this.busy} @click=${this.cancelComposer}>Cancel</button>
+				</div>
+			</form>
+		`;
+	}
+
+	private renderAgents() {
+		switch (this.agents.kind) {
+			case 'loading':
+				return html`<div class="agents-state" role="status" aria-live="polite">Loading agents…</div>`;
+			case 'empty':
+				return html`
+					<div class="agents-state">
+						<p class="empty">No managed agents are available.</p>
+						<button class="secondary" type="button" ?disabled=${this.busy} @click=${this.refreshAgents}>Refresh</button>
+					</div>
+				`;
+			case 'error':
+				return html`
+					<div class="agents-state" role="alert">
+						<p class="empty">${this.agents.message}</p>
+						${this.agents.recoverable
+							? html`<button class="secondary" type="button" ?disabled=${this.busy} @click=${this.refreshAgents}>Try again</button>`
+							: nothing}
+					</div>
+				`;
+			case 'ready': {
+				const orderedAgents = [...this.agents.agents].sort((left, right) => left.slot - right.slot);
+				return html`
+					<div class="agent-list">
+						${repeat(orderedAgents, agent => agent.id, (agent, agentIndex) => this.renderAgent(agent, agentIndex))}
+					</div>
+				`;
+			}
+			default: {
+				const unhandledState: never = this.agents;
+				throw new Error(`Unexpected agents state: ${JSON.stringify(unhandledState)}`);
+			}
+		}
+	}
+
+	private renderAgent(agent: NamedAgent, agentIndex: number) {
+		const work = workForAgentInFifoOrder(this.work, agent.id);
+		const isRenaming = agent.controls.canRename && this.editingAgentId === agent.id;
+		const isCurrentTarget = this.prompt !== undefined && this.targetAgentId === agent.id;
+		const transcriptExpanded = this.openTranscriptAgentId === agent.id;
+		return html`
+			<section class="agent-section ${isCurrentTarget ? 'current-target' : ''}" aria-labelledby="agent-${agentIndex}-heading">
+				<header class="agent-header">
+					<div>
+						<h3 id="agent-${agentIndex}-heading">${`>${agent.slot} ${agent.name}`}</h3>
+						${isCurrentTarget ? html`<p class="agent-slot">Current message target</p>` : nothing}
+						<p class="agent-session">Session: ${this.sessionLabel(agent)}</p>
+						<p class="queue-counts">${agent.queue.waiting} waiting · ${agent.queue.working} working · ${agent.queue.completed} completed</p>
+					</div>
+					${agent.controls.canRename && !isRenaming
+						? html`
+							<button
+								class="secondary rename-button"
+								type="button"
+								data-agent-id=${agent.id}
+								?disabled=${this.busy}
+								aria-label="Rename ${agent.name}"
+								@click=${() => this.beginRename(agent)}
+							>Rename</button>
+						`
+						: nothing}
+				</header>
+				${isRenaming ? this.renderRenameForm(agent) : nothing}
+				<div class="agent-actions" role="toolbar" aria-label="${agent.name} controls" @keydown=${this.handleAgentToolbarKeydown}>
+					<button
+						class="secondary transcript-button"
+						type="button"
+						data-agent-id=${agent.id}
+						aria-expanded=${transcriptExpanded}
+						aria-controls="agent-${agentIndex}-transcript"
+						@click=${() => this.toggleTranscript(agent.id)}
+					>Transcript</button>
+					${agent.controls.canOpen
+						? html`<button class="secondary" type="button" ?disabled=${this.busy} @click=${() => this.openAgent(agent.id)}>Open in Codex</button>`
+						: nothing}
+					${agent.controls.canInterrupt
+						? html`<button class="secondary" type="button" ?disabled=${this.busy} @click=${() => this.interruptAgent(agent.id)}>Interrupt</button>`
+						: nothing}
+					${agent.controls.canReset
+						? html`<button class="secondary" type="button" ?disabled=${this.busy} @click=${() => this.resetAgent(agent.id)}>Reset</button>`
+						: nothing}
+				</div>
+				${work.length === 0
+					? html`<p class="empty work-empty">No work items.</p>`
+					: html`<div class="work-list">${repeat(
+						work,
+						item => item.id,
+						(item, workIndex) => this.renderWorkCard(item, agent, agentIndex, workIndex),
+					)}</div>`}
+				${transcriptExpanded ? this.renderTranscript(this.transcript, agent, agentIndex) : nothing}
+			</section>
+		`;
+	}
+
+	private renderRenameForm(agent: NamedAgent) {
+		return html`
+			<form class="rename-form" @submit=${(event: SubmitEvent) => this.submitRename(event, agent)} @keydown=${(event: KeyboardEvent) => this.handleRenameKeydown(event, agent.id)}>
+				<label for="rename-agent">
+					Name
+					<input
+						id="rename-agent"
+						.value=${this.renameText}
+						@input=${this.updateRenameText}
+						aria-describedby="rename-agent-help"
+						required
+					>
+					<span id="rename-agent-help" class="status">Use 1–80 characters; the name cannot contain only numbers.</span>
+				</label>
+				<div class="rename-actions">
+					<button type="submit" ?disabled=${this.busy || !this.isValidAgentNameInput(this.renameText)}>Save</button>
+					<button class="secondary" type="button" ?disabled=${this.busy} @click=${() => this.cancelRename(agent.id)}>Cancel</button>
+				</div>
+			</form>
+		`;
+	}
+
+	private renderWorkCard(item: UserAnnotationWorkItem, agent: NamedAgent, agentIndex: number, workIndex: number) {
+		const latest = item.latestUpdate;
+		return html`
+			<article class="work-card" aria-labelledby="agent-${agentIndex}-work-${workIndex}-heading">
+				<header class="work-card-header">
+					<h4 id="agent-${agentIndex}-work-${workIndex}-heading">User ${item.prompt.preset}</h4>
+					<span class="work-status">${item.status}</span>
+				</header>
+				<p class="work-message">${item.prompt.text}</p>
+				<p class="work-meta">Target: ${agent.name} · ${item.prompt.scope === 'project' ? 'Project' : 'Current line'} · Line ${item.source.line + 1}</p>
+				<div class="latest-update" aria-label="Latest update">
+					<strong>Latest update</strong>
+					${latest === undefined
+						? html`<p class="status">No updates yet.</p>`
+						: html`
+							<p>${latest.message}</p>
+							<time datetime=${latest.at}>${this.formatTimestamp(latest.at)}</time>
+						`}
+				</div>
+				<details @keydown=${this.handleDetailsKeydown}>
+					<summary>Details and update history (${item.updates.length})</summary>
+					${item.updates.length === 0
+						? html`<p class="status">No updates yet.</p>`
+						: html`
+							<ol class="history">
+								${item.updates.map(update => html`
+									<li>
+										<strong>${this.updateKindLabel(update.kind)}</strong>
+										<p>${update.message}</p>
+										<time datetime=${update.at}>${this.formatTimestamp(update.at)}</time>
+									</li>
+								`)}
+							</ol>
+						`}
+				</details>
+			</article>
+		`;
+	}
+
+	private renderTranscript(transcript: AgentTranscriptViewState | undefined, agent: NamedAgent, agentIndex: number) {
+		return html`
+			<section
+				id="agent-${agentIndex}-transcript"
+				class="transcript"
+				aria-labelledby="agent-${agentIndex}-transcript-heading"
+				@keydown=${(event: KeyboardEvent) => this.handleTranscriptKeydown(event, agent.id)}
+			>
+				<h4 id="agent-${agentIndex}-transcript-heading">Transcript</h4>
+				${transcript === undefined || transcript.agentId !== agent.id
+					? html`<p class="status" role="status" aria-live="polite">Loading transcript…</p>`
+					: this.renderTranscriptState(transcript, agent)}
+			</section>
+		`;
+	}
+
+	private renderTranscriptState(transcript: AgentTranscriptViewState, agent: NamedAgent) {
+		switch (transcript.kind) {
+			case 'loading':
+				return html`<p class="status" role="status" aria-live="polite">Loading transcript…</p>`;
+			case 'missing':
+				return html`<p class="status">This agent has a missing session.</p>`;
+			case 'uninitialized':
+				return html`<p class="status">This agent has an uninitialized session.</p>`;
+			case 'empty':
+				return html`<p class="status">${agent.name} has no transcript entries yet.</p>`;
+			case 'error':
+				return html`
+					<div class="transcript-error" role="alert">
+						<p class="status">${transcript.message}</p>
+						${transcript.recoverable
+							? html`<button class="secondary" type="button" @click=${() => this.requestTranscript(transcript.agentId)}>Try again</button>`
+							: nothing}
+					</div>
+				`;
+			case 'ready':
+				return html`
+					<div class="transcript-entries">
+						${transcript.entries.map(entry => html`
+							<article class="transcript-entry">
+								<header class="transcript-entry-header">
+									<strong>${this.transcriptRoleLabel(entry.role)}</strong>
+									${entry.timestamp === undefined ? nothing : html`<time datetime=${entry.timestamp}>${this.formatTimestamp(entry.timestamp)}</time>`}
+								</header>
+								<p class="transcript-text">${entry.text}</p>
+							</article>
+						`)}
+					</div>
+				`;
+			default: {
+				const unhandledState: never = transcript;
+				throw new Error(`Unexpected transcript state: ${JSON.stringify(unhandledState)}`);
+			}
+		}
 	}
 
 	private renderAnnotationPane() {
@@ -529,22 +977,6 @@ export class MessagesApp extends LitElement {
 		`;
 	}
 
-	private renderRun(run: AgentRunState) {
-		return html`
-			<section aria-label="Agent activity">
-				<p class="status" role="status">Agent status: ${run.status}</p>
-				<div class="events" role="log" aria-live="polite" aria-label="Agent output">
-					${run.events.map(event => event.kind === 'output'
-						? html`<div class="event output">${unsafeHTML(renderMarkdown(event.text))}</div>`
-						: html`<div class="event ${event.kind}">${event.message ?? (event.kind === 'status' ? event.status : '')}</div>`)}
-				</div>
-				${run.status === 'working' && !this.deliveryComplete
-					? html`<button class="secondary" type="button" @click=${this.cancelComposer}>Cancel</button>`
-					: nothing}
-			</section>
-		`;
-	}
-
 	private handleHostMessageEvent = (messageEvent: MessageEvent<unknown>): void => {
 		if (isValidHostToWebviewMessage(messageEvent.data)) {
 			this.applyHostMessage(messageEvent.data);
@@ -553,32 +985,48 @@ export class MessagesApp extends LitElement {
 
 	private applyHostMessage(hostMessage: HostToWebview): void {
 		switch (hostMessage.kind) {
-			case 'state':
+			case 'state': {
 				this.webviewHost.setState(hostMessage);
 				const isOpeningPrompt = this.prompt === undefined && hostMessage.state.prompt !== undefined;
+				const hostTargetChanged = hostMessage.state.targetAgentId !== this.hostTargetAgentId;
 				const previousAnnotationId = this.annotationViewer?.annotation.id;
+				this.agents = hostMessage.state.agents;
+				this.work = hostMessage.state.work;
 				this.prompt = hostMessage.state.prompt;
-				this.run = hostMessage.state.run;
-				this.submitted = hostMessage.state.submitted === true;
-				this.annotationSaved = hostMessage.state.annotationSaved === true;
-				this.deliveryComplete = hostMessage.state.deliveryComplete === true;
+				this.busy = hostMessage.state.busy === true;
+				this.notice = hostMessage.state.notice;
+				this.transcript = hostMessage.state.transcript;
 				this.annotationViewer = hostMessage.state.annotationViewer;
+				this.hostTargetAgentId = hostMessage.state.targetAgentId;
+				const editingAgent = this.agents.kind === 'ready'
+					? this.agents.agents.find(agent => agent.id === this.editingAgentId)
+					: undefined;
+				if (editingAgent?.controls.canRename !== true) {
+					this.editingAgentId = undefined;
+					this.renameText = '';
+				}
+				if (this.agents.kind !== 'ready' || !this.agents.agents.some(agent => agent.id === this.openTranscriptAgentId)) {
+					this.openTranscriptAgentId = undefined;
+				}
 				if (hostMessage.state.annotationViewer?.annotation.id !== previousAnnotationId) {
 					this.metadataExpanded = false;
 				}
 				if (hostMessage.state.annotationViewer === undefined) {
 					this.takeoverExpanded = false;
 				}
-				this.isSubmitting = hostMessage.state.run?.status === 'working';
 				if (hostMessage.state.prompt === undefined) {
 					this.messageText = '';
+					this.targetAgentId = undefined;
 				} else {
-					this.statusMessage = '';
 					if (isOpeningPrompt) {
 						this.messageText = hostMessage.state.draft ?? '';
 					}
+					if (isOpeningPrompt || hostTargetChanged || this.targetAgentId === undefined) {
+						this.targetAgentId = hostMessage.state.targetAgentId;
+					}
 				}
 				return;
+			}
 			case 'focusComposer':
 				void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLTextAreaElement>('#message')?.focus());
 				return;
@@ -593,18 +1041,28 @@ export class MessagesApp extends LitElement {
 		this.messageText = (inputEvent.target as HTMLTextAreaElement).value;
 	};
 
+	private updateTargetAgent = (changeEvent: Event): void => {
+		const value = (changeEvent.target as HTMLSelectElement).value;
+		this.targetAgentId = this.agents.kind === 'ready'
+			? this.agents.agents.find(agent => agent.id === value)?.id
+			: undefined;
+		if (this.targetAgentId !== undefined) {
+			this.webviewHost.postMessage({ kind: 'selectTarget', targetAgentId: this.targetAgentId });
+		}
+	};
+
 	private submitComposer = (submitEvent: SubmitEvent): void => {
 		submitEvent.preventDefault();
 		this.submitComposerMessage();
 	};
 
 	private submitComposerMessage(): void {
-		if (this.isSubmitting || this.prompt === undefined) {
+		if (this.busy || this.prompt === undefined || this.targetAgentId === undefined || this.messageText.trim() === '') {
 			return;
 		}
 
-		this.isSubmitting = true;
-		this.webviewHost.postMessage({ kind: 'submit', message: this.messageText });
+		this.busy = true;
+		this.webviewHost.postMessage({ kind: 'submit', message: this.messageText, targetAgentId: this.targetAgentId });
 	}
 
 	private cancelComposer = (): void => {
@@ -612,6 +1070,120 @@ export class MessagesApp extends LitElement {
 			this.webviewHost.postMessage({ kind: 'cancel' });
 		}
 	};
+
+	private refreshAgents = (): void => {
+		if (!this.busy) {
+			this.webviewHost.postMessage({ kind: 'refresh' });
+		}
+	};
+
+	private beginRename(agent: NamedAgent): void {
+		this.editingAgentId = agent.id;
+		this.renameText = agent.name;
+		void this.updateComplete.then(() => {
+			const input = this.renderRoot.querySelector<HTMLInputElement>('#rename-agent');
+			input?.focus();
+			input?.select();
+		});
+	}
+
+	private updateRenameText = (inputEvent: Event): void => {
+		const input = inputEvent.target as HTMLInputElement;
+		this.renameText = input.value;
+		input.setCustomValidity(this.isValidAgentNameInput(input.value)
+			? ''
+			: 'Enter a name of 1 to 80 characters that is not only numbers.');
+	};
+
+	private submitRename(submitEvent: SubmitEvent, agent: NamedAgent): void {
+		submitEvent.preventDefault();
+		if (this.busy || this.editingAgentId !== agent.id) {
+			return;
+		}
+		const name = this.renameText.trim();
+		if (!this.isValidAgentNameInput(name)) {
+			return;
+		}
+		if (name !== agent.name) {
+			this.webviewHost.postMessage({ kind: 'renameAgent', agentId: agent.id, name });
+		}
+		this.finishRename(agent.id);
+	}
+
+	private handleRenameKeydown(keyboardEvent: KeyboardEvent, agentId: AgentId): void {
+		if (keyboardEvent.key !== 'Escape') {
+			return;
+		}
+		keyboardEvent.preventDefault();
+		keyboardEvent.stopPropagation();
+		this.finishRename(agentId);
+	}
+
+	private cancelRename(agentId: AgentId): void {
+		this.finishRename(agentId);
+	}
+
+	private finishRename(agentId: AgentId): void {
+		this.editingAgentId = undefined;
+		this.renameText = '';
+		void this.updateComplete.then(() => {
+			const button = [...this.renderRoot.querySelectorAll<HTMLButtonElement>('.rename-button')]
+				.find(candidate => candidate.dataset.agentId === agentId);
+			button?.focus();
+		});
+	}
+
+	private toggleTranscript(agentId: AgentId): void {
+		if (this.openTranscriptAgentId === agentId) {
+			this.closeTranscript(agentId);
+			return;
+		}
+		this.openTranscriptAgentId = agentId;
+		this.requestTranscript(agentId);
+	}
+
+	private requestTranscript(agentId: AgentId): void {
+		this.webviewHost.postMessage({ kind: 'showTranscript', agentId });
+	}
+
+	private handleTranscriptKeydown(keyboardEvent: KeyboardEvent, agentId: AgentId): void {
+		if (keyboardEvent.key !== 'Escape') {
+			return;
+		}
+		keyboardEvent.preventDefault();
+		keyboardEvent.stopPropagation();
+		this.closeTranscript(agentId);
+	}
+
+	private closeTranscript(agentId: AgentId): void {
+		if (this.openTranscriptAgentId !== agentId) {
+			return;
+		}
+		this.openTranscriptAgentId = undefined;
+		void this.updateComplete.then(() => {
+			const button = [...this.renderRoot.querySelectorAll<HTMLButtonElement>('.transcript-button')]
+				.find(candidate => candidate.dataset.agentId === agentId);
+			button?.focus();
+		});
+	}
+
+	private openAgent(agentId: AgentId): void {
+		if (!this.busy) {
+			this.webviewHost.postMessage({ kind: 'openAgent', agentId });
+		}
+	}
+
+	private interruptAgent(agentId: AgentId): void {
+		if (!this.busy) {
+			this.webviewHost.postMessage({ kind: 'interruptAgent', agentId });
+		}
+	}
+
+	private resetAgent(agentId: AgentId): void {
+		if (!this.busy) {
+			this.webviewHost.postMessage({ kind: 'resetAgent', agentId });
+		}
+	}
 
 	private previousAnnotation = (): void => {
 		this.webviewHost.postMessage({ kind: 'previousAnnotation' });
@@ -695,6 +1267,52 @@ export class MessagesApp extends LitElement {
 		this.agentPanePercent = nextPercent;
 	};
 
+	private handleAgentToolbarKeydown = (keyboardEvent: KeyboardEvent): void => {
+		const toolbar = keyboardEvent.currentTarget as HTMLElement;
+		if (keyboardEvent.key === 'Escape') {
+			const transcriptButton = toolbar.querySelector<HTMLButtonElement>('.transcript-button[aria-expanded="true"]');
+			const agentId = this.agentIdFromButton(transcriptButton);
+			if (agentId !== undefined) {
+				keyboardEvent.preventDefault();
+				this.closeTranscript(agentId);
+			}
+			return;
+		}
+
+		if (keyboardEvent.key !== 'ArrowLeft'
+			&& keyboardEvent.key !== 'ArrowRight'
+			&& keyboardEvent.key !== 'Home'
+			&& keyboardEvent.key !== 'End') {
+			return;
+		}
+		const buttons = [...toolbar.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+		const current = buttons.indexOf(keyboardEvent.target as HTMLButtonElement);
+		if (current < 0 || buttons.length === 0) {
+			return;
+		}
+		keyboardEvent.preventDefault();
+		const next = keyboardEvent.key === 'Home'
+			? 0
+			: keyboardEvent.key === 'End'
+				? buttons.length - 1
+				: (current + (keyboardEvent.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+		buttons[next]?.focus();
+	};
+
+	private handleDetailsKeydown = (keyboardEvent: KeyboardEvent): void => {
+		if (keyboardEvent.key !== 'Escape') {
+			return;
+		}
+		const details = keyboardEvent.currentTarget as HTMLDetailsElement;
+		if (!details.open) {
+			return;
+		}
+		keyboardEvent.preventDefault();
+		keyboardEvent.stopPropagation();
+		details.open = false;
+		details.querySelector<HTMLElement>('summary')?.focus();
+	};
+
 	private handleToolbarKeydown = (keyboardEvent: KeyboardEvent): void => {
 		if (keyboardEvent.key === 'Escape') {
 			this.metadataExpanded = false;
@@ -714,27 +1332,73 @@ export class MessagesApp extends LitElement {
 		buttons[(current + direction + buttons.length) % buttons.length]?.focus();
 	};
 
-	private retryLabel(): string {
-		if (!this.submitted) {
-			return 'Send';
+	private sessionLabel(agent: NamedAgent): string {
+		switch (agent.session.state) {
+			case 'missing':
+				return 'missing session';
+			case 'uninitialized':
+				return 'uninitialized session';
+			case 'available':
+				return 'available session';
+			default: {
+				const unhandledState: never = agent.session;
+				throw new Error(`Unexpected session state: ${JSON.stringify(unhandledState)}`);
+			}
 		}
-		if (this.deliveryComplete && !this.annotationSaved) {
-			return 'Retry save';
-		}
-		if (this.annotationSaved && !this.deliveryComplete) {
-			return 'Retry agent';
-		}
-		return 'Retry';
 	}
 
-	private retryDescription(): string {
-		if (this.deliveryComplete && !this.annotationSaved) {
-			return 'The message was submitted. Retry saves its annotation without sending it again.';
+	private agentIdFromButton(button: HTMLButtonElement | null): AgentId | undefined {
+		const value = button?.dataset.agentId;
+		return this.agents.kind === 'ready'
+			? this.agents.agents.find(agent => agent.id === value)?.id
+			: undefined;
+	}
+
+	private isValidAgentNameInput(value: string): boolean {
+		const name = value.trim();
+		return name !== '' && [...name].length <= 80 && !/[\r\n]/.test(name) && !/^\d+$/.test(name);
+	}
+
+	private updateKindLabel(kind: WorkUpdateKind): string {
+		switch (kind) {
+			case 'enqueued':
+				return 'Enqueued';
+			case 'ready':
+				return 'Ready';
+			case 'claimed':
+				return 'Claimed';
+			case 'status':
+				return 'Status';
+			case 'completed':
+				return 'Completed';
+			case 'requeued':
+				return 'Requeued';
+			default: {
+				const unhandledKind: never = kind;
+				throw new Error(`Unexpected work update kind: ${unhandledKind}`);
+			}
 		}
-		if (this.annotationSaved && !this.deliveryComplete) {
-			return 'The annotation was saved. Retry sends the same message without creating another annotation.';
+	}
+
+	private transcriptRoleLabel(role: TranscriptRole): string {
+		switch (role) {
+			case 'user':
+				return 'User';
+			case 'assistant':
+				return 'Assistant';
+			case 'system':
+				return 'System';
+			case 'tool':
+				return 'Tool';
+			default: {
+				const unhandledRole: never = role;
+				throw new Error(`Unexpected transcript role: ${unhandledRole}`);
+			}
 		}
-		return 'Submission did not complete. Retry preserves the original message and avoids repeating completed work.';
+	}
+
+	private formatTimestamp(timestamp: string): string {
+		return new Date(timestamp).toLocaleString();
 	}
 
 	private handleComposerKeydown = (keyboardEvent: KeyboardEvent): void => {

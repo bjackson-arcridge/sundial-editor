@@ -30,6 +30,7 @@ export interface SubmitPromptDependencies {
 	readonly openComposer: (prompt: PromptContext) => Promise<void>;
 	readonly createDeletionRange: (range: CommandLineDeletionRange) => vscode.Range;
 	readonly workspaceCwd: (sourceUri: string) => string | undefined;
+	readonly validatePrompt?: (prompt: PromptContext, workspaceCwd: string) => string | undefined | Promise<string | undefined>;
 }
 
 export async function submitPrompt(dependencies: SubmitPromptDependencies): Promise<boolean> {
@@ -42,7 +43,8 @@ export async function submitPrompt(dependencies: SubmitPromptDependencies): Prom
 	const line = editor.selection.active.line;
 	const sourceText = editor.document.lineAt(line).text;
 	const sourceUri = editor.document.uri.toString();
-	if (dependencies.workspaceCwd(sourceUri) === undefined) {
+	const workspaceCwd = dependencies.workspaceCwd(sourceUri);
+	if (workspaceCwd === undefined) {
 		await dependencies.reportValidationFailure('Sundial Editor: Prompt commands require a file inside an open workspace.');
 		return false;
 	}
@@ -52,6 +54,20 @@ export async function submitPrompt(dependencies: SubmitPromptDependencies): Prom
 		return false;
 	}
 	const anchor = captureAnchorContext(editor.document, line);
+	const prompt = createPromptContext(
+		parsed,
+		sourceUri,
+		anchor.line,
+		sourceText,
+		anchor.text,
+		anchor.before,
+		anchor.after,
+	);
+	const validationFailure = await dependencies.validatePrompt?.(prompt, workspaceCwd);
+	if (validationFailure !== undefined) {
+		await dependencies.reportValidationFailure(`Sundial Editor: ${validationFailure}`);
+		return false;
+	}
 
 	const deletion = commandLineDeletionRange(line, editor.document.lineCount, sourceText.length);
 	let didDelete: boolean;
@@ -67,15 +83,7 @@ export async function submitPrompt(dependencies: SubmitPromptDependencies): Prom
 		return false;
 	}
 
-	await dependencies.openComposer(createPromptContext(
-		parsed,
-		sourceUri,
-		anchor.line,
-		sourceText,
-		anchor.text,
-		anchor.before,
-		anchor.after,
-	));
+	await dependencies.openComposer(prompt);
 	return true;
 }
 

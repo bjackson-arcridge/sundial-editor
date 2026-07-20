@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { parsePromptRequest, renderEvent } from '../protocol';
+import { parseCliPromptRequest, parsePromptRequest, renderEvent } from '../protocol';
 
 describe('prompt protocol', () => {
 	test('accepts the complete editor request shape', () => {
@@ -22,6 +22,24 @@ describe('prompt protocol', () => {
 			document: { uri: 'file:///w/a', line: -1, text: '' },
 			prompt: { preset: '%F', scope: 'line', text: 'Fix' },
 		}), /document/);
+	});
+
+	test('requires a positive assignment generation for managed prompts', () => {
+		const request = parseCliPromptRequest({
+			provider: 'codex',
+			workspace: { cwd: '/workspace' },
+			managed: {
+				agentId: 'agent-1', agentSessionId: 'session-1', userAnnotationId: 'work-1', assignmentSequence: 2,
+			},
+		});
+		assert.equal('managed' in request && request.managed.assignmentSequence, 2);
+		assert.throws(() => parseCliPromptRequest({
+			provider: 'codex',
+			workspace: { cwd: '/workspace' },
+			managed: {
+				agentId: 'agent-1', agentSessionId: 'session-1', userAnnotationId: 'work-1', assignmentSequence: 0,
+			},
+		}), /positive assignmentSequence/);
 	});
 
 	test('renders stable discriminated event JSON', () => {

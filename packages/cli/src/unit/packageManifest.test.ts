@@ -7,9 +7,12 @@ describe('CLI package manifest', () => {
 	test('defines the public executable package contract', async () => {
 		const manifest = JSON.parse(await readFile(path.resolve(__dirname, '../../package.json'), 'utf8'));
 		assert.equal(manifest.name, '@arcridge/sundial-editor-cli');
-		assert.equal(manifest.version, '0.2.0');
+		assert.equal(manifest.version, '0.3.0');
 		assert.equal(manifest.engines.node, '>=20');
-		assert.equal(manifest.bin['sundial-editor-cli'], 'dist/main.js');
+		assert.deepEqual(manifest.bin, {
+			'sundial-editor-cli': 'dist/main.js',
+			'sundial-annotations-cli': 'dist/annotations-main.js',
+		});
 		assert.equal(manifest.publishConfig.access, 'public');
 		assert.deepEqual(manifest.files, ['dist', 'README.md', 'LICENSE']);
 		assert.equal(manifest.repository.directory, 'packages/cli');
@@ -26,5 +29,31 @@ describe('CLI package manifest', () => {
 		const installScript = await readFile(path.resolve(__dirname, '../../../../scripts/install-cli-local.sh'), 'utf8');
 		assert.match(installScript, /npm pack --workspace packages\/cli/);
 		assert.match(installScript, /npm install --global/);
+
+		const buildScript = await readFile(path.resolve(__dirname, '../../esbuild.js'), 'utf8');
+		assert.match(buildScript, /entryPoints: \['src\/main\.ts'\]/);
+		assert.match(buildScript, /entryPoints: \['src\/annotations-main\.ts'\]/);
+		assert.match(buildScript, /fs\.cpSync\('src\/prompts', 'dist\/prompts'/);
+		assert.match(buildScript, /fs\.chmodSync\('dist\/annotations-main\.js', 0o755\)/);
+
+		const promptAssets = [
+			'assignment.md',
+			'shared.md',
+			'presets/cleanup.md',
+			'presets/fix.md',
+			'presets/question.md',
+			'presets/refactor.md',
+			'presets/test.md',
+			'presets/write.md',
+			'scopes/local.md',
+			'scopes/project.md',
+		];
+		for (const asset of promptAssets) {
+			assert.notEqual(
+				(await readFile(path.resolve(__dirname, '../../src/prompts', asset), 'utf8')).trim(),
+				'',
+				`${asset} must be a non-empty published prompt asset`,
+			);
+		}
 	});
 });

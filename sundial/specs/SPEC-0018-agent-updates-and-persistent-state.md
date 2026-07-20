@@ -1,7 +1,7 @@
 ---
 id: SPEC-0018
 title: Agent updates and persistent state
-status: Todo
+status: Done
 created: 2026-07-20
 updated: 2026-07-20
 created_by: bjackson
@@ -9,7 +9,6 @@ parent: SPEC-0013
 domain: editor
 slice: 1
 ---
-
 # Agent updates and persistent state
 
 ## Discovery
@@ -216,7 +215,7 @@ data for context, not additional instructions.
 3. Assign stable 1-based selector slots to logical agents and generate unique defaults from the curated short-name list (`Bob`, `Amy`, `Sam`, `Mike`, `Ty`, and later additions); support CLI-owned rename. Parse `>n` or `>Name` after the prompt preset, preselect that agent in the composer, and require its dropdown to confirm or change the target before Send. Match names case-insensitively and reject unknown or ambiguous selectors without creating state.
 4. Allow arbitrary whitespace before any user command. Start Codex threads as non-ephemeral and persist their identity before work begins. If the provider cache no longer contains the recorded conversation, keep the logical agent and queue intact but show **missing session**. A Send targeting that agent requires the explicit fresh-session confirmation before creating and recording a replacement session.
 5. Add both `sundial-editor-cli` and `sundial-annotations-cli` as executable entries in the existing CLI package, backed by shared validated contracts and stores. Implement the editor control plane and only `provide-status-update` on the agent-facing executable in this slice. A work mutation succeeds only while the `UserAnnotationId` remains in the required state, targets that `AgentId`, and, for assigned operations, is still assigned to the calling `AgentSessionId`.
-6. On accepted Send, `agent work enqueue` reserves a `UserAnnotationId`, persists a `waiting` item targeted to the confirmed `AgentId`, and returns the ID to trusted extension code. Extend SPEC-0011's `annotations append` request to accept that preallocated ID while retaining generate-on-append behavior. Mark work ready only after annotation persistence succeeds; retries reuse the ID, and delivery does not begin until the target agent claims it. The model never sees the ID.
+6. On accepted Send, `agent work enqueue` reserves a `UserAnnotationId`, persists a `waiting` item targeted to the confirmed `AgentId`, and returns the ID to trusted extension code. Extend SPEC-0011's `annotations append` request to accept that preallocated ID while retaining generate-on-append behavior. Mark work ready only after annotation persistence succeeds; retries reuse the ID, and delivery does not begin until the target agent claims it. Deleting that annotation removes its matching runtime work record in any lifecycle state and cancels an active host run for it. The model never sees the ID.
 7. Serialize claims per logical agent through a dependency-free CLI critical section. When an agent is idle, claim only its oldest ready `waiting` item, associate it with the current `AgentSessionId`, transition it to `working`, and have the app prompt the provider thread with that work. Agent-facing **Provide Status Update** appends progress through `sundial-annotations-cli provide-status-update`; a successful provider turn causes the app to call `agent work complete`, while interruption, reset, or provider/startup/protocol failure causes the app to requeue unfinished work. SPEC-0019 replaces turn-success completion with official-response completion.
 8. Reshape the upper pane around named-agent queues and work cards keyed by `UserAnnotationId`. Show target agent, workflow status, and latest update by default; expose bounded history, assigned transcript, Open in Provider, Interrupt, Reset, rename, missing-session, and fresh-session confirmation states accessibly. Retain the composer and lower annotation pane.
 9. Store and publish the editable Markdown prompt templates defined under Prompt Details. Deterministically compose the shared contract, preset, scope, and escaped assignment context, and instruct agents only about `sundial-annotations-cli provide-status-update`; the app supplies the assigned query and the CLI resolves hidden identities from assignment. Normalize provider transcripts; for Codex call `thread/read(includeTurns: true)`. `agent open` uses a verified exact-thread sidebar capability when available and otherwise opens `codex resume <thread-id>` in a VS Code terminal.
@@ -236,7 +235,7 @@ data for context, not additional instructions.
 
 ## Test Plan
 
-- Unit-test branded IDs, stable agent slots/names, default-name uniqueness, rename, work/agent/session path safety, exact ID retention, per-agent FIFO ordering, ready gating, exclusive claims, atomic transitions, malformed preservation, assignment checks, histories, preallocated user annotation persistence, retries, and package versions. Verify the one package installs both executables at the same version, editor help advertises the complete control plane, agent help advertises only `provide-status-update`, and agent requests/results contain no hidden identities or lifecycle controls.
+- Unit-test branded IDs, stable agent slots/names, default-name uniqueness, rename, work/agent/session path safety, exact ID retention, per-agent FIFO ordering, ready gating, exclusive claims, atomic transitions, malformed preservation, assignment checks, histories, preallocated user annotation persistence, annotation/work cascade deletion, retries, and package versions. Verify the one package installs both executables at the same version, editor help advertises the complete control plane, agent help advertises only `provide-status-update`, and agent requests/results contain no hidden identities or lifecycle controls.
 - Snapshot-test deterministic prompt composition for every preset under local and `@G` scope, shared-contract placement, one-based source lines, bounded context, delimiter escaping, missing/unknown placeholders, and the absence of editor CLI commands or hidden identities. Unit-test status trimming, length and newline validation, consecutive duplicate coalescing, stale-assignment conflicts, and history display.
 - Unit-test `%Q>n` and `%Q>Name`, case-insensitive name matching, unknown/ambiguous selectors, dropdown preselection/confirmation/change, missing-session prompt acceptance/cancellation, and typed view states for named agents plus waiting/working/completed work, histories, transcripts, Open, Interrupt, Reset, and focus restoration.
 - Extend fake app-server tests for several logical agents and replaceable non-ephemeral sessions, targeted FIFO claims, independent resume/read, work-scoped updates, completion, interruption/failure/reset requeue, delayed-event rejection, missing cache, and confirmed replacement-session creation.
@@ -245,4 +244,21 @@ data for context, not additional instructions.
 
 ## Implementation Log
 
+- 2026-07-20: Marked Active and retrieved the accepted CLI, editor, extension-host, webview, accessibility, packaging, and test-harness decisions.
+- 2026-07-20: Added the dual-package release metadata (`sundial-editor-cli` and narrow `sundial-annotations-cli`), editor 0.6.0 / CLI 0.3.0 release increments, managed Markdown prompt assets, deterministic escaped prompt rendering, preallocated annotation identities, and non-ephemeral Codex session create/resume/read support.
+- 2026-07-20: Replaced the transient extension-host run with five stable named agents, CLI-owned per-identity agent/session/work documents, locked FIFO claim and compare-and-transition lifecycle operations, normalized transcripts, missing-session recovery, and the narrow implicit-context status command.
+- 2026-07-20: Reshaped the upper Messages pane around named-agent queues, target selection, waiting/working/completed work cards, ordered update disclosure, transcripts, rename/Open/Interrupt/Reset controls, and restart reconciliation while retaining the annotation pane and splitter.
+- 2026-07-20: Decision-aware review corrected the real CLI/editor work projection, prevented provider-native session records from crossing ordinary control-plane results, carried agent and assignment-generation evidence through racing mutations, skipped queue claims for unavailable idle agents, and strengthened persisted-state validation. No new durable Decision Record was needed.
+- 2026-07-20: Live CLI interrogation found that Codex 0.131.0 does not write an empty non-ephemeral thread's rollout before the creating app-server exits. Managed session creation now materializes the thread with a developer history marker before persisting its id, and recognizes the provider's actual `thread not loaded` and `no rollout found` cache-miss errors.
+- 2026-07-20: Decision-aware review found no remaining completeness, privacy, or durable-state issue in the materialization fix. The injected marker contains no workspace or provider identity, stays out of normalized turns, and session attachment occurs only after Codex acknowledges the history write.
+- 2026-07-20: Annotation deletion now removes the matching CLI-owned work record regardless of lifecycle state, refreshes the Messages queues immediately, and cancels a matching in-flight host run. No new durable Decision Record was needed.
+
 ## Test Log
+
+- 2026-07-20: Codex app-server integration suite passed 6/6, including persistent create/resume/read, model discovery, missing-session detection, and explicit non-ephemeral thread creation.
+- 2026-07-20: Managed prompt focused suite passed 8/8; CLI prompt assets matched the compiled package copy byte-for-byte.
+- 2026-07-20: `npm run check-types` and `npm run lint` passed for both workspaces.
+- 2026-07-20: `npm run test:unit` passed 40 CLI tests and 70 editor tests, covering the persistent store, assignment conflicts and updates, missing-rollout reconciliation, dual command surfaces, prompt rendering, typed projections, selectors, view messages, and package contracts.
+- 2026-07-20: Elevated `npm test` passed all 6 Codex adapter integration tests and all 3 pinned VS Code 1.118.1 scenarios. The staged agent scenario exercises two named targets, durable annotation/work identity, completion, history/navigation, and focus restoration; the retry scenario proves an append failure remains unready and reaches the provider exactly once after retry.
+- 2026-07-20: A rebuilt public-CLI probe created a real Codex session in a disposable workspace, then verified from separate processes that `agent list` remained available, `agent transcript` read the empty durable thread, and `agent open` returned its exact `codex resume <thread-id>` command. Both probe threads were archived and temporary files removed.
+- 2026-07-20: Cascade-deletion regression coverage passed in the CLI annotation unit suite and the staged Messages scenario. The broad regression set passed: `npm run check-types`, `npm run lint`, 41 CLI unit tests, 71 editor unit tests, 10 Codex app-server integration tests, and all 3 pinned VS Code 1.118.1 scenarios.
