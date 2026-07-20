@@ -7,6 +7,7 @@ import {
 	type AgentId,
 	type AgentsViewState,
 	type AgentTranscriptViewState,
+	type NamedAgent,
 	type UserAnnotationId,
 	type UserAnnotationWorkItem,
 } from '../../agentProtocol.js';
@@ -59,13 +60,23 @@ export function annotationForLine(
 	return onLine.find(annotation => annotation.id === preferredId) ?? onLine[0];
 }
 
-export function workForAgentInFifoOrder(
+export function currentWorkForAgent(
 	work: readonly UserAnnotationWorkItem[],
-	agentId: AgentId,
-): readonly UserAnnotationWorkItem[] {
-	return work
-		.filter(item => item.agentId === agentId)
-		.sort((left, right) => left.enqueuedAt.localeCompare(right.enqueuedAt) || left.id.localeCompare(right.id));
+	agent: NamedAgent,
+): UserAnnotationWorkItem | undefined {
+	const currentWorkId = agent.currentWork?.id;
+	return currentWorkId === undefined
+		? undefined
+		: work.find(item => item.id === currentWorkId && item.agentId === agent.id && item.status === 'working');
+}
+
+export function waitingAgentForAnnotation(
+	work: readonly UserAnnotationWorkItem[],
+	agents: readonly NamedAgent[],
+	annotationId: string,
+): NamedAgent | undefined {
+	const pending = work.find(item => item.id === annotationId && item.status === 'waiting');
+	return pending === undefined ? undefined : agents.find(agent => agent.id === pending.agentId);
 }
 
 export type HostToWebview =

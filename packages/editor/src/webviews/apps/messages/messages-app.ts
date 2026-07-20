@@ -24,8 +24,9 @@ import {
 	type HostNotice,
 	type HostToWebview,
 	type WebviewToHost,
+	currentWorkForAgent,
 	isValidHostToWebviewMessage,
-	workForAgentInFifoOrder,
+	waitingAgentForAnnotation,
 } from '../../messages/messages.js';
 import { getHost, readInitialState } from '../shared/host.js';
 import { tokenStyles } from '../shared/styles.js';
@@ -534,6 +535,11 @@ export class MessagesApp extends LitElement {
 				overflow-wrap: anywhere;
 			}
 
+			.annotation-work-status {
+				margin: 0 0 8px;
+				color: var(--se-muted-fg);
+			}
+
 			.annotation-metadata {
 				margin-bottom: 10px;
 				padding-bottom: 10px;
@@ -726,7 +732,7 @@ export class MessagesApp extends LitElement {
 	}
 
 	private renderAgent(agent: NamedAgent, agentIndex: number) {
-		const work = workForAgentInFifoOrder(this.work, agent.id);
+		const currentWork = currentWorkForAgent(this.work, agent);
 		const isRenaming = agent.controls.canRename && this.editingAgentId === agent.id;
 		const isCurrentTarget = this.prompt !== undefined && this.targetAgentId === agent.id;
 		const transcriptExpanded = this.openTranscriptAgentId === agent.id;
@@ -772,13 +778,9 @@ export class MessagesApp extends LitElement {
 						? html`<button class="secondary" type="button" ?disabled=${this.busy} @click=${() => this.resetAgent(agent.id)}>Reset</button>`
 						: nothing}
 				</div>
-				${work.length === 0
-					? html`<p class="empty work-empty">No work items.</p>`
-					: html`<div class="work-list">${repeat(
-						work,
-						item => item.id,
-						(item, workIndex) => this.renderWorkCard(item, agent, agentIndex, workIndex),
-					)}</div>`}
+				${currentWork === undefined
+					? html`<p class="empty work-empty">No current work.</p>`
+					: html`<div class="work-list">${this.renderWorkCard(currentWork, agent, agentIndex, 0)}</div>`}
 				${transcriptExpanded ? this.renderTranscript(this.transcript, agent, agentIndex) : nothing}
 			</section>
 		`;
@@ -903,6 +905,9 @@ export class MessagesApp extends LitElement {
 
 	private renderAnnotationPane() {
 		const viewer = this.annotationViewer;
+		const waitingAgent = viewer === undefined || this.agents.kind !== 'ready'
+			? undefined
+			: waitingAgentForAnnotation(this.work, this.agents.agents, viewer.annotation.id);
 		const sourceName = viewer === undefined ? 'Annotations' : `User ${viewer.annotation.preset}`;
 		const metadataTitle = this.metadataExpanded ? 'Collapse annotation metadata' : 'Expand annotation metadata';
 		const pinTitle = viewer?.pinned ? 'Unpin annotation' : 'Pin annotation';
@@ -947,6 +952,9 @@ export class MessagesApp extends LitElement {
 						? html`<p class="annotation-empty">Select a marked source line to view its annotation.</p>`
 						: html`
 							${this.metadataExpanded ? this.renderAnnotationMetadata(viewer) : nothing}
+							${waitingAgent === undefined
+								? nothing
+								: html`<p class="annotation-work-status">Waiting for ${waitingAgent.name}</p>`}
 							<p class="annotation-message">${viewer.annotation.message}</p>
 						`}
 				</div>

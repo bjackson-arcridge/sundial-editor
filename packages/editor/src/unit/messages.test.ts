@@ -9,9 +9,10 @@ import {
 } from '../agentProtocol';
 import {
 	annotationForLine,
+	currentWorkForAgent,
 	isValidHostToWebviewMessage,
 	isValidWebviewToHostMessage,
-	workForAgentInFifoOrder,
+	waitingAgentForAnnotation,
 } from '../webviews/messages/messages';
 
 const bobId = parseAgentId('agent-bob');
@@ -223,27 +224,37 @@ describe('messages protocol guards', () => {
 });
 
 describe('messages view projections', () => {
-	test('groups work by target and returns deterministic FIFO order', () => {
-		const firstAt = '2026-07-20T13:00:00.000Z';
-		const firstUpdate = { at: firstAt, kind: 'enqueued', message: 'First.' } as const;
-		const first = {
+	test('shows only the agent current work item', () => {
+		const claimedAt = '2026-07-20T14:01:00.000Z';
+		const claimedUpdate = { at: claimedAt, kind: 'claimed', message: 'Bob started work.' } as const;
+		const current: UserAnnotationWorkItem = {
 			...work,
-			id: parseUserAnnotationId('annotation-work-0'),
-			enqueuedAt: firstAt,
-			updatedAt: firstAt,
-			latestUpdate: firstUpdate,
-			updates: [firstUpdate],
+			id: parseUserAnnotationId('annotation-work-current'),
+			status: 'working',
+			updatedAt: claimedAt,
+			latestUpdate: claimedUpdate,
+			assignment: { sessionId: bobSessionId, sequence: 1, claimedAt },
+			updates: [enqueuedUpdate, claimedUpdate],
 		};
 		const amyWork = {
 			...work,
 			id: parseUserAnnotationId('annotation-work-amy'),
 			agentId: amyId,
 		};
+		const workingBob: NamedAgent = {
+			...bob,
+			queue: { waiting: 1, working: 1, completed: 0 },
+			currentWork: current,
+		};
 
-		assert.deepEqual(
-			workForAgentInFifoOrder([work, amyWork, first], bobId).map(item => item.id),
-			[first.id, work.id],
-		);
+		assert.equal(currentWorkForAgent([work, amyWork, current], workingBob)?.id, current.id);
+		assert.equal(currentWorkForAgent([work, amyWork, current], bob), undefined);
+	});
+
+	test('projects a waiting work item onto its annotation target', () => {
+		assert.equal(waitingAgentForAnnotation([work], [bob, amy], work.id)?.name, 'Bob');
+		assert.equal(waitingAgentForAnnotation([{ ...work, status: 'completed' }], [bob, amy], work.id), undefined);
+		assert.equal(waitingAgentForAnnotation([work], [bob, amy], 'annotation-other'), undefined);
 	});
 
 	test('selects an annotation for a line and retains a preferred annotation on that line', () => {

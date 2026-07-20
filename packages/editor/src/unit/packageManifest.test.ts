@@ -35,11 +35,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.6.0 extension package', () => {
+	test('is an independent 0.6.1 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.6.0');
+		assert.equal(manifest.version, '0.6.1');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -126,6 +126,8 @@ describe('Sundial Editor manifest', () => {
 		assert.match(messagesSource, /title="Previous annotation"/);
 		assert.match(messagesSource, /title="Next annotation"/);
 		assert.match(messagesSource, /title="Delete annotation"/);
+		assert.match(messagesSource, /No current work\./);
+		assert.match(messagesSource, /Waiting for \$\{waitingAgent\.name\}/);
 		assert.match(messagesSource, /class="toolbar-icon"/);
 		assert.match(messagesSource, /fill: currentColor/);
 		assert.doesNotMatch(messagesSource, /class="codicon/);
