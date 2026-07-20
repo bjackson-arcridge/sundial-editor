@@ -40,7 +40,7 @@ describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.3.1\n');
+		assert.equal(version.stdout.join(''), '0.4.0\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
@@ -58,6 +58,7 @@ describe('main', () => {
 				return {
 					id: 'annotation-1', message: 'Fix it.', preset: '%F', scope: 'line',
 					anchor: { line: 2, text: 'code', before: ['before'], after: ['after'] },
+					officialResponses: [],
 				};
 			},
 		}), 0);
@@ -71,6 +72,7 @@ describe('main', () => {
 				return {
 					id: 'annotation-1', message: 'Fix it.', preset: '%F', scope: 'line',
 					anchor: { line: 2, text: 'code', before: [], after: [] },
+					officialResponses: [],
 				};
 			},
 		}), 0);
@@ -210,17 +212,25 @@ describe('main', () => {
 				workspace: { cwd }, agent: { id: agent.id },
 			}) as { work: { id: string; assignment: { sessionId: string; sequence: number } } };
 			assert.equal(claimed.work.id, enqueued.id);
-			await invoke(['agent', 'work', 'complete'], {
+			const complete = harness(JSON.stringify({
 				workspace: { cwd }, agent: { id: agent.id }, work: {
 					id: enqueued.id,
 					agentSessionId: claimed.work.assignment.sessionId,
 					assignmentSequence: claimed.work.assignment.sequence,
 				}, finalUpdate: 'Completed assignment.',
+			}));
+			assert.equal(await main(['agent', 'work', 'complete'], complete.io, services), 1);
+			assert.match(complete.stderr.join(''), /official response/);
+			await invoke(['agent', 'work', 'requeue'], {
+				workspace: { cwd }, agent: { id: agent.id }, work: {
+					id: enqueued.id, agentSessionId: claimed.work.assignment.sessionId,
+					assignmentSequence: claimed.work.assignment.sequence,
+				}, reason: 'Provider ended without a response.',
 			});
 			const work = await invoke(['agent', 'work', 'list'], { workspace: { cwd } }) as { work: Array<{ status: string; latestUpdate: { kind: string; message: string } }> };
-			assert.equal(work.work[0].status, 'completed');
-			assert.equal(work.work[0].latestUpdate.kind, 'completed');
-			assert.equal(work.work[0].latestUpdate.message, 'Completed assignment.');
+			assert.equal(work.work[0].status, 'waiting');
+			assert.equal(work.work[0].latestUpdate.kind, 'requeued');
+			assert.equal(work.work[0].latestUpdate.message, 'Provider ended without a response.');
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

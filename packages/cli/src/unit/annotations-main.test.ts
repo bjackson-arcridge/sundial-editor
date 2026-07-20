@@ -9,11 +9,30 @@ function io() {
 }
 
 describe('agent-facing annotations CLI', () => {
-	test('advertises only the status-update operation', async () => {
+	test('advertises only the two managed-agent operations', async () => {
 		const run = io();
 		assert.equal(await annotationsMain(['help'], run.value), 0);
 		assert.match(run.stdout.join(''), /provide-status-update/);
-		assert.doesNotMatch(run.stdout.join(''), /enqueue|claim|complete|reset|transcript/);
+		assert.match(run.stdout.join(''), /record-task-response/);
+		assert.doesNotMatch(run.stdout.join(''), /enqueue|claim|reset|transcript/);
+	});
+
+	test('records a response using only hidden assignment context and one path', async () => {
+		const run = io();
+		let received: unknown;
+		assert.equal(await annotationsMain(['record-task-response', '.sundial/work-1response.md'], run.value, {
+			SUNDIAL_WORKSPACE_CWD: '/workspace', SUNDIAL_AGENT_ID: 'agent-1',
+			SUNDIAL_AGENT_SESSION_ID: 'session-1', SUNDIAL_USER_ANNOTATION_ID: 'work-1',
+			SUNDIAL_ASSIGNMENT_SEQUENCE: '4',
+		}, async () => ({ appended: false, work: {} as never }), async input => {
+			received = input;
+			return { file: 'src/example.ts' };
+		}), 0);
+		assert.deepEqual(received, {
+			workspaceCwd: '/workspace', agentId: 'agent-1', agentSessionId: 'session-1',
+			userAnnotationId: 'work-1', assignmentSequence: 4, responsePath: '.sundial/work-1response.md',
+		});
+		assert.deepEqual(JSON.parse(run.stdout.join('')), { file: 'src/example.ts' });
 	});
 
 	test('resolves hidden assignment evidence from the invocation environment', async () => {

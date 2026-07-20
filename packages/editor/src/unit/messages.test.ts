@@ -13,6 +13,7 @@ import {
 	isValidHostToWebviewMessage,
 	isValidWebviewToHostMessage,
 	latestSessionStatusForAgent,
+	presentAnnotation,
 	sessionStatusHistoryGroupsForAgent,
 	waitingAgentForAnnotation,
 } from '../webviews/messages/messages';
@@ -95,14 +96,19 @@ const readyAgents = { kind: 'ready', agents: [bob, amy] } as const;
 const annotations = [{
 	id: 'annotation-1', message: 'Fix this.', preset: '%F', scope: 'line',
 	anchor: { line: 3, text: 'const value = 1;', before: ['function calculate() {'], after: ['return value;', '}'] },
+	officialResponses: [],
 }, {
 	id: 'annotation-2', message: 'Add coverage.', preset: '%T', scope: 'project',
 	anchor: { line: 3, text: 'const value = 1;', before: ['function calculate() {'], after: ['return value;', '}'] },
+	officialResponses: [],
 }] as const;
 
 const annotationViewer = {
 	sourceUri: prompt.sourceUri,
-	annotation: annotations[0],
+	annotation: {
+		...annotations[0],
+		officialResponses: [{ body: '**Fixed.**', createdAt: '2026-07-20T14:05:00.000Z', agentName: 'Bob' }],
+	},
 	position: 1,
 	total: 2,
 	pinned: false,
@@ -167,6 +173,21 @@ describe('messages protocol guards', () => {
 			kind: 'state', state: { ...readyState(), annotationViewer: { ...annotationViewer, position: 3 } },
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'focusComposer', extra: true }), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state',
+			state: {
+				...readyState(),
+				annotationViewer: {
+					...annotationViewer,
+					annotation: {
+						...annotationViewer.annotation,
+						officialResponses: [{
+							...annotationViewer.annotation.officialResponses[0], agentSessionId: 'session-secret',
+						}],
+					},
+				},
+			},
+		}), false);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'other' }), false);
 		assert.equal(isValidHostToWebviewMessage(null), false);
 	});
@@ -207,6 +228,27 @@ describe('messages protocol guards', () => {
 });
 
 describe('messages view projections', () => {
+	test('maps response authors to current names without projecting identity metadata', () => {
+		const presented = presentAnnotation({
+			...annotations[0],
+			officialResponses: [{
+				userAnnotationId: annotations[0].id,
+				agentId: bobId,
+				agentSessionId: bobSessionId,
+				body: '**Fixed.**',
+				createdAt: '2026-07-20T14:05:00.000Z',
+			}],
+		}, [{ ...bob, name: 'Robert' }, amy]);
+
+		assert.deepEqual(presented.officialResponses, [{
+			body: '**Fixed.**',
+			createdAt: '2026-07-20T14:05:00.000Z',
+			agentName: 'Robert',
+		}]);
+		assert.equal(JSON.stringify(presented).includes('agent-bob'), false);
+		assert.equal(JSON.stringify(presented).includes('session-bob-1'), false);
+	});
+
 	test('shows only the agent current work item', () => {
 		const claimedAt = '2026-07-20T14:01:00.000Z';
 		const claimedUpdate = { at: claimedAt, kind: 'claimed', message: 'Bob started work.' } as const;

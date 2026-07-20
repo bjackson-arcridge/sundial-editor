@@ -21,6 +21,7 @@ process.stdin.on('end', () => {
 		fs.writeFileSync(path.join(process.cwd(), 'received-request.json'), JSON.stringify(request));
 		process.stdout.write(`${JSON.stringify({ kind: 'status', status: 'working', message: 'Test Codex behavior is working.' })}\n`);
 		setTimeout(() => {
+			recordFixtureResponse(request);
 			process.stdout.write(`${JSON.stringify({ kind: 'output', text: 'Applied the requested test patch.' })}\n`);
 			process.stdout.write(`${JSON.stringify({ kind: 'status', status: 'waiting' })}\n`);
 		}, 400);
@@ -114,6 +115,10 @@ function handleAgent(operation, action, request) {
 	}
 	if (action === 'requeue') {
 		const work = findWork(state, request.work.id);
+		if (work.status === 'completed') {
+			writeJson(work);
+			return;
+		}
 		work.status = 'waiting';
 		delete work.assignment;
 		addUpdate(work, 'requeued', request.work.reason ?? 'Returned to queue.');
@@ -149,6 +154,7 @@ function handleAnnotations(operation, request) {
 				before: request.document.before,
 				after: request.document.after,
 			},
+			officialResponses: [],
 		};
 		companion.annotations.push(annotation);
 		fs.mkdirSync(path.dirname(companionPath), { recursive: true });
@@ -173,6 +179,36 @@ function handleAnnotations(operation, request) {
 		return;
 	}
 	process.exitCode = 2;
+}
+
+function recordFixtureResponse(request) {
+	const state = readState();
+	const work = findWork(state, request.managed.userAnnotationId);
+	const responsePath = path.join(request.workspace.cwd, '.sundial', `${work.id}response.md`);
+	const body = `## Completed\n\nApplied the requested test patch for **${work.prompt.text}**.\n`;
+	fs.writeFileSync(responsePath, body);
+	const companionPath = annotationCompanionPath({
+		workspace: { cwd: request.workspace.cwd }, document: { uri: work.source.uri },
+	});
+	const companion = readCompanion(companionPath);
+	const annotation = companion.annotations.find(candidate => candidate.id === work.id);
+	if (annotation === undefined) {
+		throw new Error(`Missing annotation for response: ${work.id}`);
+	}
+	const at = now();
+	annotation.officialResponses.push({
+		userAnnotationId: work.id,
+		agentId: work.agentId,
+		agentSessionId: work.assignment.sessionId,
+		body,
+		createdAt: at,
+	});
+	companion.version = 2;
+	fs.writeFileSync(companionPath, renderCompanion(companion));
+	work.status = 'completed';
+	addUpdate(work, 'completed', 'Official response recorded.');
+	writeState(state);
+	fs.rmSync(responsePath);
 }
 function agentProjection(state, id, slot, name) {
 	const agentWork = state.work.filter(work => work.agentId === id);
@@ -258,11 +294,12 @@ function readCompanion(companionPath) {
 		return { version: 1, annotations: [] };
 	}
 	const lines = fs.readFileSync(companionPath, 'utf8').trimEnd().split('\n');
+	const version = Number(lines[0].slice('version: '.length));
 	const annotations = [];
 	let index = 2;
 	while (index < lines.length) {
 		const hasContext = lines[index + 7]?.startsWith('      before: ');
-		annotations.push({
+		const annotation = {
 			id: JSON.parse(lines[index].slice('  - id: '.length)),
 			message: JSON.parse(lines[index + 1].slice('    message: '.length)),
 			preset: JSON.parse(lines[index + 2].slice('    preset: '.length)),
@@ -273,15 +310,30 @@ function readCompanion(companionPath) {
 				before: hasContext ? JSON.parse(lines[index + 7].slice('      before: '.length)) : [],
 				after: hasContext ? JSON.parse(lines[index + 8].slice('      after: '.length)) : [],
 			},
-		});
+			officialResponses: [],
+		};
 		index += hasContext ? 9 : 7;
+		if (version === 2) {
+			index += 1;
+			while (lines[index]?.startsWith('      - userAnnotationId: ')) {
+				annotation.officialResponses.push({
+					userAnnotationId: JSON.parse(lines[index].slice('      - userAnnotationId: '.length)),
+					agentId: JSON.parse(lines[index + 1].slice('        agentId: '.length)),
+					agentSessionId: JSON.parse(lines[index + 2].slice('        agentSessionId: '.length)),
+					body: JSON.parse(lines[index + 3].slice('        body: '.length)),
+					createdAt: JSON.parse(lines[index + 4].slice('        createdAt: '.length)),
+				});
+				index += 5;
+			}
+		}
+		annotations.push(annotation);
 	}
-	return { version: 1, annotations };
+	return { version, annotations };
 }
 
 function renderCompanion(companion) {
 	return [
-		'version: 1',
+		`version: ${companion.version}`,
 		'annotations:',
 		...companion.annotations.flatMap(annotation => [
 			`  - id: ${JSON.stringify(annotation.id)}`,
@@ -293,6 +345,16 @@ function renderCompanion(companion) {
 			`      text: ${JSON.stringify(annotation.anchor.text)}`,
 			`      before: ${JSON.stringify(annotation.anchor.before)}`,
 			`      after: ${JSON.stringify(annotation.anchor.after)}`,
+			...(companion.version === 1 ? [] : [
+				'    officialResponses:',
+				...annotation.officialResponses.flatMap(response => [
+					`      - userAnnotationId: ${JSON.stringify(response.userAnnotationId)}`,
+					`        agentId: ${JSON.stringify(response.agentId)}`,
+					`        agentSessionId: ${JSON.stringify(response.agentSessionId)}`,
+					`        body: ${JSON.stringify(response.body)}`,
+					`        createdAt: ${JSON.stringify(response.createdAt)}`,
+				]),
+			]),
 		]),
 		'',
 	].join('\n');

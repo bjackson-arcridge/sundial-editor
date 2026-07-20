@@ -70,6 +70,20 @@ export interface WorkAssignment {
 	readonly claimedAt: string;
 }
 
+export interface PendingResponseEvidence {
+	readonly assignment: WorkAssignment;
+	readonly path: string;
+	readonly bodyDigest: string;
+	readonly sourceUri: string;
+	readonly file: string;
+	readonly createdAt: string;
+	readonly phase: 'prepared' | 'recorded' | 'completed';
+	readonly receipt?: {
+		readonly file: string;
+		readonly completedAt: string;
+	};
+}
+
 export interface UserAnnotationWorkItem {
 	readonly version: typeof agentStoreVersion;
 	readonly id: UserAnnotationId;
@@ -83,6 +97,7 @@ export interface UserAnnotationWorkItem {
 	readonly status: WorkStatus;
 	readonly lastAssignmentSequence: number;
 	readonly assignment?: WorkAssignment;
+	readonly pendingResponse?: PendingResponseEvidence;
 	readonly updates: readonly WorkUpdate[];
 }
 
@@ -175,6 +190,8 @@ export type AgentStoreConflictCode =
 	| 'id_conflict'
 	| 'state_conflict'
 	| 'stale_assignment'
+	| 'response_required'
+	| 'response_conflict'
 	| 'missing_session';
 
 export class AgentStoreConflictError extends Error {
@@ -410,8 +427,59 @@ export async function claimNextWork(input: { workspaceCwd: string; agentSelector
 
 interface AssignmentInput { readonly workspaceCwd: string; readonly userAnnotationId: string; readonly agentSessionId: string; readonly assignmentSequence: number; readonly agentId?: string }
 type EditorAssignmentInput = AssignmentInput & { readonly agentId: string };
-export async function completeWork(input: EditorAssignmentInput & { finalUpdate?: string }): Promise<UserAnnotationWorkItem> { return mutateAssigned(input, item => transitionAssigned(item, 'completed', 'completed', input.finalUpdate ?? 'Work completed successfully.')); }
-export async function requeueWork(input: EditorAssignmentInput & { reason: string }): Promise<UserAnnotationWorkItem> { return mutateAssigned(input, item => requeueItem(item, input.reason)); }
+export interface ResponseEvidenceInput extends EditorAssignmentInput {
+	readonly path: string;
+	readonly bodyDigest: string;
+	readonly sourceUri: string;
+	readonly file: string;
+}
+
+export async function prepareResponseEvidence(input: ResponseEvidenceInput): Promise<PendingResponseEvidence> {
+	let evidence: PendingResponseEvidence | undefined;
+	await mutateAssigned(input, item => {
+		const current = item.pendingResponse;
+		if (current !== undefined) {
+			if (!sameResponseAttempt(current, input)) {
+				throw new AgentStoreConflictError('response_conflict', 'The current assignment already prepared different response content.', item);
+			}
+			evidence = current;
+			return item;
+		}
+		evidence = {
+			assignment: item.assignment!, path: input.path, bodyDigest: input.bodyDigest,
+			sourceUri: input.sourceUri, file: input.file, createdAt: defaultServices.now().toISOString(), phase: 'prepared',
+		};
+		return { ...item, pendingResponse: evidence };
+	}, true);
+	return evidence!;
+}
+
+export async function markResponseRecorded(input: ResponseEvidenceInput & { readonly createdAt: string }): Promise<UserAnnotationWorkItem> {
+	return mutateAssigned(input, item => {
+		const evidence = item.pendingResponse;
+		if (evidence === undefined || evidence.createdAt !== input.createdAt || !sameResponseAttempt(evidence, input)) {
+			throw new AgentStoreConflictError('response_conflict', 'The durable response does not match this assignment attempt.', item);
+		}
+		return evidence.phase === 'recorded'
+			? item
+			: { ...item, pendingResponse: { ...evidence, phase: 'recorded' } };
+	});
+}
+
+export async function completeWork(input: EditorAssignmentInput & { finalUpdate?: string }): Promise<UserAnnotationWorkItem> {
+	return mutateAssigned(input, item => {
+		if (item.pendingResponse?.phase !== 'recorded') {
+			throw new AgentStoreConflictError('response_required', 'Work completion requires a matching durable official response.', item);
+		}
+		return completeResponseItem(item, input.finalUpdate ?? 'Official response recorded.');
+	});
+}
+
+export async function requeueWork(input: EditorAssignmentInput & { reason: string }): Promise<UserAnnotationWorkItem> {
+	return mutateAssigned(input, item => item.pendingResponse?.phase === 'recorded'
+		? completeResponseItem(item, 'Official response recorded.')
+		: requeueItem(item, input.reason));
+}
 export async function provideStatusUpdate(input: AssignmentInput & { status: string }): Promise<StatusUpdateResult> {
 	const status = normalizeAgentStatus(input.status); let appended = false;
 	const work = await mutateAssigned(input, item => { if (item.updates.at(-1)?.message === status) {return item;} appended = true; const at = defaultServices.now().toISOString(); return { ...item, updatedAt: at, updates: [...item.updates, { at, kind: 'status', message: status }] }; }, true);
@@ -440,7 +508,30 @@ export async function setSessionTranscript(input: { workspaceCwd: string; agentS
 async function mutateAssigned(input: AssignmentInput, mutation: (item: UserAnnotationWorkItem) => UserAnnotationWorkItem, requireActiveSession = false): Promise<UserAnnotationWorkItem> { return withStoreLock(input.workspaceCwd, defaultServices, async () => { const item = await showWork(input.workspaceCwd, input.userAnnotationId); if ((input.agentId !== undefined && item.agentId !== input.agentId) || item.status !== 'working' || item.assignment?.sessionId !== input.agentSessionId || item.assignment.sequence !== input.assignmentSequence) {throw new AgentStoreConflictError('stale_assignment', 'The assignment is stale or no longer working.', item);} if (requireActiveSession) { const session = await readSessionRequired(input.workspaceCwd, input.agentSessionId); const agent = selectAgent(await readAgents(input.workspaceCwd), item.agentId); if (session.state !== 'available' || session.agentId !== item.agentId || agent.currentSessionId !== session.id) {throw new AgentStoreConflictError('stale_assignment', 'The invoking session is no longer active for this assignment.', item);} } const next = mutation(item); if (next !== item) {await replaceDocument(workFilePath(input.workspaceCwd, item.id), next);} return next; }); }
 async function mutateWork(cwd: string, id: string, mutation: (item: UserAnnotationWorkItem) => UserAnnotationWorkItem): Promise<UserAnnotationWorkItem> { return withStoreLock(cwd, defaultServices, async () => { const item = await showWork(cwd, id); const next = mutation(item); if (next !== item) {await replaceDocument(workFilePath(cwd, id), next);} return next; }); }
 function transitionAssigned(item: UserAnnotationWorkItem, status: WorkStatus, kind: WorkUpdateKind, message: string): UserAnnotationWorkItem { const at = defaultServices.now().toISOString(); const cleaned = nonEmpty(message.trim(), 'work update'); return { ...item, status, updatedAt: at, updates: [...item.updates, { at, kind, message: cleaned }] }; }
-function requeueItem(item: UserAnnotationWorkItem, reason: string): UserAnnotationWorkItem { const { assignment: _assignment, ...rest } = item; return transitionAssigned(rest as UserAnnotationWorkItem, 'waiting', 'requeued', reason); }
+function requeueItem(item: UserAnnotationWorkItem, reason: string): UserAnnotationWorkItem { const { assignment: _assignment, pendingResponse: _pendingResponse, ...rest } = item; return transitionAssigned(rest as UserAnnotationWorkItem, 'waiting', 'requeued', reason); }
+function completeResponseItem(item: UserAnnotationWorkItem, message: string): UserAnnotationWorkItem {
+	const evidence = item.pendingResponse;
+	if (evidence === undefined || evidence.phase !== 'recorded') {
+		throw new AgentStoreConflictError('response_required', 'Work completion requires a matching durable official response.', item);
+	}
+	const at = defaultServices.now().toISOString();
+	const { assignment: _assignment, ...rest } = item;
+	return {
+		...rest,
+		status: 'completed', updatedAt: at,
+		updates: [...item.updates, { at, kind: 'completed', message: nonEmpty(message.trim(), 'work update') }],
+		pendingResponse: { ...evidence, phase: 'completed', receipt: { file: evidence.file, completedAt: at } },
+	};
+}
+
+function sameResponseAttempt(evidence: PendingResponseEvidence, input: ResponseEvidenceInput): boolean {
+	return evidence.assignment.sessionId === input.agentSessionId
+		&& evidence.assignment.sequence === input.assignmentSequence
+		&& evidence.path === input.path
+		&& evidence.bodyDigest === input.bodyDigest
+		&& evidence.sourceUri === input.sourceUri
+		&& evidence.file === input.file;
+}
 
 async function projectAgentSummaries(cwd: string, agents: readonly NamedAgent[]): Promise<AgentSummary[]> { const all = await readWork(cwd); const projected: AgentSummary[] = []; for (const agent of [...agents].sort((a, b) => a.slot - b.slot)) { const work = all.filter(item => item.agentId === agent.id); const working = work.filter(item => item.status === 'working'); if (working.length > 1) {throw new AgentStoreValidationError(`Agent ${agent.id} has more than one working item.`);} const current = working[0]; const session = agent.currentSessionId === undefined ? undefined : await readSessionRequired(cwd, agent.currentSessionId); if (session !== undefined && session.agentId !== agent.id) {throw new AgentStoreValidationError(`Agent ${agent.id} references another agent's session.`);} const sessionSummary: AgentSessionSummary = session === undefined ? { state: 'missing' } : session.state === 'missing' ? { state: 'missing', id: session.id } : { state: session.state, id: session.id, provider: session.provider }; projected.push({ id: agent.id, slot: agent.slot, name: agent.name, session: sessionSummary, queue: { waiting: work.filter(x => x.status === 'waiting').length, working: working.length, completed: work.filter(x => x.status === 'completed').length }, ...(current === undefined ? {} : { currentWork: workSummary(current) }), controls: { canRename: true, canEnsureSession: session?.state !== 'available', canOpen: session?.state === 'available', canInterrupt: current !== undefined, canReset: session !== undefined } }); } return projected; }
 function workSummary(item: UserAnnotationWorkItem): WorkSummary { return { id: item.id, agentId: item.agentId, status: item.status, ready: item.ready, enqueuedAt: item.enqueuedAt, updatedAt: item.updatedAt, latestUpdate: item.updates[item.updates.length - 1], ...(item.assignment === undefined ? {} : { assignment: item.assignment }) }; }
@@ -453,7 +544,7 @@ async function readOptional<T>(file: string, validate: (value: unknown) => asser
 
 function validateNamedAgent(value: unknown): asserts value is NamedAgent { if (!isRecord(value) || value.version !== 1 || !validOpaque(value.id) || !Number.isSafeInteger(value.slot) || (value.slot as number) < 1 || typeof value.name !== 'string' || validateAgentName(value.name) !== value.name || (value.currentSessionId !== undefined && !validOpaque(value.currentSessionId))) {throw new AgentStoreValidationError('Malformed logical agent file.');} }
 function validateSessionRecord(value: unknown): asserts value is AgentSessionRecord { if (!isRecord(value) || value.version !== 1 || !validOpaque(value.id) || !validOpaque(value.agentId) || value.provider !== 'codex' || !['uninitialized', 'available', 'missing'].includes(String(value.state)) || !validTimestamp(value.createdAt) || !validTimestamp(value.updatedAt) || Date.parse(value.updatedAt) < Date.parse(value.createdAt) || !Array.isArray(value.transcript) || !value.transcript.every(isTranscriptEntry) || (value.providerSessionId !== undefined && (typeof value.providerSessionId !== 'string' || value.providerSessionId.trim() === '')) || (value.state === 'available' && typeof value.providerSessionId !== 'string') || (value.state === 'uninitialized' && (value.providerSessionId !== undefined || value.transcript.length !== 0))) {throw new AgentStoreValidationError('Malformed managed session file.');} }
-function validateWorkItem(value: unknown): asserts value is UserAnnotationWorkItem { if (!isRecord(value) || value.version !== 1 || !validOpaque(value.id) || !validOpaque(value.agentId) || !['waiting', 'working', 'completed'].includes(String(value.status)) || typeof value.ready !== 'boolean' || !validTimestamp(value.enqueuedAt) || !validTimestamp(value.updatedAt) || Date.parse(value.updatedAt) < Date.parse(value.enqueuedAt) || !Number.isSafeInteger(value.lastAssignmentSequence) || (value.lastAssignmentSequence as number) < 0 || !Array.isArray(value.updates) || value.updates.length === 0 || !value.updates.every(isWorkUpdate) || !chronological(value.updates.map(update => update.at)) || value.updates[0].kind !== 'enqueued' || value.updates[0].at !== value.enqueuedAt || value.updates.at(-1)?.at !== value.updatedAt || !isRecord(value.source) || !isRecord(value.prompt)) {throw new AgentStoreValidationError('Malformed user work file.');} validateSource(value.source as unknown as WorkSource); validatePrompt(value.prompt as unknown as WorkPrompt); validateWorkLifecycle(value as unknown as UserAnnotationWorkItem); }
+function validateWorkItem(value: unknown): asserts value is UserAnnotationWorkItem { if (!isRecord(value) || value.version !== 1 || !validOpaque(value.id) || !validOpaque(value.agentId) || !['waiting', 'working', 'completed'].includes(String(value.status)) || typeof value.ready !== 'boolean' || !validTimestamp(value.enqueuedAt) || !validTimestamp(value.updatedAt) || Date.parse(value.updatedAt) < Date.parse(value.enqueuedAt) || !Number.isSafeInteger(value.lastAssignmentSequence) || (value.lastAssignmentSequence as number) < 0 || !Array.isArray(value.updates) || value.updates.length === 0 || !value.updates.every(isWorkUpdate) || !chronological(value.updates.map(update => update.at)) || value.updates[0].kind !== 'enqueued' || value.updates[0].at !== value.enqueuedAt || value.updates.at(-1)?.at !== value.updatedAt || !isRecord(value.source) || !isRecord(value.prompt) || (value.pendingResponse !== undefined && !isPendingResponseEvidence(value.pendingResponse))) {throw new AgentStoreValidationError('Malformed user work file.');} validateSource(value.source as unknown as WorkSource); validatePrompt(value.prompt as unknown as WorkPrompt); validateWorkLifecycle(value as unknown as UserAnnotationWorkItem); }
 function validateSource(value: WorkSource): void { if (!isRecord(value) || typeof value.uri !== 'string' || value.uri.trim() === '' || (value.path !== undefined && !safeRelativePath(value.path)) || !Number.isSafeInteger(value.line) || value.line < 0 || typeof value.text !== 'string' || !isContext(value.before) || !isContext(value.after)) {throw new AgentStoreValidationError('Malformed work source.');} }
 function validatePrompt(value: WorkPrompt): void { if (!isRecord(value) || !/^%(Q|F|W|R|C|T)$/.test(String(value.preset)) || !['line', 'project'].includes(String(value.scope)) || typeof value.text !== 'string' || value.text.trim() === '') {throw new AgentStoreValidationError('Malformed work prompt.');} }
 function isContext(value: unknown): value is readonly string[] { return Array.isArray(value) && value.length <= 3 && value.every(line => typeof line === 'string' && line.trim() !== '' && !/[\r\n\u2028\u2029]/u.test(line)); }
@@ -492,7 +583,15 @@ function validateWorkLifecycle(item: UserAnnotationWorkItem): void {
 		throw new AgentStoreValidationError('Work lifecycle fields do not match its update history.');
 	}
 	if (status === 'waiting') {
-		if (item.assignment !== undefined) {throw new AgentStoreValidationError('Waiting work cannot retain assignment evidence.');}
+		if (item.assignment !== undefined || item.pendingResponse !== undefined) {throw new AgentStoreValidationError('Waiting work cannot retain assignment evidence.');}
+		return;
+	}
+	if (status === 'completed' && item.pendingResponse?.phase === 'completed') {
+		if (item.assignment !== undefined
+			|| item.pendingResponse.assignment.sequence !== assignmentCount
+			|| item.pendingResponse.assignment.claimedAt !== mostRecentClaimAt) {
+			throw new AgentStoreValidationError('Completed response work has malformed assignment evidence.');
+		}
 		return;
 	}
 	const assignment = item.assignment;
@@ -501,6 +600,35 @@ function validateWorkLifecycle(item: UserAnnotationWorkItem): void {
 		|| !validTimestamp(assignment.claimedAt) || assignment.claimedAt !== mostRecentClaimAt) {
 		throw new AgentStoreValidationError('Assigned work has malformed assignment evidence.');
 	}
+	if (item.pendingResponse !== undefined
+		&& (item.pendingResponse.phase === 'completed'
+			|| item.pendingResponse.assignment.sessionId !== assignment.sessionId
+			|| item.pendingResponse.assignment.sequence !== assignment.sequence
+			|| item.pendingResponse.assignment.claimedAt !== assignment.claimedAt)) {
+		throw new AgentStoreValidationError('Pending response does not match the current assignment.');
+	}
+}
+
+function isPendingResponseEvidence(value: unknown): value is PendingResponseEvidence {
+	if (!isRecord(value)
+		|| !isRecord(value.assignment)
+		|| !validOpaque(value.assignment.sessionId)
+		|| !Number.isSafeInteger(value.assignment.sequence)
+		|| (value.assignment.sequence as number) < 1
+		|| !validTimestamp(value.assignment.claimedAt)
+		|| !safeRelativePath(value.path)
+		|| !/^[a-f0-9]{64}$/.test(String(value.bodyDigest))
+		|| typeof value.sourceUri !== 'string'
+		|| value.sourceUri.trim() === ''
+		|| !safeRelativePath(value.file)
+		|| !validTimestamp(value.createdAt)
+		|| !['prepared', 'recorded', 'completed'].includes(String(value.phase))) {
+		return false;
+	}
+	if (value.phase === 'completed') {
+		return isRecord(value.receipt) && safeRelativePath(value.receipt.file) && validTimestamp(value.receipt.completedAt);
+	}
+	return value.receipt === undefined;
 }
 
 function parseOpaqueId(value: unknown, name: string): string { if (!validOpaque(value)) {throw new AgentStoreValidationError(`${name} must be a safe non-empty opaque id.`);} return value; }

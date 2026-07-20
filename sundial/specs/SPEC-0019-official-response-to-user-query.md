@@ -1,7 +1,7 @@
 ---
 id: SPEC-0019
 title: Official response to user query
-status: Backlog
+status: Done
 created: 2026-07-20
 updated: 2026-07-20
 created_by: bjackson
@@ -9,7 +9,6 @@ parent: SPEC-0013
 domain: editor
 slice: 2
 ---
-
 # Official response to user query
 
 ## Discovery
@@ -159,4 +158,15 @@ None. Agent file annotations and cross-file feedback begin in SPEC-0020.
 
 ## Implementation Log
 
+- 2026-07-20: Added strict version-2 companion support with ordered `OfficialResponse` entries while retaining version-1 reads and writes until the first response mutation.
+- 2026-07-20: Added assignment-scoped response evidence, completion receipts, deterministic handoff validation, idempotent phase recovery, and the narrow `record-task-response` managed-agent command.
+- 2026-07-20: Updated managed prompts, host completion/requeue behavior, typed CLI/extension/webview projections, narrow companion refreshes, response-aware deletion, and Markdown response presentation.
+- 2026-07-20: Updated staged CLI fixtures, documentation, ignore rules, and the shared package release versions (`@arcridge/sundial-editor-cli` 0.4.0 and `sundial-editor` 0.8.0).
+- 2026-07-20: No Decision Record candidate was added; the implementation applies the accepted records listed above without establishing a new durable project convention.
+
 ## Test Log
+
+- 2026-07-20: `npm run check-types` passed for the CLI, extension host, and webview projects.
+- 2026-07-20: `npm run lint` passed.
+- 2026-07-20: `npm run test:unit` passed after rebasing (44 CLI tests and 75 editor tests).
+- 2026-07-20: Elevated `npm test` passed after rebasing (11 CLI integration tests, including the provider capability cache, and all staged VS Code 1.118.1 scenarios: delayed autosave, prompt-to-messages official-response flow/reload/deletion, and annotation retry).

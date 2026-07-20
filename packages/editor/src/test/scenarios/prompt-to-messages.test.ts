@@ -31,6 +31,7 @@ interface MessagesDiagnostics {
 			readonly annotation: {
 				readonly id: string; readonly message: string;
 				readonly anchor: { readonly text: string; readonly before: readonly string[]; readonly after: readonly string[] };
+				readonly officialResponses: readonly { readonly body: string; readonly createdAt: string; readonly agentName: string }[];
 			};
 			readonly position: number;
 			readonly total: number;
@@ -112,15 +113,21 @@ suite('Scenario: prompt-to-messages', () => {
 		await submission;
 		const completed = await waitForCompletedRun(1);
 		assert.equal(completed.state.work[0].status, 'completed');
-		assert.equal(completed.state.work[0].latestUpdate?.message, 'Completed assignment.');
+		assert.equal(completed.state.work[0].latestUpdate?.message, 'Official response recorded.');
+		const responded = await waitForAnnotationState(state => state.annotationViewer?.annotation.officialResponses.length === 1);
+		assert.equal(responded.state.annotationViewer?.annotation.officialResponses[0].agentName, 'Bob');
+		assert.match(responded.state.annotationViewer?.annotation.officialResponses[0].body ?? '', /Applied the requested test patch/);
 
 		const companionPath = vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', 'prompt.txt.comments').fsPath;
 		const companionYaml = await readFile(companionPath, 'utf8');
-		assert.match(companionYaml, /^version: 1\nannotations:\n/);
+		assert.match(companionYaml, /^version: 2\nannotations:\n/);
 		assert.match(companionYaml, /message: "Fix this through the test provider\."/);
 		assert.match(companionYaml, /text: "code before the command"/);
 		assert.match(companionYaml, /before: \[\]/);
 		assert.match(companionYaml, /after: \["keep this line","and this second line"\]/);
+		assert.match(companionYaml, /officialResponses:/);
+		assert.match(companionYaml, /agentSessionId: "session-bob"/);
+		await assert.rejects(() => readFile(vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', `${completed.state.work[0].id}response.md`).fsPath));
 
 		const received = JSON.parse(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'received-request.json').fsPath, 'utf8'));
 		assert.equal(received.provider, 'codex');
@@ -201,6 +208,7 @@ suite('Scenario: prompt-to-messages', () => {
 		reopenedEditor.selection = new vscode.Selection(2, 0, 2, 0);
 		const reopened = await waitForAnnotationState(state => state.annotationViewer?.annotation.id === secondAnnotationId);
 		assert.equal(reopened.state.annotationViewer?.annotation.message, 'Explain the second source line.');
+		assert.equal(reopened.state.annotationViewer?.annotation.officialResponses[0].agentName, 'Amy');
 
 		await vscode.commands.executeCommand('sundialEditor.internal.deleteAnnotation');
 		const afterDelete = await waitForAnnotationState(state => state.annotationViewer?.annotation.id === annotationId
@@ -211,6 +219,7 @@ suite('Scenario: prompt-to-messages', () => {
 		const afterDeleteYaml = await readFile(companionPath, 'utf8');
 		assert.match(afterDeleteYaml, /Fix this through the test provider/);
 		assert.doesNotMatch(afterDeleteYaml, /Explain the second source line/);
+		assert.doesNotMatch(afterDeleteYaml, /agentSessionId: "session-amy"/);
 	});
 });
 

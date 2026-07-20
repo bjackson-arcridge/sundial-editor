@@ -41,12 +41,37 @@ export type MessagesState = MessagesStateBase & (
 
 export interface AnnotationViewerState {
 	readonly sourceUri: string;
-	readonly annotation: UserAnnotation;
+	readonly annotation: PresentedUserAnnotation;
 	readonly position: number;
 	readonly total: number;
 	readonly pinned: boolean;
 	readonly canPrevious: boolean;
 	readonly canNext: boolean;
+}
+
+export interface PresentedOfficialResponse {
+	readonly body: string;
+	readonly createdAt: string;
+	readonly agentName: string;
+}
+
+export interface PresentedUserAnnotation extends Omit<UserAnnotation, 'officialResponses'> {
+	readonly officialResponses: readonly PresentedOfficialResponse[];
+}
+
+export function presentAnnotation(annotation: UserAnnotation, agents: readonly NamedAgent[]): PresentedUserAnnotation {
+	return {
+		id: annotation.id,
+		message: annotation.message,
+		preset: annotation.preset,
+		scope: annotation.scope,
+		anchor: annotation.anchor,
+		officialResponses: annotation.officialResponses.map(response => ({
+			body: response.body,
+			createdAt: response.createdAt,
+			agentName: agents.find(agent => agent.id === response.agentId)?.name ?? 'Unknown agent',
+		})),
+	};
 }
 
 export function annotationForLine(
@@ -222,7 +247,7 @@ function isAnnotationViewerState(value: unknown): value is AnnotationViewerState
 			'sourceUri', 'annotation', 'position', 'total', 'pinned', 'canPrevious', 'canNext',
 		])
 		&& typeof value.sourceUri === 'string'
-		&& isUserAnnotation(value.annotation)
+		&& isPresentedUserAnnotation(value.annotation)
 		&& Number.isInteger(value.position)
 		&& (value.position as number) >= 1
 		&& Number.isInteger(value.total)
@@ -230,6 +255,22 @@ function isAnnotationViewerState(value: unknown): value is AnnotationViewerState
 		&& typeof value.pinned === 'boolean'
 		&& typeof value.canPrevious === 'boolean'
 		&& typeof value.canNext === 'boolean';
+}
+
+function isPresentedUserAnnotation(value: unknown): value is PresentedUserAnnotation {
+	if (!isRecord(value)
+		|| !hasExactKeys(value, ['id', 'message', 'preset', 'scope', 'anchor', 'officialResponses'])
+		|| !isRecord(value.anchor)
+		|| !hasExactKeys(value.anchor, ['line', 'text', 'before', 'after'])) { return false; }
+	const persistedShape = { ...value, officialResponses: [] };
+	return isUserAnnotation(persistedShape)
+		&& Array.isArray(value.officialResponses)
+		&& value.officialResponses.every(response => isRecord(response)
+			&& hasExactKeys(response, ['body', 'createdAt', 'agentName'])
+			&& isNonEmptyString(response.body)
+			&& isNonEmptyString(response.agentName)
+			&& typeof response.createdAt === 'string'
+			&& !Number.isNaN(Date.parse(response.createdAt)));
 }
 
 function isPromptContext(value: unknown): value is PromptContext {

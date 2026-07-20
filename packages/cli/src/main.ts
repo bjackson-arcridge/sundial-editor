@@ -15,7 +15,6 @@ import {
 	markProviderSessionMissing,
 	markWorkReady,
 	renameAgent,
-	requeueWork,
 	resetAgentSession,
 	setSessionTranscript,
 	showAgent,
@@ -28,6 +27,7 @@ import {
 import { appendUserAnnotation, deleteUserAnnotation, readUserAnnotations } from './annotations.js';
 import { renderManagedAgentContract, renderManagedPrompt } from './managedPrompts.js';
 import { isManagedPromptRequest, parseCliPromptRequest, renderEvent } from './protocol.js';
+import { requeueWorkWithResponseReconciliation } from './responseRecording.js';
 import { packageVersion } from './version.js';
 
 export interface CliIo {
@@ -147,7 +147,7 @@ async function agent(args: readonly string[], io: CliIo, services: MainServices)
 				break;
 			}
 			case 'work complete': result = projectWorkItem(await completeWork({ ...assignment(request, cwd), finalUpdate: optionalString(request.finalUpdate) })); break;
-			case 'work requeue': result = projectWorkItem(await requeueWork({ ...assignment(request, cwd), reason: stringField(request, 'reason') })); break;
+			case 'work requeue': result = projectWorkItem(await requeueWorkWithResponseReconciliation({ ...assignment(request, cwd), reason: stringField(request, 'reason') })); break;
 			case 'transcript': result = await transcriptCommand(cwd, request, services); break;
 			case 'open': result = await openCommand(cwd, request); break;
 			case 'interrupt': result = await interruptCommand(cwd, request); break;
@@ -171,7 +171,11 @@ async function ensureSessionCommand(cwd: string, request: Record<string, unknown
 		}
 	}
 	if (detail.session.state !== 'available' && request.confirmedFreshSession !== true) {throw new Error('No active session found; this operation will create a fresh session. Confirmation is required.');}
-	if (detail.session.state === 'missing' && detail.session.id !== undefined) { await resetAgentSession({ workspaceCwd: cwd, selector: target, reason: 'Missing provider session replaced.' }); detail = await showAgent(cwd, target); }
+	if (detail.session.state === 'missing' && detail.session.id !== undefined) {
+		await reconcileCurrentWork(cwd, detail, 'Missing provider session replaced.');
+		await resetAgentSession({ workspaceCwd: cwd, selector: target, reason: 'Missing provider session replaced.' });
+		detail = await showAgent(cwd, target);
+	}
 	let session = await ensureAgentSession({ workspaceCwd: cwd, selector: target });
 	if (session.state !== 'available') {
 		const adapter = requiredAdapter(services, session.provider); if (adapter.createSession === undefined) {throw new Error('Provider cannot create managed sessions.');}
@@ -209,17 +213,31 @@ async function openCommand(cwd: string, request: Record<string, unknown>): Promi
 async function interruptCommand(cwd: string, request: Record<string, unknown>): Promise<unknown> {
 	const detail = await showAgent(cwd, selector(request)); const current = detail.currentWork;
 	if (current?.assignment === undefined) {return { interrupted: false, agent: projectAgentDetail(detail) };}
-	const work = await requeueWork({ workspaceCwd: cwd, agentId: detail.id, userAnnotationId: current.id, agentSessionId: current.assignment.sessionId, assignmentSequence: current.assignment.sequence, reason: 'Interrupted by the user.' });
+	const work = await requeueWorkWithResponseReconciliation({ workspaceCwd: cwd, agentId: detail.id, userAnnotationId: current.id, agentSessionId: current.assignment.sessionId, assignmentSequence: current.assignment.sequence, reason: 'Interrupted by the user.' });
 	return { interrupted: true, work: projectWorkItem(work), agent: projectAgentDetail(await showAgent(cwd, detail.id)) };
 }
 
 async function resetCommand(cwd: string, request: Record<string, unknown>, services: MainServices): Promise<unknown> {
 	const target = selector(request); const before = await showAgent(cwd, target);
+	await reconcileCurrentWork(cwd, before, 'Agent session reset by the user.');
 	const reset = await resetAgentSession({ workspaceCwd: cwd, selector: target, reason: 'Agent session reset by the user.' }); const session = reset.session;
 	const adapter = requiredAdapter(services, session.provider); if (adapter.createSession === undefined) {throw new Error('Provider cannot create managed sessions.');}
 	const provider = await adapter.createSession({ cwd, model: optionalString(request.model), baseInstructions: renderManagedAgentContract(before.name) });
 	await attachProviderSession({ workspaceCwd: cwd, agentSessionId: session.id, providerSessionId: provider.providerSessionId });
 	return projectAgentDetail(await showAgent(cwd, target));
+}
+
+async function reconcileCurrentWork(cwd: string, detail: AgentDetail, reason: string): Promise<void> {
+	const current = detail.currentWork;
+	if (current?.assignment === undefined) {return;}
+	await requeueWorkWithResponseReconciliation({
+		workspaceCwd: cwd,
+		agentId: detail.id,
+		userAnnotationId: current.id,
+		agentSessionId: current.assignment.sessionId,
+		assignmentSequence: current.assignment.sequence,
+		reason,
+	});
 }
 
 async function prompt(args: readonly string[], io: CliIo, services: MainServices): Promise<number> {
@@ -251,11 +269,11 @@ async function runManagedPrompt(request: ReturnType<typeof parseCliPromptRequest
 	const agentDetail = await showAgent(request.workspace.cwd, work.agentId); const session = agentDetail.sessionFile;
 	if (session?.id !== work.assignment.sessionId || session.state !== 'available' || session.providerSessionId === undefined) {throw new Error('Managed provider session is missing.');}
 	if (adapter.runSession === undefined) {throw new Error('Provider cannot resume managed sessions.');}
-	const rendered = renderManagedPrompt({ agentName: agentDetail.name, preset: work.prompt.preset, scope: work.prompt.scope === 'project' ? 'project' : 'local', userRequest: work.prompt.text, sourcePath: work.source.path ?? work.source.uri, anchor: { line: work.source.line, text: work.source.text, before: work.source.before, after: work.source.after } });
+	const rendered = renderManagedPrompt({ agentName: agentDetail.name, userAnnotationId: work.id, preset: work.prompt.preset, scope: work.prompt.scope === 'project' ? 'project' : 'local', userRequest: work.prompt.text, sourcePath: work.source.path ?? work.source.uri, anchor: { line: work.source.line, text: work.source.text, before: work.source.before, after: work.source.after } });
 	let result;
 	try {
 		result = await adapter.runSession({ cwd: request.workspace.cwd, providerSessionId: session.providerSessionId, prompt: rendered, model: request.model, invocationEnvironment: {
-			SUNDIAL_WORKSPACE_CWD: request.workspace.cwd, SUNDIAL_AGENT_SESSION_ID: session.id, SUNDIAL_USER_ANNOTATION_ID: work.id, SUNDIAL_ASSIGNMENT_SEQUENCE: String(work.assignment.sequence),
+			SUNDIAL_WORKSPACE_CWD: request.workspace.cwd, SUNDIAL_AGENT_ID: work.agentId, SUNDIAL_AGENT_SESSION_ID: session.id, SUNDIAL_USER_ANNOTATION_ID: work.id, SUNDIAL_ASSIGNMENT_SEQUENCE: String(work.assignment.sequence),
 		} }, event => io.stdout.write(`${renderEvent(event)}\n`), signal);
 	} catch (error) {
 		if (isMissingProviderSession(error)) {
@@ -278,10 +296,12 @@ function projectAgentDetail(detail: AgentDetail): Omit<AgentDetail, 'sessionFile
 	const { sessionFile: _sessionFile, ...safe } = detail;
 	return safe;
 }
-function projectWorkItem(work: WorkItem): WorkItem & { readonly latestUpdate: WorkItem['updates'][number] } {
+function projectWorkItem(work: WorkItem): Omit<WorkItem, 'pendingResponse'> & { readonly latestUpdate: WorkItem['updates'][number] } {
 	const latestUpdate = work.updates.at(-1);
 	if (latestUpdate === undefined) {throw new Error(`Work item has no update history: ${work.id}`);}
-	return { ...work, latestUpdate };
+	const { pendingResponse: _pendingResponse, ...safe } = work;
+	const historicalAssignment = work.assignment ?? (work.pendingResponse?.phase === 'completed' ? work.pendingResponse.assignment : undefined);
+	return { ...safe, ...(historicalAssignment === undefined ? {} : { assignment: historicalAssignment }), latestUpdate };
 }
 
 function isMissingProviderSession(error: unknown): boolean {

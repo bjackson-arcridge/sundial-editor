@@ -166,9 +166,9 @@ describe('CLI runner', () => {
 				line: waitingWork.source.line,
 				text: waitingWork.source.text,
 				before: waitingWork.source.before,
-				after: waitingWork.source.after,
-			},
-			annotation: { id: workId, message: waitingWork.prompt.text, preset: '%W' as const, scope: 'project' as const },
+					after: waitingWork.source.after,
+				},
+				annotation: { id: workId, message: waitingWork.prompt.text, preset: '%W' as const, scope: 'project' as const },
 		};
 		const result = appendAnnotationViaCli(cliPath, request, servicesFor(child, captured => { invocation = captured; }));
 		finishJson(child, {
@@ -180,9 +180,10 @@ describe('CLI runner', () => {
 				line: waitingWork.source.line,
 				text: waitingWork.source.text,
 				before: waitingWork.source.before,
-				after: waitingWork.source.after,
-			},
-		});
+					after: waitingWork.source.after,
+				},
+				officialResponses: [],
+			});
 
 		assert.equal((await result).id, workId);
 		assert.deepEqual(invocation, { command: '/node', args: [cliPath, 'annotations', 'append'], cwd });
@@ -210,7 +211,8 @@ describe('CLI runner', () => {
 			message: waitingWork.prompt.text,
 			preset: '%W',
 			scope: 'project',
-			anchor: { line: 4, text: 'const value = 1;', before: [], after: [] },
+				anchor: { line: 4, text: 'const value = 1;', before: [], after: [] },
+				officialResponses: [],
 		});
 		assert.equal((await remove).id, workId);
 	});

@@ -12,6 +12,8 @@ import {
 	listAgents,
 	listWork,
 	markWorkReady,
+	markResponseRecorded,
+	prepareResponseEvidence,
 	provideStatusUpdate,
 	renameAgent,
 	requeueWork,
@@ -84,7 +86,18 @@ describe('persistent agent store', () => {
 		await assert.rejects(() => provideStatusUpdate({ ...assignment, assignmentSequence: assignment.assignmentSequence + 1, status: 'Stale' }), /stale/);
 		assert.equal((await requeueWork({ ...editorAssignment, reason: 'Provider failed.' })).status, 'waiting');
 		const reclaimed = await claimNextWork({ workspaceCwd: cwd, agentSelector: agent.id }); assert.ok(reclaimed?.assignment);
-		assert.equal((await completeWork({ workspaceCwd: cwd, agentId: agent.id, userAnnotationId: reclaimed.id, agentSessionId: session.id, assignmentSequence: reclaimed.assignment.sequence })).status, 'completed');
+		const responseAttempt = {
+			workspaceCwd: cwd, agentId: agent.id, userAnnotationId: reclaimed.id, agentSessionId: session.id,
+			assignmentSequence: reclaimed.assignment.sequence, path: `.sundial/${reclaimed.id}response.md`,
+			bodyDigest: 'a'.repeat(64), sourceUri: source.uri, file: source.path,
+		};
+		await assert.rejects(() => completeWork(responseAttempt), /requires a matching durable official response/);
+		const evidence = await prepareResponseEvidence(responseAttempt);
+		await markResponseRecorded({ ...responseAttempt, createdAt: evidence.createdAt });
+		const completed = await completeWork(responseAttempt);
+		assert.equal(completed.status, 'completed');
+		assert.equal(completed.assignment, undefined);
+		assert.equal(completed.pendingResponse?.phase, 'completed');
 	});
 
 	test('reset removes only the provider session, requeues work, and malformed files remain untouched', async () => {

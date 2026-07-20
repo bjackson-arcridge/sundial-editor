@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'node:path';
 import {
 	type AgentId,
 	type NamedAgent,
@@ -8,7 +9,6 @@ import type { UserAnnotation } from '../../annotationProtocol.js';
 import {
 	appendAnnotationViaCli,
 	claimWorkViaCli,
-	completeWorkViaCli,
 	deleteAnnotationViaCli,
 	enqueueWorkViaCli,
 	ensureAgentSessionViaCli,
@@ -33,6 +33,7 @@ import {
 	type MessagesState,
 	type WebviewToHost,
 	isValidWebviewToHostMessage,
+	presentAnnotation,
 } from './messages.js';
 
 export interface MessagesServices {
@@ -48,7 +49,6 @@ export interface MessagesServices {
 	readonly enqueueWork?: typeof enqueueWorkViaCli;
 	readonly markWorkReady?: typeof markWorkReadyViaCli;
 	readonly claimWork?: typeof claimWorkViaCli;
-	readonly completeWork?: typeof completeWorkViaCli;
 	readonly requeueWork?: typeof requeueWorkViaCli;
 	readonly openAgent?: typeof openAgentViaCli;
 	readonly interruptAgent?: typeof interruptAgentViaCli;
@@ -240,7 +240,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 				(this.services.listAgents ?? listAgentsViaCli)(this.cliPath(), cwd),
 				(this.services.listWork ?? listWorkViaCli)(this.cliPath(), cwd),
 			]);
-				if (!this.recoveredWorkspaces.has(cwd)) {
+			if (!this.recoveredWorkspaces.has(cwd)) {
 				this.recoveredWorkspaces.add(cwd);
 				const stale = work.filter(item => item.status === 'working'
 					&& item.assignment !== undefined && !this.activeRuns.has(item.agentId));
@@ -338,6 +338,16 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
+	async refreshAnnotationsForCompanion(companionPath: string): Promise<void> {
+		const location = this.activeLocation;
+		if (location === undefined) { return; }
+		const relativeSource = path.relative(location.cwd, vscode.Uri.parse(location.sourceUri).fsPath);
+		const expected = path.join(location.cwd, '.sundial', `${relativeSource}.comments`);
+		if (path.normalize(companionPath) === path.normalize(expected)) {
+			await this.refreshActiveAnnotations();
+		}
+	}
+
 	toggleAnnotationPin(): void {
 		if (this.viewedAnnotation === undefined) { return; }
 		this.annotationPinned = !this.annotationPinned;
@@ -362,7 +372,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		const viewed = this.viewedAnnotation;
 		if (viewed === undefined) { return; }
 		const confirmed = confirmedForTest || (this.services.confirmDeleteAnnotation === undefined
-			? await vscode.window.showWarningMessage('Delete this annotation and all corresponding work items?', { modal: true }, 'Delete') === 'Delete'
+			? await vscode.window.showWarningMessage('Delete this annotation, its official responses, and all corresponding work items?', { modal: true }, 'Delete') === 'Delete'
 			: await this.services.confirmDeleteAnnotation(viewed.annotation));
 		if (!confirmed) { return; }
 		try {
@@ -502,19 +512,18 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		void this.refreshAgentState(cwd);
 		try {
 			const result = await run.completion;
-			if (result.exitCode === 0 && active.cancelReason === undefined) {
-				await (this.services.completeWork ?? completeWorkViaCli)(this.cliPath(), cwd, {
-					agentId, sessionId: assignment.sessionId, workId: work.id, assignmentSequence: assignment.sequence,
-				}, 'Completed assignment.');
-			} else {
-				await this.safeRequeue(cwd, work, active.cancelReason ?? (result.stderr || `Provider exited with code ${result.exitCode}.`));
-			}
+			const reason = active.cancelReason
+				?? (result.exitCode === 0
+					? 'Provider turn ended without recording an official response.'
+					: result.stderr || `Provider exited with code ${result.exitCode}.`);
+			await this.safeRequeue(cwd, work, reason);
 		} catch (error) {
 			await this.safeRequeue(cwd, work, active.cancelReason ?? `Provider failed: ${errorMessage(error)}`);
 		} finally {
 			clearInterval(statusRefresh);
 			if (this.activeRuns.get(agentId) === active) { this.activeRuns.delete(agentId); }
 			await this.refreshAgentState(cwd);
+			if (this.activeLocation?.cwd === cwd) { await this.refreshActiveAnnotations(); }
 		}
 	}
 
@@ -662,7 +671,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		const index = annotations.findIndex(annotation => annotation.id === viewed.annotation.id);
 		const position = index < 0 ? 0 : index;
 		return {
-			sourceUri: viewed.sourceUri, annotation: viewed.annotation,
+			sourceUri: viewed.sourceUri, annotation: presentAnnotation(viewed.annotation, this.currentAgents()),
 			position: position + 1, total: Math.max(annotations.length, 1), pinned: this.annotationPinned,
 			canPrevious: position > 0, canNext: position >= 0 && position < annotations.length - 1,
 		};

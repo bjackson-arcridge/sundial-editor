@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { afterEach, describe, test } from 'node:test';
 import {
 	appendUserAnnotation,
+	appendOfficialResponse,
 	companionPathForSource,
 	deleteUserAnnotation,
 	parseAnnotationCompanion,
@@ -129,6 +130,29 @@ describe('annotation companions', () => {
 		}), /already reserved with different content/);
 	});
 
+	test('upgrades only on response mutation and preserves multiple ordered responses on the originating identity', async () => {
+		const context = await workspace();
+		await appendUserAnnotation({
+			workspace: { cwd: context.root },
+			document: { uri: context.sourceUri, line: 1, text: 'code', before: [], after: [] },
+			annotation: { id: 'query-1', message: 'Explain.', preset: '%Q', scope: 'line' },
+		});
+		for (const [index, body] of ['First response.', 'Second response.'].entries()) {
+			await appendOfficialResponse({
+				workspaceCwd: context.root,
+				sourceUri: context.sourceUri,
+				response: {
+					userAnnotationId: 'query-1', agentId: 'agent-1', agentSessionId: `session-${index + 1}`,
+					body, createdAt: `2026-07-20T14:0${index}:00.000Z`,
+				},
+			});
+		}
+		const companion = await readUserAnnotations({ workspace: { cwd: context.root }, document: { uri: context.sourceUri } });
+		assert.equal(companion.version, 2);
+		assert.deepEqual(companion.annotations[0].officialResponses.map(response => response.body), ['First response.', 'Second response.']);
+		assert.ok(companion.annotations[0].officialResponses.every(response => response.userAnnotationId === 'query-1'));
+	});
+
 	test('returns an empty collection for a source without a companion', async () => {
 		const context = await workspace();
 		assert.deepEqual(
@@ -149,7 +173,8 @@ describe('annotation companions', () => {
 			annotation: { message: 'Do it.', preset: '%W', scope: 'line' },
 		}), /Invalid annotation companion/);
 		assert.equal(await readFile(companionPath, 'utf8'), before);
-		assert.throws(() => parseAnnotationCompanion('version: 2\nannotations:\n'), /version 1/);
+		assert.deepEqual(parseAnnotationCompanion('version: 2\nannotations:\n'), { version: 2, annotations: [] });
+		assert.throws(() => parseAnnotationCompanion('version: 3\nannotations:\n'), /version 1 or 2/);
 	});
 
 	test('reads older version-1 entries without context arrays', () => {

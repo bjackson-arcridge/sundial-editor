@@ -29,6 +29,7 @@ const knownPlaceholders = new Set([
 	'source_path',
 	'source_line',
 	'source_context',
+	'response_file',
 ]);
 
 export type ManagedPromptTemplateName =
@@ -55,6 +56,7 @@ export interface ManagedPromptAnchor {
 
 export interface ManagedPromptInput {
 	readonly agentName: string;
+	readonly userAnnotationId: string;
 	readonly preset: ManagedPromptPreset;
 	readonly scope: ManagedPromptScope;
 	readonly userRequest: string;
@@ -64,6 +66,7 @@ export interface ManagedPromptInput {
 
 export interface ManagedPromptRenderOptions {
 	readonly loadTemplate?: ManagedPromptTemplateLoader;
+	readonly responseFile?: string;
 }
 
 /**
@@ -78,7 +81,8 @@ export function renderManagedPrompt(
 	const loadTemplate = options.loadTemplate ?? loadPublishedTemplate;
 	const context = [...input.anchor.before, input.anchor.text, ...input.anchor.after].join('\n');
 
-	const shared = renderManagedAgentContract(input.agentName, { loadTemplate });
+	const responseFile = `.sundial/${input.userAnnotationId}response.md`;
+	const shared = renderManagedAgentContract(input.agentName, { loadTemplate, responseFile });
 	const presetTemplate = presetTemplates[input.preset];
 	const preset = renderTemplate(presetTemplate, loadTemplate(presetTemplate), {}, []);
 	const scopeTemplate = scopeTemplates[input.scope];
@@ -91,8 +95,9 @@ export function renderManagedPrompt(
 			source_path: escapeDelimitedValue(input.sourcePath),
 			source_line: String(input.anchor.line + 1),
 			source_context: escapeDelimitedValue(context),
+			response_file: responseFile,
 		},
-		['user_request', 'source_path', 'source_line', 'source_context'],
+		['user_request', 'source_path', 'source_line', 'source_context', 'response_file'],
 	);
 
 	return [shared, preset, scope, assignment].join('\n\n');
@@ -107,11 +112,12 @@ export function renderManagedAgentContract(
 		throw new Error('Managed prompt agentName must be a non-empty single-line string.');
 	}
 	const loadTemplate = options.loadTemplate ?? loadPublishedTemplate;
+	const responseFile = options.responseFile ?? '.sundial/<UserAnnotationId>response.md';
 	return renderTemplate(
 		'shared.md',
 		loadTemplate('shared.md'),
-		{ agent_name: agentName },
-		['agent_name'],
+		{ agent_name: agentName, response_file: responseFile },
+		['agent_name', 'response_file'],
 	);
 }
 
@@ -190,6 +196,9 @@ function validateInput(input: ManagedPromptInput): void {
 	}
 	if (!isSingleLineNonEmptyString(input.agentName)) {
 		throw new Error('Managed prompt agentName must be a non-empty single-line string.');
+	}
+	if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(input.userAnnotationId)) {
+		throw new Error('Managed prompt userAnnotationId must be a safe opaque identity.');
 	}
 	if (!managedPromptPresets.includes(input.preset)) {
 		throw new Error(`Unsupported managed prompt preset "${String(input.preset)}".`);

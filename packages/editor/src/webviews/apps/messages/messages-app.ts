@@ -1,6 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import type {
 	AgentId,
 	AgentsViewState,
@@ -30,6 +31,7 @@ import {
 } from '../../messages/messages.js';
 import { getHost, readInitialState } from '../shared/host.js';
 import { tokenStyles } from '../shared/styles.js';
+import { renderMarkdown } from './markdown.js';
 
 const toolbarIconPaths = {
 	'chevron-up': 'M3.14603 9.85423C3.34103 10.0492 3.65803 10.0492 3.85303 9.85423L7.99903 5.70823L12.145 9.85423C12.34 10.0492 12.657 10.0492 12.852 9.85423C13.047 9.65923 13.047 9.34223 12.852 9.14723L8.35203 4.64723C8.15703 4.45223 7.84003 4.45223 7.64503 4.64723L3.14503 9.14723C2.95003 9.34223 2.95103 9.65923 3.14603 9.85423Z',
@@ -628,6 +630,46 @@ export class MessagesApp extends LitElement {
 				overflow-wrap: anywhere;
 			}
 
+			.official-responses {
+				display: grid;
+				margin-top: 14px;
+				gap: 12px;
+			}
+
+			.official-response {
+				padding-top: 12px;
+				border-top: 1px solid var(--se-border);
+			}
+
+			.official-response header {
+				display: flex;
+				align-items: baseline;
+				justify-content: space-between;
+				margin-bottom: 8px;
+				gap: 8px;
+			}
+
+			.official-response time {
+				color: var(--se-muted-fg);
+				font-size: 0.9em;
+			}
+
+			.response-markdown {
+				overflow-wrap: anywhere;
+			}
+
+			.response-markdown > :first-child {
+				margin-top: 0;
+			}
+
+			.response-markdown > :last-child {
+				margin-bottom: 0;
+			}
+
+			.response-markdown pre {
+				overflow: auto;
+			}
+
 			.annotation-work-status {
 				margin: 0 0 8px;
 				color: var(--se-muted-fg);
@@ -1058,6 +1100,21 @@ export class MessagesApp extends LitElement {
 								? nothing
 								: html`<p class="annotation-work-status">Waiting for ${waitingAgent.name}</p>`}
 							<p class="annotation-message">${viewer.annotation.message}</p>
+							${viewer.annotation.officialResponses.length === 0
+								? nothing
+								: html`
+									<section class="official-responses" aria-label="Official responses">
+										${viewer.annotation.officialResponses.map(response => html`
+											<article class="official-response">
+												<header>
+													<strong>${response.agentName}</strong>
+													<time datetime=${response.createdAt}>${this.formatTimestamp(response.createdAt)}</time>
+												</header>
+												<div class="response-markdown">${unsafeHTML(renderMarkdown(response.body))}</div>
+											</article>
+										`)}
+									</section>
+								`}
 						`}
 				</div>
 			</section>

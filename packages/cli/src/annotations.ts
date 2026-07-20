@@ -4,7 +4,8 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deleteWork } from './agentStore.js';
 
-export const annotationCompanionVersion = 1;
+export const currentAnnotationCompanionVersion = 2;
+export type AnnotationCompanionVersion = 1 | typeof currentAnnotationCompanionVersion;
 
 export interface AnnotationAnchor {
 	readonly line: number;
@@ -19,6 +20,15 @@ export interface UserAnnotation {
 	readonly preset: string;
 	readonly scope: 'line' | 'project';
 	readonly anchor: AnnotationAnchor;
+	readonly officialResponses: readonly OfficialResponse[];
+}
+
+export interface OfficialResponse {
+	readonly userAnnotationId: string;
+	readonly agentId: string;
+	readonly agentSessionId: string;
+	readonly body: string;
+	readonly createdAt: string;
 }
 
 export interface AnnotationAppendRequest {
@@ -48,7 +58,7 @@ export interface AnnotationDeleteRequest extends AnnotationReadRequest {
 }
 
 export interface AnnotationCompanion {
-	readonly version: typeof annotationCompanionVersion;
+	readonly version: AnnotationCompanionVersion;
 	readonly annotations: readonly UserAnnotation[];
 }
 
@@ -76,21 +86,30 @@ export async function appendUserAnnotation(
 			before: request.document.before,
 			after: request.document.after,
 		},
+		officialResponses: [],
 	};
 	validateAnnotation(annotation);
 	const alreadyPersisted = existing.annotations.find(candidate => candidate.id === annotation.id);
 	if (alreadyPersisted !== undefined) {
-		if (JSON.stringify(alreadyPersisted) !== JSON.stringify(annotation)) {
+		if (!sameUserAnnotationContent(alreadyPersisted, annotation)) {
 			throw new Error(`Annotation ID is already reserved with different content: ${annotation.id}`);
 		}
 		return alreadyPersisted;
 	}
 	const companion: AnnotationCompanion = {
-		version: annotationCompanionVersion,
+		version: existing.version,
 		annotations: [...existing.annotations, annotation],
 	};
 	await writeCompanionFile(companionPath, companion);
 	return annotation;
+}
+
+function sameUserAnnotationContent(left: UserAnnotation, right: UserAnnotation): boolean {
+	return left.id === right.id
+		&& left.message === right.message
+		&& left.preset === right.preset
+		&& left.scope === right.scope
+		&& JSON.stringify(left.anchor) === JSON.stringify(right.anchor);
 }
 
 export async function readUserAnnotations(value: unknown): Promise<AnnotationCompanion> {
@@ -108,7 +127,7 @@ export async function deleteUserAnnotation(value: unknown): Promise<UserAnnotati
 	}
 	await deleteWork({ workspaceCwd: request.workspace.cwd, userAnnotationId: deleted.id });
 	await writeCompanionFile(companionPath, {
-		version: annotationCompanionVersion,
+		version: existing.version,
 		annotations: existing.annotations.filter(annotation => annotation.id !== request.annotation.id),
 	});
 	return deleted;
@@ -146,8 +165,9 @@ export function parseAnnotationCompanion(text: string): AnnotationCompanion {
 	if (lines.at(-1) === '') {
 		lines.pop();
 	}
-	if (lines[0] !== `version: ${annotationCompanionVersion}` || lines[1] !== 'annotations:') {
-		throw new Error(`Invalid annotation companion: expected version ${annotationCompanionVersion}`);
+	const version = lines[0] === 'version: 1' ? 1 : lines[0] === 'version: 2' ? 2 : undefined;
+	if (version === undefined || lines[1] !== 'annotations:') {
+		throw new Error('Invalid annotation companion: expected version 1 or 2');
 	}
 	const annotations: UserAnnotation[] = [];
 	let index = 2;
@@ -172,25 +192,50 @@ export function parseAnnotationCompanion(text: string): AnnotationCompanion {
 			after = parseStringArrayField(lines[index + 1] ?? '', '      after: ');
 			index += 2;
 		}
-		const annotation = { id, message, preset, scope, anchor: { line: lineValue, text: anchorText, before, after } };
+		const officialResponses: OfficialResponse[] = [];
+		if (version === 2) {
+			if (lines[index] !== '    officialResponses:') {
+				throw new Error('Invalid annotation companion: expected officialResponses');
+			}
+			index += 1;
+			while (lines[index]?.startsWith('      - userAnnotationId: ')) {
+				if (index + 4 >= lines.length) {
+					throw new Error('Invalid annotation companion: incomplete official response');
+				}
+				const response = {
+					userAnnotationId: parseQuotedField(lines[index], '      - userAnnotationId: '),
+					agentId: parseQuotedField(lines[index + 1], '        agentId: '),
+					agentSessionId: parseQuotedField(lines[index + 2], '        agentSessionId: '),
+					body: parseQuotedField(lines[index + 3], '        body: '),
+					createdAt: parseQuotedField(lines[index + 4], '        createdAt: '),
+				};
+				validateOfficialResponse(response, id);
+				officialResponses.push(response);
+				index += 5;
+			}
+		}
+		const annotation = { id, message, preset, scope, anchor: { line: lineValue, text: anchorText, before, after }, officialResponses };
 		validateAnnotation(annotation);
 		annotations.push(annotation);
 	}
 	if (new Set(annotations.map(annotation => annotation.id)).size !== annotations.length) {
 		throw new Error('Invalid annotation companion: annotation IDs must be unique');
 	}
-	return { version: annotationCompanionVersion, annotations };
+	return { version, annotations };
 }
 
 export function renderAnnotationCompanion(companion: AnnotationCompanion): string {
-	if (companion.version !== annotationCompanionVersion) {
+	if (companion.version !== 1 && companion.version !== 2) {
 		throw new Error(`Unsupported annotation companion version: ${String(companion.version)}`);
 	}
 	for (const annotation of companion.annotations) {
 		validateAnnotation(annotation);
+		if (companion.version === 1 && annotation.officialResponses.length > 0) {
+			throw new Error('Version 1 annotation companions cannot contain official responses');
+		}
 	}
 	return [
-		`version: ${annotationCompanionVersion}`,
+		`version: ${companion.version}`,
 		'annotations:',
 		...companion.annotations.flatMap(annotation => [
 			`  - id: ${JSON.stringify(annotation.id)}`,
@@ -202,6 +247,16 @@ export function renderAnnotationCompanion(companion: AnnotationCompanion): strin
 			`      text: ${JSON.stringify(annotation.anchor.text)}`,
 			`      before: ${JSON.stringify(annotation.anchor.before)}`,
 			`      after: ${JSON.stringify(annotation.anchor.after)}`,
+			...(companion.version === 1 ? [] : [
+				'    officialResponses:',
+				...annotation.officialResponses.flatMap(response => [
+					`      - userAnnotationId: ${JSON.stringify(response.userAnnotationId)}`,
+					`        agentId: ${JSON.stringify(response.agentId)}`,
+					`        agentSessionId: ${JSON.stringify(response.agentSessionId)}`,
+					`        body: ${JSON.stringify(response.body)}`,
+					`        createdAt: ${JSON.stringify(response.createdAt)}`,
+				]),
+			]),
 		]),
 		'',
 	].join('\n');
@@ -247,7 +302,7 @@ async function readCompanionFile(companionPath: string): Promise<AnnotationCompa
 		return parseAnnotationCompanion(await readFile(companionPath, 'utf8'));
 	} catch (error) {
 		if (isNodeError(error) && error.code === 'ENOENT') {
-			return { version: annotationCompanionVersion, annotations: [] };
+			return { version: 1, annotations: [] };
 		}
 		throw error;
 	}
@@ -276,9 +331,86 @@ function validateAnnotation(value: unknown): asserts value is UserAnnotation {
 		|| (value.anchor.line as number) < 0
 		|| typeof value.anchor.text !== 'string'
 		|| !isAnchorContext(value.anchor.before)
-		|| !isAnchorContext(value.anchor.after)) {
+		|| !isAnchorContext(value.anchor.after)
+		|| !Array.isArray(value.officialResponses)) {
 		throw new Error('Invalid annotation companion: malformed annotation');
 	}
+	for (const response of value.officialResponses) {
+		validateOfficialResponse(response, value.id);
+	}
+}
+
+export async function appendOfficialResponse(input: {
+	readonly workspaceCwd: string;
+	readonly sourceUri: string;
+	readonly response: OfficialResponse;
+}): Promise<{ readonly response: OfficialResponse; readonly appended: boolean }> {
+	validateOfficialResponse(input.response, input.response.userAnnotationId);
+	const companionPath = companionPathForSource(input.workspaceCwd, input.sourceUri);
+	const existing = await readCompanionFile(companionPath);
+	const annotationIndex = existing.annotations.findIndex(annotation => annotation.id === input.response.userAnnotationId);
+	if (annotationIndex < 0) {
+		throw new Error(`Originating user annotation not found: ${input.response.userAnnotationId}`);
+	}
+	const annotation = existing.annotations[annotationIndex];
+	const duplicate = annotation.officialResponses.find(response => sameOfficialResponse(response, input.response));
+	if (duplicate !== undefined) {
+		return { response: duplicate, appended: false };
+	}
+	const annotations = [...existing.annotations];
+	annotations[annotationIndex] = { ...annotation, officialResponses: [...annotation.officialResponses, input.response] };
+	await writeCompanionFile(companionPath, { version: 2, annotations });
+	const verified = await readCompanionFile(companionPath);
+	const stored = verified.annotations.find(candidate => candidate.id === input.response.userAnnotationId)
+		?.officialResponses.find(response => sameOfficialResponse(response, input.response));
+	if (stored === undefined) {
+		throw new Error('Official response could not be verified after companion replacement.');
+	}
+	return { response: stored, appended: true };
+}
+
+export async function containsOfficialResponse(input: {
+	readonly workspaceCwd: string;
+	readonly sourceUri: string;
+	readonly response: OfficialResponse;
+}): Promise<boolean> {
+	const companion = await readCompanionFile(companionPathForSource(input.workspaceCwd, input.sourceUri));
+	return companion.annotations.find(annotation => annotation.id === input.response.userAnnotationId)
+		?.officialResponses.some(response => sameOfficialResponse(response, input.response)) === true;
+}
+
+function validateOfficialResponse(value: unknown, expectedUserAnnotationId: string): asserts value is OfficialResponse {
+	if (!isRecord(value)
+		|| !isSafeOpaqueId(value.userAnnotationId)
+		|| value.userAnnotationId !== expectedUserAnnotationId
+		|| !isSafeOpaqueId(value.agentId)
+		|| !isSafeOpaqueId(value.agentSessionId)
+		|| typeof value.body !== 'string'
+		|| value.body.trim() === ''
+		|| value.body.includes('\0')
+		|| value.body.includes('\r')
+		|| !isCanonicalTimestamp(value.createdAt)) {
+		throw new Error('Invalid annotation companion: malformed official response');
+	}
+}
+
+function sameOfficialResponse(left: OfficialResponse, right: OfficialResponse): boolean {
+	return left.userAnnotationId === right.userAnnotationId
+		&& left.agentId === right.agentId
+		&& left.agentSessionId === right.agentSessionId
+		&& left.body === right.body
+		&& left.createdAt === right.createdAt;
+}
+
+function isSafeOpaqueId(value: unknown): value is string {
+	return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+}
+
+function isCanonicalTimestamp(value: unknown): value is string {
+	return typeof value === 'string'
+		&& value !== ''
+		&& !Number.isNaN(Date.parse(value))
+		&& new Date(value).toISOString() === value;
 }
 
 function parseStringArrayField(line: string, prefix: string): readonly string[] {

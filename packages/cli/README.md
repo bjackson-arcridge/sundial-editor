@@ -11,7 +11,9 @@ The package installs two executables at the same version:
 - `sundial-editor-cli` is the editor control surface. It manages source annotations, named agents and their queues, sessions, transcripts, and lifecycle controls. Run `sundial-editor-cli help` for its complete command surface.
 - `sundial-annotations-cli` is the intentionally narrow surface described to managed agents. Run `sundial-annotations-cli help` to see the agent-facing surface.
 
-The editor executable accepts structured JSON for its machine commands and exposes health, annotation, agent, work-queue, transcript, open, interrupt, and reset operations. The annotation commands store source-anchored interactions in compact, versioned YAML companions under the workspace's mirrored `.sundial/` tree.
+Managed agents publish progress with `provide-status-update`. To finish an assignment, the agent writes its complete Markdown answer to the announced `.sundial/<UserAnnotationId>response.md` handoff and invokes `record-task-response` with that exact one path. The command durably appends the official response to its originating user annotation, completes the assigned work, consumes the handoff, and returns only the normalized source path. Ordinary provider output is not treated as an official response.
+
+The editor executable accepts structured JSON for its machine commands and exposes health, annotation, agent, work-queue, transcript, open, interrupt, and reset operations. The annotation commands store source-anchored interactions in compact, versioned YAML companions under the workspace's mirrored `.sundial/` tree. Version-1 companions remain readable; recording the first official response upgrades only the affected companion to version 2.
 
 Named agents, queued work, replaceable sessions, and ordered status histories persist separately under `.sundial/agents/`. This runtime directory is CLI-owned and gitignored; it is not part of the checked-in annotation companions.
 Agent listing, prompt targeting, and queue readiness use only this persisted state. They do not contact Codex; a missing provider thread is detected when an explicit provider operation attempts to read or resume it.

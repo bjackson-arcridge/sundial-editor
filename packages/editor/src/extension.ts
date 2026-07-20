@@ -61,9 +61,9 @@ export function activate(context: vscode.ExtensionContext): void {
 			}
 		}),
 		annotationWatcher,
-		annotationWatcher.onDidCreate(() => { void messagesProvider.refreshActiveAnnotations(); }),
-		annotationWatcher.onDidChange(() => { void messagesProvider.refreshActiveAnnotations(); }),
-		annotationWatcher.onDidDelete(() => { void messagesProvider.refreshActiveAnnotations(); }),
+		annotationWatcher.onDidCreate(uri => { void messagesProvider.refreshAnnotationsForCompanion(uri.fsPath); }),
+		annotationWatcher.onDidChange(uri => { void messagesProvider.refreshAnnotationsForCompanion(uri.fsPath); }),
+		annotationWatcher.onDidDelete(uri => { void messagesProvider.refreshAnnotationsForCompanion(uri.fsPath); }),
 		annotationMarker,
 		...registerPromptCommandMode({
 			targetsForDocument: document => {
