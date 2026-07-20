@@ -49,6 +49,27 @@ describe('persistent agent store', () => {
 		assert.equal(await claimNextWork({ workspaceCwd: cwd, agentSelector: agent.id }), undefined);
 	});
 
+	test('accepts new queue work only for persisted available sessions', async () => {
+		const cwd = await workspace(); const agent = (await listAgents(cwd))[0];
+		await assert.rejects(
+			() => enqueueWork({ workspaceCwd: cwd, agentSelector: agent.id, userAnnotationId: 'work-1', source, prompt }),
+			/managed session/,
+		);
+		const session = await ensureAgentSession({ workspaceCwd: cwd, selector: agent.id });
+		await assert.rejects(
+			() => enqueueWork({ workspaceCwd: cwd, agentSelector: agent.id, userAnnotationId: 'work-1', source, prompt }),
+			/active provider session/,
+		);
+		await attachProviderSession({ workspaceCwd: cwd, agentSessionId: session.id, providerSessionId: 'thread-1' });
+		const queued = await enqueueWork({ workspaceCwd: cwd, agentSelector: agent.id, userAnnotationId: 'work-1', source, prompt });
+		await resetAgentSession({ workspaceCwd: cwd, selector: agent.id });
+		assert.equal(
+			(await enqueueWork({ workspaceCwd: cwd, agentSelector: agent.id, userAnnotationId: queued.id, source, prompt })).id,
+			queued.id,
+			'an already-reserved identity remains idempotent after session replacement',
+		);
+	});
+
 	test('validates assignment generations, coalesces status retry, and transitions/requeues', async () => {
 		const cwd = await workspace(); const agent = (await listAgents(cwd))[0];
 		const session = await ensureAgentSession({ workspaceCwd: cwd, selector: agent.id });

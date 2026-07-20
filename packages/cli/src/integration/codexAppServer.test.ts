@@ -160,6 +160,40 @@ describe('Codex app-server integration', () => {
 		});
 	});
 
+	test('reuses, expires, invalidates, and forcibly refreshes capability checks across adapter processes', async () => {
+		await withServer('default-success', async ({ adapter, createAdapter, advanceTime, events, readTrace }) => {
+			await adapter.health();
+			const afterInitialProbe = (await readTrace()).length;
+			const nextProcess = createAdapter();
+			await nextProcess.runSession?.({
+				cwd: request.workspace.cwd,
+				providerSessionId: 'thread-persistent',
+				prompt: 'Current assignment.',
+			}, event => events.push(event));
+			const reusedCalls = (await readTrace()).slice(afterInitialProbe);
+			assert.deepEqual(reusedCalls.map(call => call.method), [
+				'initialize', 'initialized', 'model/list', 'thread/resume', 'turn/start',
+			]);
+			assert.equal(reusedCalls.some(call => call.method === 'thread/archive'), false);
+
+			const afterReusedTurn = (await readTrace()).length;
+			await createAdapter().health({ forceRefresh: true });
+			const refreshedCalls = (await readTrace()).slice(afterReusedTurn);
+			assert.ok(refreshedCalls.some(call => call.method === 'thread/archive'));
+
+			const afterForcedRefresh = (await readTrace()).length;
+			advanceTime(24 * 60 * 60 * 1_000 + 1);
+			await createAdapter().health();
+			const expiredCalls = (await readTrace()).slice(afterForcedRefresh);
+			assert.ok(expiredCalls.some(call => call.method === 'thread/archive'));
+
+			const afterExpiredRefresh = (await readTrace()).length;
+			await createAdapter({ codexVersion: '0.145.0' }).health();
+			const versionChangedCalls = (await readTrace()).slice(afterExpiredRefresh);
+			assert.ok(versionChangedCalls.some(call => call.method === 'thread/archive'));
+		});
+	});
+
 	test('names missing and malformed required RPC behavior', async () => {
 		for (const [scenario, expected] of [
 			['malformed-initialize', /initialize.*malformed/],
@@ -208,6 +242,8 @@ async function withServer(
 	scenario: string,
 	run: (context: {
 		readonly adapter: ReturnType<typeof createCodexAdapter>;
+		readonly createAdapter: (options?: { readonly codexVersion?: string }) => ReturnType<typeof createCodexAdapter>;
+		readonly advanceTime: (milliseconds: number) => void;
 		readonly events: AgentEvent[];
 		readonly readTrace: () => Promise<RpcCall[]>;
 	}) => Promise<void>,
@@ -215,11 +251,13 @@ async function withServer(
 	const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'sundial-codex-integration-'));
 	const tracePath = path.join(tempDirectory, 'trace.json');
 	const statePath = path.join(tempDirectory, 'state.txt');
-	const adapter = createCodexAdapter({
+	let capabilityCache: unknown;
+	let currentTime = new Date('2026-07-20T12:00:00.000Z');
+	const createAdapter = (options: { readonly codexVersion?: string } = {}): ReturnType<typeof createCodexAdapter> => createCodexAdapter({
 		resolveExecutable: async () => '/test/bin/codex',
 		runVersion: async executablePath => {
 			assert.equal(executablePath, '/test/bin/codex');
-			return 'codex-cli 0.144.6';
+			return `codex-cli ${options.codexVersion ?? '0.144.6'}`;
 		},
 		startAppServer: () => spawn(process.execPath, [fixturePath], {
 			cwd: tempDirectory,
@@ -231,10 +269,16 @@ async function withServer(
 				SUNDIAL_CODEX_STATE: statePath,
 			},
 		}),
+		readCapabilityCache: async () => capabilityCache,
+		writeCapabilityCache: async value => {capabilityCache = value;},
+		now: () => currentTime,
 	});
+	const adapter = createAdapter();
 	try {
 		await run({
 			adapter,
+			createAdapter,
+			advanceTime: milliseconds => {currentTime = new Date(currentTime.getTime() + milliseconds);},
 			events: [],
 			readTrace: async () => (await readFile(tracePath, 'utf8')).trim().split('\n')
 				.filter(Boolean).map(line => JSON.parse(line) as RpcCall),

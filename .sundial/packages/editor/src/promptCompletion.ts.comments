@@ -1,11 +1,2 @@
 version: 1
 annotations:
-  - id: "14b6720c-b024-476f-977d-bf88aa9730a9"
-    message: "Create better descriptions, simple a few words, like Ask a question, Fix code, Write code..."
-    preset: "%F"
-    scope: "line"
-    anchor:
-      line: 21
-      text: "\t'%T': 'Test guidance',"
-      before: ["\t'%W': 'Write guidance',","\t'%R': 'Refactor guidance',","\t'%C': 'Cleanup guidance',"]
-      after: ["};","export const promptCommandCompletions: readonly PromptCommandCompletion[] = promptPresets.flatMap(","\t(preset, index) => (["]

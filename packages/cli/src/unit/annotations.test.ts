@@ -11,7 +11,7 @@ import {
 	parseAnnotationCompanion,
 	readUserAnnotations,
 } from '../annotations';
-import { enqueueWork, listAgents, listWork } from '../agentStore';
+import { attachProviderSession, enqueueWork, ensureAgentSession, listAgents, listWork } from '../agentStore';
 
 const temporaryDirectories: string[] = [];
 
@@ -47,6 +47,8 @@ describe('annotation companions', () => {
 			}, { createId: () => `annotation-${++nextId}` });
 		}
 		const agent = (await listAgents(context.root))[0];
+		const session = await ensureAgentSession({ workspaceCwd: context.root, selector: agent.id });
+		await attachProviderSession({ workspaceCwd: context.root, agentSessionId: session.id, providerSessionId: 'thread-1' });
 		for (const id of ['annotation-1', 'annotation-2']) {
 			await enqueueWork({
 				workspaceCwd: context.root,

@@ -3,7 +3,7 @@ import {
 	completionsForPromptCommandPrefix,
 	isPromptCommandMode,
 } from './promptCompletion';
-import { promptCommandPrefix } from './promptCommand';
+import { promptCommandPrefix, type SelectableAgent } from './promptCommand';
 
 export const submitPromptCommandId = 'sundialEditor.submitPrompt';
 
@@ -12,14 +12,24 @@ const promptDocumentSelector: vscode.DocumentSelector = [
 	{ scheme: 'untitled' },
 ];
 
-export function registerPromptCommandMode(): readonly vscode.Disposable[] {
+export interface PromptCommandModeServices {
+	readonly targetsForDocument: (document: vscode.TextDocument) => Promise<readonly SelectableAgent[]>;
+}
+
+export function registerPromptCommandMode(services?: PromptCommandModeServices): readonly vscode.Disposable[] {
 	return [
 		vscode.languages.registerCompletionItemProvider(
 			promptDocumentSelector,
 			{
-				provideCompletionItems(document, position) {
+				async provideCompletionItems(document, position, token) {
 					const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
-					const completions = completionsForPromptCommandPrefix(linePrefix);
+					const targets = needsPromptTargets(linePrefix)
+						? await services?.targetsForDocument(document).catch(() => []) ?? []
+						: [];
+					if (token.isCancellationRequested) {
+						return undefined;
+					}
+					const completions = completionsForPromptCommandPrefix(linePrefix, targets);
 					if (completions.length === 0 && !isPromptCommandMode(linePrefix)) {
 						return undefined;
 					}
@@ -47,6 +57,10 @@ export function registerPromptCommandMode(): readonly vscode.Disposable[] {
 		vscode.workspace.onDidChangeTextDocument(() => queueMicrotask(hideInlineSuggestionInCommandMode)),
 		vscode.window.onDidChangeTextEditorSelection(event => hideInlineSuggestionInCommandMode(event.textEditor)),
 	];
+}
+
+function needsPromptTargets(linePrefix: string): boolean {
+	return /^%[QFWRCT](?:>|$)/i.test(linePrefix.trim());
 }
 
 function hideInlineSuggestionInCommandMode(editor = vscode.window.activeTextEditor): void {

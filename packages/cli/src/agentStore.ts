@@ -367,6 +367,13 @@ export async function enqueueWork(input: EnqueueWorkRequest): Promise<UserAnnota
 			if (existing.agentId !== agent.id || JSON.stringify(existing.source) !== JSON.stringify(input.source) || JSON.stringify(existing.prompt) !== JSON.stringify(input.prompt)) {throw new AgentStoreConflictError('id_conflict', 'Work identity is reserved with different content.', existing);}
 			return existing;
 		}
+		if (agent.currentSessionId === undefined) {
+			throw new AgentStoreConflictError('missing_session', 'Agent has no managed session.');
+		}
+		const session = await readSessionRequired(input.workspaceCwd, agent.currentSessionId);
+		if (session.agentId !== agent.id || session.state !== 'available') {
+			throw new AgentStoreConflictError('missing_session', 'Agent has no active provider session.', session);
+		}
 		const now = defaultServices.now().toISOString();
 		const update: WorkUpdate = { at: now, kind: 'enqueued', message: `Queued for ${agent.name}.` };
 		const work: UserAnnotationWorkItem = { version: 1, id, agentId: agent.id, source: input.source, prompt: input.prompt, enqueuedAt: now, updatedAt: now, ready: false, status: 'waiting', lastAssignmentSequence: 0, updates: [update] };

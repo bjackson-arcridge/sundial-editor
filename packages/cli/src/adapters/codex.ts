@@ -1,20 +1,24 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { access } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import type { AgentEvent, PromptRequest } from '../protocol.js';
+import { packageVersion } from '../version.js';
 import {
 	AdapterError,
 	type ProviderAdapter,
 	type ProviderHealth,
+	type ProviderHealthOptions,
 	type ProviderRunResult,
 	type ProviderSessionReadResult,
 	type ProviderTranscriptEntry,
 } from './adapter.js';
 
 const minimumSupportedCodexVersion = '0.131.0';
+const defaultCapabilityCacheTtlMs = 24 * 60 * 60 * 1_000;
 const managedSessionMarker = 'Sundial managed session initialized.';
 const compatibilityProbeMarker = 'Sundial Codex compatibility probe. No model turn was started.';
 
@@ -40,11 +44,21 @@ export interface CodexProcessServices {
 		cwd: string,
 		environment?: Readonly<Record<string, string>>,
 	) => ChildProcessWithoutNullStreams;
+	readonly readCapabilityCache?: () => Promise<unknown>;
+	readonly writeCapabilityCache?: (value: unknown) => Promise<void>;
+	readonly now?: () => Date;
+	readonly capabilityCacheTtlMs?: number;
 }
 
 export function createCodexAdapter(services: CodexProcessServices = defaultServices): ProviderAdapter {
 	let cachedHealth: Promise<ProviderHealth> | undefined;
-	const health = (): Promise<ProviderHealth> => cachedHealth ??= codexHealth(services);
+	const health = (options: ProviderHealthOptions = {}): Promise<ProviderHealth> => {
+		if (options.forceRefresh === true) {
+			cachedHealth = codexHealth(services, true);
+			return cachedHealth;
+		}
+		return cachedHealth ??= codexHealth(services, false);
+	};
 	const requireHealthy = async (): Promise<string> => requireHealthyCodex(health);
 	return {
 		health,
@@ -135,7 +149,7 @@ async function requireHealthyCodex(healthCheck: () => Promise<ProviderHealth>): 
 	return health.executablePath;
 }
 
-async function codexHealth(services: CodexProcessServices): Promise<ProviderHealth> {
+async function codexHealth(services: CodexProcessServices, forceRefresh: boolean): Promise<ProviderHealth> {
 	let executablePath: string;
 	try {
 		executablePath = await services.resolveExecutable();
@@ -162,15 +176,23 @@ async function codexHealth(services: CodexProcessServices): Promise<ProviderHeal
 				message: `Codex ${version} at ${executablePath} is too old; Sundial Editor CLI requires Codex ${minimumSupportedCodexVersion} or newer.`,
 			};
 		}
+		if (!forceRefresh) {
+			const cached = await readCachedCapability(services, executablePath, version);
+			if (cached !== undefined) {
+				return cached;
+			}
+		}
 		try {
 			const probe = await probeCodexCapabilities(services, executablePath);
 			const persistence = probe.threadStartPersistedImmediately
 				? 'thread/start persisted immediately'
 				: 'thread/inject_items materialization required';
-			return {
+			const result: ProviderHealth = {
 				provider: 'codex', available: true, compatible: true, executablePath, version,
 				message: `Codex ${version} at ${executablePath} passed Sundial app-server capability checks (${persistence}).`,
 			};
+			await writeCachedCapability(services, result);
+			return result;
 		} catch (error) {
 			return {
 				provider: 'codex', available: true, compatible: false, executablePath, version,
@@ -183,6 +205,70 @@ async function codexHealth(services: CodexProcessServices): Promise<ProviderHeal
 			message: `Could not run Codex at ${executablePath}: ${errorMessage(error)}`,
 		};
 	}
+}
+
+interface CodexCapabilityCache {
+	readonly version: 1;
+	readonly provider: 'codex';
+	readonly cliVersion: string;
+	readonly executablePath: string;
+	readonly codexVersion: string;
+	readonly checkedAt: string;
+	readonly health: ProviderHealth;
+}
+
+async function readCachedCapability(
+	services: CodexProcessServices,
+	executablePath: string,
+	codexVersion: string,
+): Promise<ProviderHealth | undefined> {
+	if (services.readCapabilityCache === undefined) {return undefined;}
+	let value: unknown;
+	try {value = await services.readCapabilityCache();} catch {return undefined;}
+	const cached = parseCapabilityCache(value);
+	if (cached === undefined
+		|| cached.cliVersion !== packageVersion
+		|| cached.executablePath !== executablePath
+		|| cached.codexVersion !== codexVersion) {return undefined;}
+	const checkedAt = Date.parse(cached.checkedAt);
+	const age = (services.now?.() ?? new Date()).getTime() - checkedAt;
+	const ttl = services.capabilityCacheTtlMs ?? defaultCapabilityCacheTtlMs;
+	if (!Number.isFinite(checkedAt) || age < 0 || age >= ttl) {return undefined;}
+	return cached.health;
+}
+
+async function writeCachedCapability(services: CodexProcessServices, health: ProviderHealth): Promise<void> {
+	if (services.writeCapabilityCache === undefined || health.executablePath === undefined || health.version === undefined) {return;}
+	const cached: CodexCapabilityCache = {
+		version: 1,
+		provider: 'codex',
+		cliVersion: packageVersion,
+		executablePath: health.executablePath,
+		codexVersion: health.version,
+		checkedAt: (services.now?.() ?? new Date()).toISOString(),
+		health,
+	};
+	try {await services.writeCapabilityCache(cached);} catch {
+		// A cache write failure must not turn a successful compatibility check into a provider failure.
+	}
+}
+
+function parseCapabilityCache(value: unknown): CodexCapabilityCache | undefined {
+	const cached = asRecord(value);
+	const health = asRecord(cached?.health);
+	if (cached?.version !== 1
+		|| cached.provider !== 'codex'
+		|| typeof cached.cliVersion !== 'string'
+		|| typeof cached.executablePath !== 'string'
+		|| typeof cached.codexVersion !== 'string'
+		|| typeof cached.checkedAt !== 'string'
+		|| health?.provider !== 'codex'
+		|| health.available !== true
+		|| health.compatible !== true
+		|| health.executablePath !== cached.executablePath
+		|| health.version !== cached.codexVersion
+		|| (health.message !== undefined && typeof health.message !== 'string')) {return undefined;}
+	return cached as unknown as CodexCapabilityCache;
 }
 
 interface CapabilityProbeResult {
@@ -568,7 +654,7 @@ async function withConnection<T>(
 	const connection = new CodexConnection(services.startAppServer(executablePath, cwd, environment));
 	try {
 		const initialized = asRecord(await connection.call('initialize', {
-			clientInfo: { name: 'sundial_editor', title: 'Sundial Editor', version: '0.3.0' },
+			clientInfo: { name: 'sundial_editor', title: 'Sundial Editor', version: packageVersion },
 			capabilities: null,
 		}));
 		if (typeof initialized?.userAgent !== 'string' || initialized.userAgent === '') {
@@ -700,6 +786,8 @@ function buildPrompt(request: PromptRequest): string {
 	return `${request.prompt.text}\n\nOriginating Sundial context:\n${context}`;
 }
 
+const capabilityCachePath = machineConfigurationPath('provider-capabilities.json');
+
 const defaultServices: CodexProcessServices = {
 	resolveExecutable: () => resolveExecutableOnPath('codex'),
 	runVersion: executablePath => new Promise((resolve, reject) => {
@@ -716,7 +804,35 @@ const defaultServices: CodexProcessServices = {
 		stdio: ['pipe', 'pipe', 'pipe'],
 		env: { ...process.env, ...environment },
 	}),
+	readCapabilityCache: async () => {
+		try {return JSON.parse(await readFile(capabilityCachePath, 'utf8')) as unknown;}
+		catch {return undefined;}
+	},
+	writeCapabilityCache: async value => {
+		await mkdir(path.dirname(capabilityCachePath), { recursive: true });
+		const temporary = `${capabilityCachePath}.tmp-${process.pid}-${randomUUID()}`;
+		try {
+			await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+			await rename(temporary, capabilityCachePath);
+		} finally {
+			await rm(temporary, { force: true });
+		}
+	},
+	now: () => new Date(),
+	capabilityCacheTtlMs: defaultCapabilityCacheTtlMs,
 };
+
+function machineConfigurationPath(filename: string): string {
+	if (process.platform === 'darwin') {
+		return path.join(homedir(), 'Library', 'Application Support', 'Sundial Editor', filename);
+	}
+	if (process.platform === 'win32') {
+		const applicationData = process.env.APPDATA ?? path.join(homedir(), 'AppData', 'Roaming');
+		return path.join(applicationData, 'Sundial Editor', filename);
+	}
+	const configRoot = process.env.XDG_CONFIG_HOME ?? path.join(homedir(), '.config');
+	return path.join(configRoot, 'sundial-editor', filename);
+}
 
 async function resolveExecutableOnPath(command: string): Promise<string> {
 	const pathEntries = (process.env.PATH ?? '').split(path.delimiter);

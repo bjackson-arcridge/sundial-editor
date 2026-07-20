@@ -2,7 +2,7 @@
   "name": "sundial-editor",
   "displayName": "Sundial Editor",
   "description": "A focused collaboration prompt surface for Sundial editing workflows.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "arcridge",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bjackson-arcridge/sundial-editor/tree/main/packages/editor#readme",

@@ -28,8 +28,7 @@ import {
 import { appendUserAnnotation, deleteUserAnnotation, readUserAnnotations } from './annotations.js';
 import { renderManagedAgentContract, renderManagedPrompt } from './managedPrompts.js';
 import { isManagedPromptRequest, parseCliPromptRequest, renderEvent } from './protocol.js';
-
-const packageVersion = '0.3.0';
+import { packageVersion } from './version.js';
 
 export interface CliIo {
 	readonly stdin: NodeJS.ReadableStream;
@@ -55,7 +54,7 @@ const helpText = `Sundial Editor CLI ${packageVersion}
 Usage:
   sundial-editor-cli --version
   sundial-editor-cli help
-  sundial-editor-cli health [--provider codex]
+  sundial-editor-cli health [--provider codex] [--refresh]
   sundial-editor-cli prompt [--input request.json]
   sundial-editor-cli annotations append [--input request.json]
   sundial-editor-cli annotations read [--input request.json]
@@ -95,9 +94,11 @@ export async function main(argv: readonly string[], io: CliIo, services: MainSer
 async function health(args: readonly string[], io: CliIo, services: MainServices): Promise<number> {
 	try {
 		const provider = optionValue(args, '--provider') ?? 'codex';
-		if (args.length !== 0 && args.length !== 2) {throw new Error(`Unexpected health arguments: ${args.join(' ')}`);}
+		const refresh = args.includes('--refresh');
+		const expectedLength = (args.includes('--provider') ? 2 : 0) + (refresh ? 1 : 0);
+		if (args.length !== expectedLength) {throw new Error(`Unexpected health arguments: ${args.join(' ')}`);}
 		const adapter = services.adapters[provider]; if (adapter === undefined) {throw new Error(`Unsupported provider: ${provider}`);}
-		const providerHealth = await adapter.health();
+		const providerHealth = await adapter.health({ forceRefresh: refresh });
 		writeJson(io, { kind: 'capabilities', protocolVersion: 2, workStatuses: ['waiting', 'working', 'completed'], providers: [provider], commands: editorCommands, health: providerHealth });
 		return providerHealth.available && providerHealth.compatible ? 0 : 1;
 	} catch (error) { io.stderr.write(`${errorMessage(error)}\n`); return 2; }
@@ -132,7 +133,7 @@ async function agent(args: readonly string[], io: CliIo, services: MainServices)
 		const cwd = workspaceCwd(request);
 		let result: unknown;
 		switch (operation) {
-			case 'list': result = { agents: await reconciledAgents(cwd, services) }; break;
+			case 'list': result = { agents: await listAgents(cwd) }; break;
 			case 'show': result = projectAgentDetail(await showAgent(cwd, selector(request))); break;
 			case 'rename': result = await renameAgent({ workspaceCwd: cwd, selector: selector(request), name: stringField(request, 'name') }); break;
 			case 'session ensure': result = await ensureSessionCommand(cwd, request, services); break;
@@ -187,20 +188,6 @@ async function enqueueCommand(cwd: string, request: Record<string, unknown>): Pr
 		path: workspaceRelativeSourcePath(cwd, stringField(source, 'uri'), optionalString(source.path)),
 		line: integerField(source, 'line'), text: stringValue(source.text, 'source.text'), before: stringArray(source.before, 'source.before'), after: stringArray(source.after, 'source.after'),
 	}, prompt: { preset: preset(promptValue.preset), scope: scope(promptValue.scope), text: stringField(promptValue, 'text') } });
-}
-
-async function reconciledAgents(cwd: string, services: MainServices): Promise<unknown> {
-	let agents = await listAgents(cwd); const adapter = services.adapters.codex;
-	if (adapter?.readSession !== undefined) {
-		for (const agentSummary of agents) {
-			if (agentSummary.session.state !== 'available') {continue;}
-			const detail = await showAgent(cwd, agentSummary.id); const native = detail.sessionFile?.providerSessionId; if (native === undefined) {continue;}
-			const read = await adapter.readSession({ cwd, providerSessionId: native });
-			if (!read.available) {await markProviderSessionMissing({ workspaceCwd: cwd, agentSessionId: agentSummary.session.id });}
-		}
-		agents = await listAgents(cwd);
-	}
-	return agents;
 }
 
 async function transcriptCommand(cwd: string, request: Record<string, unknown>, services: MainServices): Promise<unknown> {

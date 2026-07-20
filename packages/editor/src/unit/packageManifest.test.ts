@@ -35,11 +35,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.7.0 extension package', () => {
+	test('is an independent 0.7.1 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.7.0');
+		assert.equal(manifest.version, '0.7.1');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);

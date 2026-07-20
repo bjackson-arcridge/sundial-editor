@@ -5,6 +5,7 @@ import {
 	type ParsedPromptCommand,
 	type PromptPreset,
 	type PromptScope,
+	type SelectableAgent,
 } from './promptCommand';
 
 export interface PromptCommandCompletion {
@@ -43,27 +44,43 @@ export const promptCommandCompletions: readonly PromptCommandCompletion[] = prom
 	]),
 );
 
-export function completionsForPromptCommandPrefix(linePrefix: string): readonly PromptCommandCompletion[] {
+export function completionsForPromptCommandPrefix(
+	linePrefix: string,
+	targets: readonly SelectableAgent[] = [],
+): readonly PromptCommandCompletion[] {
 	const commandPrefix = linePrefix.trimStart();
 	if (!commandPrefix.startsWith(promptCommandPrefix)) {
 		return [];
 	}
-	const targetedCompletions = completionsForTargetedPromptCommand(commandPrefix);
+	const targetedCompletions = completionsForTargetedPromptCommand(commandPrefix, targets);
 	if (targetedCompletions !== undefined) {
 		return targetedCompletions;
 	}
 
 	const normalized = commandPrefix.toUpperCase();
-	return promptCommandCompletions.filter(completion => completion.insertText.toUpperCase().startsWith(normalized));
+	const presetCompletions = promptCommandCompletions.filter(completion => completion.insertText.toUpperCase().startsWith(normalized));
+	const preset = promptPresets.find(candidate => candidate === normalized);
+	return preset === undefined
+		? presetCompletions
+		: [...presetCompletions, ...completionsForTargets(preset, targets, 'slot')];
 }
 
-function completionsForTargetedPromptCommand(commandPrefix: string): readonly PromptCommandCompletion[] | undefined {
+function completionsForTargetedPromptCommand(
+	commandPrefix: string,
+	targets: readonly SelectableAgent[],
+): readonly PromptCommandCompletion[] | undefined {
 	const match = /^(%[QFWRCT])>(.*)$/i.exec(commandPrefix.trimEnd());
 	if (match === null) {
 		return undefined;
 	}
 
 	const targetedCommand = `${match[1].toUpperCase()}>${match[2]}`;
+	const selectorKind = /^\d/u.test(match[2]) || match[2] === '' ? 'slot' : 'name';
+	const availableTargets = completionsForTargets(match[1].toUpperCase() as PromptPreset, targets, selectorKind)
+		.filter(completion => completion.insertText.toUpperCase().startsWith(targetedCommand.toUpperCase()));
+	if (availableTargets.length > 0) {
+		return availableTargets;
+	}
 	const projectPrefix = /^(.*\S)[ \t]+@G?$/i.exec(targetedCommand);
 	if (projectPrefix !== null) {
 		const projectCommand = `${projectPrefix[1]} @G`;
@@ -81,6 +98,24 @@ function completionsForTargetedPromptCommand(commandPrefix: string): readonly Pr
 		completionForParsedCommand(targetedCommand, parsed),
 		...(project === undefined ? [] : [completionForParsedCommand(projectCommand, project)]),
 	];
+}
+
+function completionsForTargets(
+	preset: PromptPreset,
+	targets: readonly SelectableAgent[],
+	selectorKind: 'slot' | 'name',
+): readonly PromptCommandCompletion[] {
+	const presetIndex = promptPresets.indexOf(preset);
+	return targets.flatMap(target => {
+		const selector = selectorKind === 'slot' ? target.slot.toString() : target.name;
+		return (['line', 'project'] as const).map(scope => ({
+			insertText: `${preset}>${selector}${scope === 'project' ? ' @G' : ''}`,
+			preset,
+			scope,
+			detail: `${presetDescriptions[preset]} — ${target.name} (agent ${target.slot}) — ${scope === 'line' ? 'current line' : 'project'}`,
+			sortText: `${presetIndex.toString().padStart(2, '0')}-2-${target.slot.toString().padStart(6, '0')}-${scope === 'line' ? '0' : '1'}`,
+		}));
+	});
 }
 
 function completionForParsedCommand(insertText: string, parsed: ParsedPromptCommand): PromptCommandCompletion {

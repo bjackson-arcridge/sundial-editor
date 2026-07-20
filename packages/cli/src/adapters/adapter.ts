@@ -1,7 +1,7 @@
 import type { AgentEvent, PromptRequest } from '../protocol.js';
 
 export interface ProviderAdapter {
-	readonly health: () => Promise<ProviderHealth>;
+	readonly health: (options?: ProviderHealthOptions) => Promise<ProviderHealth>;
 	readonly run: (request: PromptRequest, emit: (event: AgentEvent) => void, signal?: AbortSignal) => Promise<ProviderRunResult | void>;
 	readonly createSession?: (request: ProviderSessionCreateRequest) => Promise<ProviderSession>;
 	readonly runSession?: (
@@ -10,6 +10,10 @@ export interface ProviderAdapter {
 		signal?: AbortSignal,
 	) => Promise<ProviderRunResult>;
 	readonly readSession?: (request: ProviderSessionReadRequest) => Promise<ProviderSessionReadResult>;
+}
+
+export interface ProviderHealthOptions {
+	readonly forceRefresh?: boolean;
 }
 
 export interface ProviderHealth {

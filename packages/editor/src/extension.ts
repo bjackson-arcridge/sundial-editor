@@ -65,7 +65,12 @@ export function activate(context: vscode.ExtensionContext): void {
 		annotationWatcher.onDidChange(() => { void messagesProvider.refreshActiveAnnotations(); }),
 		annotationWatcher.onDidDelete(() => { void messagesProvider.refreshActiveAnnotations(); }),
 		annotationMarker,
-		...registerPromptCommandMode(),
+		...registerPromptCommandMode({
+			targetsForDocument: document => {
+				const cwd = workspaceCwdForSource(document.uri);
+				return cwd === undefined ? Promise.resolve([]) : messagesProvider.promptTargets(cwd);
+			},
+		}),
 	);
 	updateActiveLocation(vscode.window.activeTextEditor, true);
 

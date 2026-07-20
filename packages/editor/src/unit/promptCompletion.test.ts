@@ -7,6 +7,11 @@ import {
 } from '../promptCompletion';
 
 describe('prompt command completions', () => {
+	const targets = [
+		{ slot: 1, name: 'Bob' },
+		{ slot: 2, name: 'Build Amy' },
+	] as const;
+
 	test('offers line and project variants for all six presets', () => {
 		assert.equal(promptCommandCompletions.length, 12);
 		assert.deepEqual(
@@ -75,5 +80,21 @@ describe('prompt command completions', () => {
 		);
 		assert.deepEqual(completionsForPromptCommandPrefix('%Q>'), []);
 		assert.deepEqual(completionsForPromptCommandPrefix('%Q>0'), []);
+	});
+
+	test('offers current agents after a preset and filters slot or name selectors while typing', () => {
+		assert.deepEqual(
+			completionsForPromptCommandPrefix('%Q', targets).map(completion => completion.insertText),
+			['%Q', '%Q @G', '%Q>1', '%Q>1 @G', '%Q>2', '%Q>2 @G'],
+		);
+		assert.deepEqual(
+			completionsForPromptCommandPrefix('%Q>', targets).map(completion => completion.insertText),
+			['%Q>1', '%Q>1 @G', '%Q>2', '%Q>2 @G'],
+		);
+		assert.deepEqual(
+			completionsForPromptCommandPrefix('%Q>B', targets).map(completion => completion.insertText),
+			['%Q>Bob', '%Q>Bob @G', '%Q>Build Amy', '%Q>Build Amy @G'],
+		);
+		assert.match(completionsForPromptCommandPrefix('%Q>1', targets)[0].detail, /Bob \(agent 1\)/);
 	});
 });

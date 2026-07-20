@@ -159,6 +159,13 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
+	async promptTargets(cwd: string): Promise<readonly NamedAgent[]> {
+		if (this.currentCwd() === cwd && this.agentsState.kind === 'ready') {
+			return this.agentsState.agents;
+		}
+		return this.loadAgents(cwd);
+	}
+
 	async openPrompt(prompt: PromptContext): Promise<void> {
 		const cwd = this.services.workspaceCwd?.(prompt)
 			?? vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(prompt.sourceUri))?.uri.fsPath;

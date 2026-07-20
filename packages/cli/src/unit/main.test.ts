@@ -40,7 +40,7 @@ describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.3.0\n');
+		assert.equal(version.stdout.join(''), '0.3.1\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
@@ -88,8 +88,16 @@ describe('main', () => {
 	});
 
 	test('reports health as machine-readable capabilities', async () => {
+		const requestedOptions: unknown[] = [];
+		const provider = {
+			...adapter(),
+			health: async (options?: unknown) => {
+				requestedOptions.push(options);
+				return { provider: 'codex', available: true, compatible: true, version: '0.131.0' };
+			},
+		};
 		const run = harness();
-		assert.equal(await main(['health'], run.io, { adapters: { codex: adapter() }, readFile: async () => '' }), 0);
+		assert.equal(await main(['health'], run.io, { adapters: { codex: provider }, readFile: async () => '' }), 0);
 		assert.deepEqual(JSON.parse(run.stdout[0]), {
 			kind: 'capabilities',
 			protocolVersion: 2,
@@ -102,8 +110,13 @@ describe('main', () => {
 				'agent work claim', 'agent work complete', 'agent work requeue',
 				'agent transcript', 'agent open', 'agent interrupt', 'agent reset', 'prompt',
 			],
-			health: { provider: 'codex', available: true, compatible: true, version: '0.131.0' },
+			 health: { provider: 'codex', available: true, compatible: true, version: '0.131.0' },
 		});
+		const refreshed = harness();
+		assert.equal(await main(['health', '--provider', 'codex', '--refresh'], refreshed.io, {
+			adapters: { codex: provider }, readFile: async () => '',
+		}), 0);
+		assert.deepEqual(requestedOptions, [{ forceRefresh: false }, { forceRefresh: true }]);
 	});
 
 	test('validates stdin and emits newline-delimited adapter events', async () => {
@@ -146,12 +159,16 @@ describe('main', () => {
 
 	test('drives the persistent agent queue through the machine command surface', async () => {
 		const cwd = await mkdtemp(path.join(os.tmpdir(), 'sundial-main-agent-'));
+		let providerReads = 0;
 		const services = {
 			adapters: {
 				codex: {
 					...adapter(),
 					createSession: async () => ({ providerSessionId: 'thread-1' }),
-					readSession: async () => ({ providerSessionId: 'thread-1', available: true, transcript: [] }),
+					readSession: async () => {
+						providerReads += 1;
+						return { providerSessionId: 'thread-1', available: true, transcript: [] };
+					},
 				},
 			},
 			readFile: async () => '',
@@ -169,6 +186,11 @@ describe('main', () => {
 				workspace: { cwd }, agent: { id: agent.id }, confirmedFreshSession: true,
 			}) as { agent: { session: { state: string } } };
 			assert.equal(ensured.agent.session.state, 'available');
+			const relisted = await invoke(['agent', 'list'], { workspace: { cwd } }) as {
+				agents: Array<{ id: string; session: { state: string } }>;
+			};
+			assert.equal(relisted.agents.find(candidate => candidate.id === agent.id)?.session.state, 'available');
+			assert.equal(providerReads, 0, 'agent list must rely only on persisted session readiness');
 			const shown = await invoke(['agent', 'show'], {
 				workspace: { cwd }, agent: { id: agent.id },
 			});
