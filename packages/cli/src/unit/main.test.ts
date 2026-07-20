@@ -200,12 +200,13 @@ describe('main', () => {
 
 			const enqueued = await invoke(['agent', 'work', 'enqueue'], {
 				workspace: { cwd }, agent: { id: agent.id }, work: {
-					source: { uri: new URL('file.ts', `file://${cwd}/`).toString(), line: 0, text: 'code', before: [], after: [] },
+					source: { uri: new URL('file.ts', `file://${cwd}/`).toString(), line: 0, text: '', before: [], after: [] },
 					prompt: { preset: '%W', scope: 'line', text: 'Implement this.' },
 				},
-			}) as { id: string; ready: boolean; source: { path: string }; latestUpdate: { kind: string } };
+			}) as { id: string; ready: boolean; source: { path: string; text: string }; latestUpdate: { kind: string } };
 			assert.equal(enqueued.ready, false);
 			assert.equal(enqueued.source.path, 'file.ts');
+			assert.equal(enqueued.source.text, '', 'blank annotation target lines remain valid work source text');
 			assert.equal(enqueued.latestUpdate.kind, 'enqueued');
 			await invoke(['agent', 'work', 'ready'], { workspace: { cwd }, agentId: agent.id, work: { id: enqueued.id } });
 			const claimed = await invoke(['agent', 'work', 'claim'], {

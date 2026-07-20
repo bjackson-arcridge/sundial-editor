@@ -15,3 +15,33 @@ annotations:
         agentSessionId: "ddf0f022-6deb-46b1-ab28-0f82d35e522b"
         body: "Fixed the `%Q>2` recipient prepopulation defect.\n\nThe host already resolved `>2` to Amy correctly. The problem was in the Lit dropdown: the `<select>` value could be applied before its dynamically rendered `<option>` elements existed, leaving the browser's visual selection on the wrong entry. Each option now explicitly reflects `targetAgentId`, so `>2 Amy` is selected when the composer first opens. Agents without an active session remain valid targets and continue to show the fresh-session warning.\n\n### Changed\n- Updated `packages/editor/src/webviews/apps/messages/messages-app.ts` to initialize the selected option reliably.\n- Added focused regressions for dropdown initialization and targeting an agent without an active session.\n- Bumped the editor extension patch version from `0.9.0` to `0.9.1` in `packages/editor/package.json` and `package-lock.json`.\n- Applied DR-0003, DR-0004, DR-0008, and DR-0037; no new Decision Record is needed for this one-off rendering fix.\n\n### Validation\n- `npm --prefix packages/editor run test:unit` — passed, 77 tests.\n- `npm --prefix packages/editor run check-types` — passed for host and webview.\n- `npm run lint` — passed.\n- `git diff --check` — passed.\n- `npm --prefix packages/editor test` — could not complete because the sandbox could not resolve `update.code.visualstudio.com` while preparing the pinned VS Code runtime (`ENOTFOUND`). Its compile and type-check pretest stages passed before that blocker.\n"
         createdAt: "2026-07-20T21:47:29.106Z"
+  - id: "1d7059ad-fccf-4999-8e7f-5e74618caf36"
+    message: "If we create a sundial annotation and the previous line is empy, we get an error (that a field cannot be empty)"
+    preset: "%F"
+    scope: "line"
+    anchor:
+      line: 14
+      text: "import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';"
+      before: ["} from '../../agentProtocol.js';","import { isUserAnnotation, type UserAnnotation } from '../../annotationProtocol.js';","import { maximumPaneSplitPercent, minimumPaneSplitPercent } from '../../paneSplit.js';"]
+      after: ["export interface HostNotice {","\treadonly tone: 'info' | 'error';","\treadonly message: string;"]
+    officialResponses:
+      - userAnnotationId: "1d7059ad-fccf-4999-8e7f-5e74618caf36"
+        agentId: "53dd07ec-d2a8-4a37-abec-c1cea215265c"
+        agentSessionId: "3711c814-d65b-45f5-8103-0e209d07aa6c"
+        body: "Implemented the blank-line annotation fix.\n\n### What changed\n- The CLI enqueue boundary now accepts an empty `source.text`, matching the existing annotation and work-store models. This allows a Sundial prompt to target an intentionally blank preceding line without raising “source.text must be a non-empty string.”\n- Added regressions for capturing a blank preceding target line and carrying it through the managed work queue.\n- Bumped the CLI to `0.4.1` and the Editor extension to `0.9.2`, including manifest assertions and lockfile metadata.\n- Applied DR-0012 and DR-0036 by keeping annotation queue validation in the CLI-owned workflow rather than adding a webview workaround.\n\n### Validation\n- `npm run test:unit --workspace packages/cli` — 44 passed\n- `npm run test:unit --workspace packages/editor` — 78 passed\n- `npm run check-types` — passed\n- `npm run lint` — passed\n- `git diff --check` — passed\n\nNo blockers remain.\n"
+        createdAt: "2026-07-20T22:03:44.741Z"
+  - id: "22048fe1-55e6-4e47-b590-0087e51346cb"
+    message: "Where is the code for rendering the \"new message\" form?"
+    preset: "%Q"
+    scope: "line"
+    anchor:
+      line: 13
+      text: "import { maximumPaneSplitPercent, minimumPaneSplitPercent } from '../../paneSplit.js';"
+      before: ["\ttype UserAnnotationWorkItem,","} from '../../agentProtocol.js';","import { isUserAnnotation, type UserAnnotation } from '../../annotationProtocol.js';"]
+      after: ["import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';","export interface HostNotice {","\treadonly tone: 'info' | 'error';"]
+    officialResponses:
+      - userAnnotationId: "22048fe1-55e6-4e47-b590-0087e51346cb"
+        agentId: "79d20f8e-58af-43f7-a01e-74fc93193e45"
+        agentSessionId: "82829a20-86c9-41c9-a68b-2a0bd9a8073c"
+        body: "The **“New message” form is rendered in** `packages/editor/src/webviews/apps/messages/messages-app.ts`:\n\n- `MessagesApp.renderNormalMessages()` conditionally inserts the form when `this.prompt` exists (around line 779).\n- `MessagesApp.renderComposer()` contains the actual Lit template for the **New message** heading, agent selector, message textarea, Send button, and Cancel button (lines 791–837).\n- The form styles are in the same file, beginning around line 136.\n- Submission and cancellation handlers are also there: `submitComposerMessage()` and `cancelComposer()` (around lines 1229–1241).\n\nThe selected file, `packages/editor/src/webviews/messages/messages.ts`, does **not** render the UI. It defines the shared host/webview message and state types; notably, `MessagesState` includes the `prompt` that controls whether the composer appears (lines 31–42).\n\nOn the extension-host side, `packages/editor/src/webviews/messages/messagesWebviewProvider.ts`:\n\n- mounts the `<se-messages-app>` web component in `resolveWebviewView()` (lines 136–147),\n- populates the pending prompt in `openPrompt()` (lines 190–212), and\n- routes submit/cancel events in `handleWebviewMessage()` (lines 424–434).\n\nNo files were changed. I verified this through read-only inspection; no test run was necessary for this code-location question.\n"
+        createdAt: "2026-07-20T22:04:20.204Z"

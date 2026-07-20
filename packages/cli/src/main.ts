@@ -190,7 +190,7 @@ async function enqueueCommand(cwd: string, request: Record<string, unknown>): Pr
 	return enqueueWork({ workspaceCwd: cwd, agentSelector: selector(request), userAnnotationId: optionalString(work.userAnnotationId ?? work.id), source: {
 		uri: stringField(source, 'uri'),
 		path: workspaceRelativeSourcePath(cwd, stringField(source, 'uri'), optionalString(source.path)),
-		line: integerField(source, 'line'), text: stringValue(source.text, 'source.text'), before: stringArray(source.before, 'source.before'), after: stringArray(source.after, 'source.after'),
+		line: integerField(source, 'line'), text: textValue(source.text, 'source.text'), before: stringArray(source.before, 'source.before'), after: stringArray(source.after, 'source.after'),
 	}, prompt: { preset: preset(promptValue.preset), scope: scope(promptValue.scope), text: stringField(promptValue, 'text') } });
 }
 
@@ -328,6 +328,7 @@ function record(value: unknown): value is Record<string, unknown> { return typeo
 function recordField(value: Record<string, unknown>, field: string): Record<string, unknown> { const result = value[field]; if (!record(result)) {throw new Error(`${field} must be an object`);} return result; }
 function stringField(value: Record<string, unknown>, field: string): string { return stringValue(value[field], field); }
 function stringValue(value: unknown, field: string): string { if (typeof value !== 'string' || value.trim() === '') {throw new Error(`${field} must be a non-empty string`);} return value; }
+function textValue(value: unknown, field: string): string { if (typeof value !== 'string') {throw new Error(`${field} must be a string`);} return value; }
 function optionalString(value: unknown): string | undefined { return typeof value === 'string' && value.trim() !== '' ? value : undefined; }
 function integerField(value: Record<string, unknown>, field: string): number { return integerValue(value[field], field); }
 function integerValue(value: unknown, field: string): number { if (!Number.isSafeInteger(value) || (value as number) < 0) {throw new Error(`${field} must be a non-negative integer`);} return value as number; }

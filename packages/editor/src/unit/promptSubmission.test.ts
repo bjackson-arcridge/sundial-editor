@@ -81,6 +81,16 @@ describe('submitPrompt', () => {
 		});
 	});
 
+	test('keeps an empty previous line as the annotation target', () => {
+		const context = captureAnchorContext(createEditor(['before', '', '%F', 'after'], 2).editor.document, 2);
+		assert.deepEqual(context, {
+			line: 1,
+			text: '',
+			before: ['before'],
+			after: ['after'],
+		});
+	});
+
 	test('reports an invalid source line without changing the document or opening the composer', async () => {
 		const harness = createEditor(['const prompt = "%F";'], 0);
 		const failures: string[] = [];
