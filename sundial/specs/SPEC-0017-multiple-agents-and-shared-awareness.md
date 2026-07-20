@@ -14,7 +14,7 @@ slice: 9
 
 ## Discovery
 
-This is functional slice 9 from SPEC-0008. SPEC-0013 already supplies the UI, per-session persistence, ordered status histories, transcript access, interruption, reset, and companion-backed feedback for multiple independently managed sessions. This slice adds the interactions among those sessions: prompt routing, agent-to-agent coordination, user awareness, shared task summaries, and repair of stale multi-process awareness. It extends rather than replaces SPEC-0013's per-session files and lifecycle semantics.
+This is functional slice 9 from SPEC-0008. SPEC-0018 supplies persistent `UserAnnotationId` queues targeted by stable agent slot or name, per-agent FIFO assignment, replaceable provider sessions, ordered work histories, transcript access, interruption, and reset; SPEC-0019 and SPEC-0020 add source feedback. This slice adds reassignment and priorities, agent-to-agent coordination, user awareness, shared task summaries, and stale multi-process repair. It extends rather than replaces SPEC-0018's work/agent/session files, targeted FIFO behavior, and lifecycle semantics.
 
 ## Applicable Decision Records
 
