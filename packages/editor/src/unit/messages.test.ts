@@ -37,6 +37,7 @@ const prompt = {
 } as const;
 
 const draft = 'Please update the project.';
+const paneSplitPercent = 50;
 const enqueuedUpdate = {
 	at: enqueuedAt,
 	kind: 'enqueued',
@@ -120,6 +121,7 @@ function readyState() {
 	return {
 		agents: readyAgents,
 		work: [work],
+		paneSplitPercent,
 		prompt,
 		draft,
 		targetAgentId: bobId,
@@ -132,14 +134,14 @@ function readyState() {
 describe('messages protocol guards', () => {
 	test('accepts loading, empty, error, and complete ready host states', () => {
 		assert.equal(isValidHostToWebviewMessage({
-			kind: 'state', state: { agents: { kind: 'loading' }, work: [] },
+			kind: 'state', state: { agents: { kind: 'loading' }, work: [], paneSplitPercent },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({
-			kind: 'state', state: { agents: { kind: 'empty' }, work: [], prompt, draft },
+			kind: 'state', state: { agents: { kind: 'empty' }, work: [], paneSplitPercent, prompt, draft },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state',
-			state: { agents: { kind: 'error', message: 'CLI unavailable.', recoverable: true }, work: [] },
+			state: { agents: { kind: 'error', message: 'CLI unavailable.', recoverable: true }, work: [], paneSplitPercent },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: readyState() }), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'focusComposer' }), true);
@@ -147,7 +149,9 @@ describe('messages protocol guards', () => {
 
 	test('rejects malformed or internally inconsistent host states', () => {
 		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: {} }), false);
-		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: { agents: { kind: 'loading' }, work: [], extra: true } }), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { agents: { kind: 'loading' }, work: [], paneSplitPercent, extra: true },
+		}), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { agents: readyAgents, work: [work], prompt, draft },
 		}), false);
@@ -165,6 +169,12 @@ describe('messages protocol guards', () => {
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { ...readyState(), draft: 12 },
+		}), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { ...readyState(), paneSplitPercent: 9 },
+		}), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { ...readyState(), paneSplitPercent: Number.NaN },
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { ...readyState(), transcript: { kind: 'empty', agentId: bobId, sessionId: bobSessionId } },
@@ -206,6 +216,7 @@ describe('messages protocol guards', () => {
 			{ kind: 'nextAnnotation' },
 			{ kind: 'toggleAnnotationPin' },
 			{ kind: 'deleteAnnotation' },
+			{ kind: 'setPaneSplitPercent', percent: 62 },
 		] as const;
 
 		for (const command of commands) {
@@ -224,6 +235,10 @@ describe('messages protocol guards', () => {
 		assert.equal(isValidWebviewToHostMessage({ kind: 'showTranscript', agentId: bobId }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'cancel', message: 'unexpected' }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'send', message: draft }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: 9 }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: 91 }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: Number.NaN }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: 50, extra: true }), false);
 	});
 });
 

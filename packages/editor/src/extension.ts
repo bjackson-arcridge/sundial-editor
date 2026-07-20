@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { revealAgentsViewOnFirstActivation } from './firstRun';
+import { paneSplitPercentConfiguration } from './paneSplit';
 import { registerPromptCommandMode, submitPromptCommandId } from './promptCompletionProvider';
 import type { PromptContext } from './promptCommand';
 import { submitPrompt } from './promptSubmission';
@@ -36,6 +37,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	};
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(messagesViewId, messagesProvider),
+		vscode.workspace.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration(paneSplitPercentConfiguration)) {
+				messagesProvider.refreshPaneSplitPercent();
+			}
+		}),
 		vscode.commands.registerCommand(submitPromptCommandId, () => submitPrompt({
 			activeTextEditor: () => vscode.window.activeTextEditor,
 			reportValidationFailure: message => vscode.window.showWarningMessage(message),

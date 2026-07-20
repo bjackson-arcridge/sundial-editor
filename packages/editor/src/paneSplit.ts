@@ -1,10 +1,17 @@
 export const defaultPaneSplitPercent = 50;
 export const minimumPaneSplitPercent = 10;
 export const maximumPaneSplitPercent = 90;
-
+export const paneSplitPercentConfiguration = 'sundialEditor.paneSplitPercent';
 export function clampPaneSplitPercent(percent: number): number {
 	return Math.min(maximumPaneSplitPercent, Math.max(minimumPaneSplitPercent, percent));
 }
+
+export function normalizePaneSplitPercent(percent: unknown): number {
+	return typeof percent === 'number' && Number.isFinite(percent)
+		? clampPaneSplitPercent(percent)
+		: defaultPaneSplitPercent;
+}
+
 
 export function paneSplitPercentFromPointer(
 	clientY: number,

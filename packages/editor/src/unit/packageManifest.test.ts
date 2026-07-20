@@ -24,7 +24,15 @@ interface PackageManifest {
 			readonly secondarySidebar?: readonly { readonly id?: unknown; readonly icon?: unknown; readonly title?: unknown }[];
 		};
 		readonly views?: Record<string, readonly ViewContribution[]>;
-		readonly configuration?: { readonly properties?: Record<string, { readonly default?: unknown }> };
+		readonly configuration?: {
+			readonly properties?: Record<string, {
+				readonly type?: unknown;
+				readonly default?: unknown;
+				readonly minimum?: unknown;
+				readonly maximum?: unknown;
+				readonly scope?: unknown;
+			}>;
+		};
 		readonly configurationDefaults?: Record<string, unknown>;
 		readonly menus?: { readonly commandPalette?: readonly { readonly command?: unknown }[] };
 	};
@@ -35,11 +43,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.8.0 extension package', () => {
+	test('is an independent 0.9.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.8.0');
+		assert.equal(manifest.version, '0.9.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -55,6 +63,14 @@ describe('Sundial Editor manifest', () => {
 		assert.equal(manifest.contributes?.configurationDefaults?.['files.autoSave'], 'afterDelay');
 		assert.equal(manifest.contributes?.configurationDefaults?.['files.autoSaveDelay'], 1000);
 		assert.equal(manifest.contributes?.configuration?.properties?.['sundialEditor.cliPath']?.default, 'sundial-editor-cli');
+		assert.deepEqual(manifest.contributes?.configuration?.properties?.['sundialEditor.paneSplitPercent'], {
+			type: 'number',
+			default: 50,
+			minimum: 10,
+			maximum: 90,
+			scope: 'window',
+			description: 'Percentage of the Messages view height allocated to the Agents pane. Resizing the pane separator updates this setting.',
+		});
 		assert.equal(commands.some(command => command.command === 'sundialEditor.submitPrompt' && command.title === 'Sundial Editor: Submit Prompt'), true);
 		assert.equal(manifest.contributes?.menus?.commandPalette?.some(item => item.command === 'sundialEditor.submitPrompt'), true);
 		assert.equal(manifest.activationEvents?.includes('onStartupFinished'), true);

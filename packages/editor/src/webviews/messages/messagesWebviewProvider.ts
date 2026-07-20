@@ -7,6 +7,11 @@ import {
 } from '../../agentProtocol.js';
 import type { UserAnnotation } from '../../annotationProtocol.js';
 import {
+	defaultPaneSplitPercent,
+	normalizePaneSplitPercent,
+	paneSplitPercentConfiguration,
+} from '../../paneSplit.js';
+import {
 	appendAnnotationViaCli,
 	claimWorkViaCli,
 	deleteAnnotationViaCli,
@@ -104,13 +109,29 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	private loadedAnnotations: { readonly sourceUri: string; readonly cwd: string; readonly annotations: readonly UserAnnotation[] } | undefined;
 	private viewedAnnotation: { readonly sourceUri: string; readonly cwd: string; readonly annotation: UserAnnotation } | undefined;
 	private annotationPinned = false;
+	private paneSplitPercent: number;
+	private paneSplitPersistence = Promise.resolve();
+	private pendingPaneSplitWrites = 0;
 	private annotationLoadGeneration = 0;
 	private agentLoadGeneration = 0;
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,
 		private readonly services: MessagesServices,
-	) {}
+	) {
+		this.paneSplitPercent = this.configuredPaneSplitPercent();
+	}
+
+	refreshPaneSplitPercent(): void {
+		if (this.pendingPaneSplitWrites > 0) {
+			return;
+		}
+		const configured = this.configuredPaneSplitPercent();
+		if (configured !== this.paneSplitPercent) {
+			this.paneSplitPercent = configured;
+			this.postState();
+		}
+	}
 
 	async resolveWebviewView(messagesView: vscode.WebviewView): Promise<void> {
 		this.activeMessagesView = messagesView;
@@ -419,6 +440,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			case 'nextAnnotation': void this.selectAdjacentAnnotation(1); return;
 			case 'toggleAnnotationPin': this.toggleAnnotationPin(); return;
 			case 'deleteAnnotation': void this.deleteViewedAnnotation(); return;
+			case 'setPaneSplitPercent': this.persistPaneSplitPercent(message.percent); return;
 			default: { const unhandled: never = message; throw new Error(`Unexpected webview message: ${JSON.stringify(unhandled)}`); }
 		}
 	}
@@ -648,6 +670,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		const base = {
 			agents: this.agentsState,
 			work: this.work,
+			paneSplitPercent: this.paneSplitPercent,
 			...(this.busy ? { busy: true as const } : {}),
 			...(this.notice === undefined ? {} : { notice: this.notice }),
 			...(viewer === undefined ? {} : { annotationViewer: viewer }),
@@ -692,6 +715,34 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 
 	private cliPath(): string {
 		return this.services.cliPath?.() ?? vscode.workspace.getConfiguration('sundialEditor').get('cliPath', 'sundial-editor-cli');
+	}
+
+	private configuredPaneSplitPercent(): number {
+		return normalizePaneSplitPercent(
+			vscode.workspace.getConfiguration('sundialEditor').get('paneSplitPercent', defaultPaneSplitPercent),
+		);
+	}
+
+	private persistPaneSplitPercent(percent: number): void {
+		this.paneSplitPercent = normalizePaneSplitPercent(percent);
+		this.postState();
+		const persistedPercent = this.paneSplitPercent;
+		this.pendingPaneSplitWrites += 1;
+		this.paneSplitPersistence = this.paneSplitPersistence
+			.then(() => vscode.workspace.getConfiguration('sundialEditor').update(
+				'paneSplitPercent',
+				persistedPercent,
+				vscode.ConfigurationTarget.Global,
+			))
+			.catch(error => {
+				console.error(`sundial-editor: failed to persist ${paneSplitPercentConfiguration}`, error);
+			})
+			.finally(() => {
+				this.pendingPaneSplitWrites -= 1;
+				if (this.pendingPaneSplitWrites === 0) {
+					this.refreshPaneSplitPercent();
+				}
+			});
 	}
 
 	private hostStateMessage(): HostToWebview { return { kind: 'state', state: this.currentState() }; }

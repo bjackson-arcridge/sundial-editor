@@ -1,0 +1,11 @@
+version: 1
+annotations:
+  - id: "5036bd1a-224e-4231-9acb-f4d3c4e554c6"
+    message: "When I type %Q>2 to Amy, the messages dialogue doesn't prepopulate with >2 Amy from the dropdown, can you check why this doesn't work propertly?\n\n(note: she didn't have an active session, maybe relevant maybe not)."
+    preset: "%F"
+    scope: "line"
+    anchor:
+      line: 0
+      text: "import {"
+      before: []
+      after: ["\tisAgentId,","\tisAgentsViewState,","\tisUserAnnotationId,"]

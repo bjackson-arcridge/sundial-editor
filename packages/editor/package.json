@@ -2,7 +2,7 @@
   "name": "sundial-editor",
   "displayName": "Sundial Editor",
   "description": "A focused collaboration prompt surface for Sundial editing workflows.",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "arcridge",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bjackson-arcridge/sundial-editor/tree/main/packages/editor#readme",
@@ -75,6 +75,14 @@
           "type": "string",
           "default": "sundial-editor-cli",
           "description": "Path or executable name for the locally installed Sundial Editor CLI."
+        },
+        "sundialEditor.paneSplitPercent": {
+          "type": "number",
+          "default": 50,
+          "minimum": 10,
+          "maximum": 90,
+          "scope": "window",
+          "description": "Percentage of the Messages view height allocated to the Agents pane. Resizing the pane separator updates this setting."
         }
       }
     },

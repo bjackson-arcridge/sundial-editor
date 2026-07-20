@@ -4,6 +4,7 @@ import {
 	defaultPaneSplitPercent,
 	maximumPaneSplitPercent,
 	minimumPaneSplitPercent,
+	normalizePaneSplitPercent,
 	paneSplitPercentFromKey,
 	paneSplitPercentFromPointer,
 } from '../paneSplit';
@@ -11,6 +12,14 @@ import {
 describe('agent and annotation pane splitter', () => {
 	test('defaults to an equal vertical split', () => {
 		assert.equal(defaultPaneSplitPercent, 50);
+	});
+
+	test('normalizes persisted configuration values', () => {
+		assert.equal(normalizePaneSplitPercent(64), 64);
+		assert.equal(normalizePaneSplitPercent(4), minimumPaneSplitPercent);
+		assert.equal(normalizePaneSplitPercent(96), maximumPaneSplitPercent);
+		assert.equal(normalizePaneSplitPercent(Number.NaN), defaultPaneSplitPercent);
+		assert.equal(normalizePaneSplitPercent('64'), defaultPaneSplitPercent);
 	});
 
 	test('maps pointer movement to the usable height and clamps both panes', () => {

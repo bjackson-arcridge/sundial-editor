@@ -11,6 +11,7 @@ import {
 	type UserAnnotationWorkItem,
 } from '../../agentProtocol.js';
 import { isUserAnnotation, type UserAnnotation } from '../../annotationProtocol.js';
+import { maximumPaneSplitPercent, minimumPaneSplitPercent } from '../../paneSplit.js';
 import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';
 
 export interface HostNotice {
@@ -21,6 +22,7 @@ export interface HostNotice {
 interface MessagesStateBase {
 	readonly agents: AgentsViewState;
 	readonly work: readonly UserAnnotationWorkItem[];
+	readonly paneSplitPercent: number;
 	readonly busy?: boolean;
 	readonly notice?: HostNotice;
 	readonly annotationViewer?: AnnotationViewerState;
@@ -153,7 +155,8 @@ export type WebviewToHost =
 	| { readonly kind: 'previousAnnotation' }
 	| { readonly kind: 'nextAnnotation' }
 	| { readonly kind: 'toggleAnnotationPin' }
-	| { readonly kind: 'deleteAnnotation' };
+	| { readonly kind: 'deleteAnnotation' }
+	| { readonly kind: 'setPaneSplitPercent'; readonly percent: number };
 
 export function isValidHostToWebviewMessage(value: unknown): value is HostToWebview {
 	if (!isRecord(value) || typeof value.kind !== 'string') {
@@ -184,6 +187,12 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 			return hasExactKeys(value, ['kind', 'agentId', 'name'])
 				&& isAgentId(value.agentId)
 				&& isAgentName(value.name);
+		case 'setPaneSplitPercent':
+			return hasExactKeys(value, ['kind', 'percent'])
+				&& typeof value.percent === 'number'
+				&& Number.isFinite(value.percent)
+				&& value.percent >= minimumPaneSplitPercent
+				&& value.percent <= maximumPaneSplitPercent;
 		case 'openAgent':
 		case 'interruptAgent':
 		case 'resetAgent':
@@ -203,13 +212,17 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 function isMessagesState(value: unknown): value is MessagesState {
 	if (!isRecord(value)
 		|| !hasAllowedKeys(value, [
-			'agents', 'work', 'prompt', 'draft', 'targetAgentId', 'busy', 'notice', 'annotationViewer',
+			'agents', 'work', 'paneSplitPercent', 'prompt', 'draft', 'targetAgentId', 'busy', 'notice', 'annotationViewer',
 		])
-		|| !hasRequiredKeys(value, ['agents', 'work'])
+		|| !hasRequiredKeys(value, ['agents', 'work', 'paneSplitPercent'])
 		|| !isAgentsViewState(value.agents)
 		|| !Array.isArray(value.work)
 		|| !value.work.every(isUserAnnotationWorkItem)
 		|| !hasUniqueWork(value.work)
+		|| typeof value.paneSplitPercent !== 'number'
+		|| !Number.isFinite(value.paneSplitPercent)
+		|| value.paneSplitPercent < minimumPaneSplitPercent
+		|| value.paneSplitPercent > maximumPaneSplitPercent
 		|| (value.busy !== undefined && typeof value.busy !== 'boolean')
 		|| (value.notice !== undefined && !isNotice(value.notice))
 		|| (value.annotationViewer !== undefined && !isAnnotationViewerState(value.annotationViewer))) {

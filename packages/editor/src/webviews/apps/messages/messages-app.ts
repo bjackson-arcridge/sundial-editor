@@ -1154,6 +1154,9 @@ export class MessagesApp extends LitElement {
 		switch (hostMessage.kind) {
 			case 'state': {
 				this.webviewHost.setState(hostMessage);
+				if (!this.isResizingPanes) {
+					this.agentPanePercent = hostMessage.state.paneSplitPercent;
+				}
 				const isOpeningPrompt = this.prompt === undefined && hostMessage.state.prompt !== undefined;
 				const hostTargetChanged = hostMessage.state.targetAgentId !== this.hostTargetAgentId;
 				const previousAnnotationId = this.annotationViewer?.annotation.id;
@@ -1397,6 +1400,7 @@ export class MessagesApp extends LitElement {
 			separator.releasePointerCapture(pointerEvent.pointerId);
 		}
 		this.isResizingPanes = false;
+		this.persistPaneSplitPercent();
 	};
 
 	private cancelPaneResize = (pointerEvent: PointerEvent): void => {
@@ -1405,6 +1409,7 @@ export class MessagesApp extends LitElement {
 			separator.releasePointerCapture(pointerEvent.pointerId);
 		}
 		this.isResizingPanes = false;
+		this.persistPaneSplitPercent();
 	};
 
 	private resizePanesFromPointer(pointerEvent: PointerEvent, separator: HTMLElement): void {
@@ -1428,7 +1433,12 @@ export class MessagesApp extends LitElement {
 		}
 		keyboardEvent.preventDefault();
 		this.agentPanePercent = nextPercent;
+		this.persistPaneSplitPercent();
 	};
+
+	private persistPaneSplitPercent(): void {
+		this.webviewHost.postMessage({ kind: 'setPaneSplitPercent', percent: this.agentPanePercent });
+	}
 
 	private handleAgentToolbarKeydown = (keyboardEvent: KeyboardEvent): void => {
 		const toolbar = keyboardEvent.currentTarget as HTMLElement;

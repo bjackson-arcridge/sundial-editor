@@ -31,6 +31,8 @@ When the assigned agent finishes, its official Markdown response appears beneath
 
 Annotated source lines carry an editor marker. Agent activity and annotations occupy independently scrolling halves of the Messages view; drag the separator to resize them. Moving onto a marked line selects its interaction below, and the last viewed interaction remains visible after moving away. The annotation toolbar navigates, deletes, pins, or expands the interaction; pinning prevents another marked line from replacing it. Metadata such as scope, line, and anchoring context remains collapsed by default. Toolbar state lasts for the current editor session; the interaction itself survives restarts through the companion file.
 
+The pane split survives webview and VS Code restarts through the `sundialEditor.paneSplitPercent` user setting. Dragging the separator or resizing it with the keyboard updates that setting; values remain between 10% and 90% so both panes stay available.
+
 ## Sundial Agents panel
 
 Sundial Editor contributes the **Sundial Agents** panel to VS Code's right-hand Secondary Side Bar, beside other collaboration surfaces such as Codex and Claude Code. The extension reveals it once on first activation after installation; afterwards VS Code remembers whether you close or move it.
