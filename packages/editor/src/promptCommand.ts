@@ -13,6 +13,9 @@ export interface PromptContext extends ParsedPromptCommand {
 	readonly sourceUri: string;
 	readonly sourceLine: number;
 	readonly sourceText: string;
+	readonly anchorText: string;
+	readonly anchorBefore: readonly string[];
+	readonly anchorAfter: readonly string[];
 }
 
 export interface CommandLinePosition {
@@ -57,11 +60,17 @@ export function createPromptContext(
 	sourceUri: string,
 	sourceLine: number,
 	sourceText: string,
+	anchorText: string,
+	anchorBefore: readonly string[],
+	anchorAfter: readonly string[],
 ): PromptContext {
 	return {
 		...parsed,
 		sourceUri,
 		sourceLine,
 		sourceText,
+		anchorText,
+		anchorBefore,
+		anchorAfter,
 	};
 }

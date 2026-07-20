@@ -4,7 +4,6 @@ export interface FirstRunState {
 	readonly get: <T>(key: string) => T | undefined;
 	readonly update: (key: string, value: unknown) => Thenable<void>;
 }
-
 export interface FirstRunServices {
 	readonly state: FirstRunState;
 	readonly revealAgentsView: () => Promise<void>;

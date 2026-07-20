@@ -35,11 +35,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.4.0 extension package', () => {
+	test('is an independent 0.5.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.4.0');
+		assert.equal(manifest.version, '0.5.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -112,6 +112,25 @@ describe('Sundial Editor manifest', () => {
 		assert.match(providerSource, /await this\.services\.returnToSource\(pending\.prompt\)/);
 		assert.match(extensionSource, /showTextDocument\(vscode\.Uri\.parse\(prompt\.sourceUri\), \{ preserveFocus: false \}\)/);
 		assert.match(extensionSource, /returnToVSCodeVimNormalMode/);
+	});
+
+	test('renders agents and annotations as independently scrolling split panes with named toolbar icons', () => {
+		const messagesSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
+		const sharedStyles = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/shared/styles.ts'), 'utf8');
+
+		assert.match(messagesSource, /class="agent-pane" aria-label="Agents"/);
+		assert.match(messagesSource, /class="pane-separator/);
+		assert.match(messagesSource, /class="annotation-pane/);
+		assert.match(messagesSource, /\.agent-pane \{[\s\S]*?overflow: auto/);
+		assert.match(messagesSource, /\.annotation-content \{[\s\S]*?overflow: auto/);
+		assert.match(messagesSource, /title="Previous annotation"/);
+		assert.match(messagesSource, /title="Next annotation"/);
+		assert.match(messagesSource, /title="Delete annotation"/);
+		assert.match(messagesSource, /class="toolbar-icon"/);
+		assert.match(messagesSource, /fill: currentColor/);
+		assert.doesNotMatch(messagesSource, /class="codicon/);
+		assert.match(sharedStyles, /--se-icon-fg: var\(--vscode-foreground\)/);
+		assert.match(sharedStyles, /--se-toolbar-bg: var\(--vscode-sideBarSectionHeader-background/);
 	});
 
 	test('uses the shared project-managed VS Code test runtime', () => {

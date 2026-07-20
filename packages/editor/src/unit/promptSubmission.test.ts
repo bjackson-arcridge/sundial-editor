@@ -1,7 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { CommandLineDeletionRange, PromptContext } from '../promptCommand';
-import { submitPrompt, type PromptEditor } from '../promptSubmission';
+import { captureAnchorContext, submitPrompt, type PromptEditor } from '../promptSubmission';
 
 interface EditorHarness {
 	readonly editor: PromptEditor;
@@ -37,6 +37,7 @@ describe('submitPrompt', () => {
 			reportValidationFailure: () => undefined,
 			openComposer: async context => { opened.push(context); },
 			createDeletionRange: range => range as never,
+			workspaceCwd: () => '/workspace',
 		});
 
 		assert.equal(submitted, true);
@@ -48,9 +49,36 @@ describe('submitPrompt', () => {
 			preset: '%F',
 			scope: 'project',
 			sourceUri: 'file:///workspace/src/example.ts',
-			sourceLine: 1,
+			sourceLine: 0,
 			sourceText: '%F @G',
+			anchorText: 'first',
+			anchorBefore: [],
+			anchorAfter: ['last'],
 		}]);
+	});
+
+	test('captures up to three non-empty lines on each side in source order', () => {
+		const lines = [
+			'oldest ignored', 'before one', '', 'before two', '   ', 'before three',
+			'anchor line', '%F', '', 'after one', '   ', 'after two', 'after three', 'newest ignored',
+		];
+		const context = captureAnchorContext(createEditor(lines, 7).editor.document, 7);
+		assert.deepEqual(context, {
+			line: 6,
+			text: 'anchor line',
+			before: ['before one', 'before two', 'before three'],
+			after: ['after one', 'after two', 'after three'],
+		});
+	});
+
+	test('falls forward when a command on the first line has no preceding target', () => {
+		const context = captureAnchorContext(createEditor(['%Q', 'first source line', '', 'second source line'], 0).editor.document, 0);
+		assert.deepEqual(context, {
+			line: 0,
+			text: 'first source line',
+			before: [],
+			after: ['second source line'],
+		});
 	});
 
 	test('reports an invalid source line without changing the document or opening the composer', async () => {
@@ -63,6 +91,7 @@ describe('submitPrompt', () => {
 			reportValidationFailure: message => { failures.push(message); },
 			openComposer: async () => { opened = true; },
 			createDeletionRange: range => range as never,
+			workspaceCwd: () => '/workspace',
 		});
 
 		assert.equal(submitted, false);
@@ -81,6 +110,7 @@ describe('submitPrompt', () => {
 			reportValidationFailure: message => { failures.push(message); },
 			openComposer: async () => { opened = true; },
 			createDeletionRange: range => range as never,
+			workspaceCwd: () => '/workspace',
 		});
 
 		assert.equal(submitted, false);
@@ -100,10 +130,26 @@ describe('submitPrompt', () => {
 			reportValidationFailure: message => { thrownFailures.push(message); },
 			openComposer: async () => { openedAfterThrow = true; },
 			createDeletionRange: range => range as never,
+			workspaceCwd: () => '/workspace',
 		});
 
 		assert.equal(thrown, false);
 		assert.equal(openedAfterThrow, false);
 		assert.match(thrownFailures[0], /could not be removed safely/);
+	});
+
+	test('does not edit or open prompts for documents outside the workspace', async () => {
+		const harness = createEditor(['%F'], 0);
+		const failures: string[] = [];
+		const submitted = await submitPrompt({
+			activeTextEditor: () => harness.editor,
+			reportValidationFailure: message => { failures.push(message); },
+			openComposer: async () => assert.fail('composer should not open'),
+			createDeletionRange: range => range as never,
+			workspaceCwd: () => undefined,
+		});
+		assert.equal(submitted, false);
+		assert.equal(harness.deletedRanges.length, 0);
+		assert.match(failures[0], /inside an open workspace/);
 	});
 });

@@ -5,17 +5,31 @@ import * as vscode from 'vscode';
 interface MessagesDiagnostics {
 	readonly viewResolved: boolean;
 	readonly viewVisible: boolean;
+	readonly annotationMarkerLines: readonly number[];
 	readonly state: {
 		readonly prompt?: {
 			readonly preset: string;
 			readonly scope: string;
 			readonly sourceLine: number;
 			readonly sourceText: string;
+			readonly anchorText: string;
+			readonly anchorBefore: readonly string[];
+			readonly anchorAfter: readonly string[];
 		};
 		readonly draft?: string;
 		readonly run?: {
 			readonly status: string;
 			readonly events: readonly { readonly kind: string; readonly text?: string }[];
+		};
+		readonly annotationViewer?: {
+			readonly sourceUri: string;
+			readonly annotation: {
+				readonly id: string; readonly message: string;
+				readonly anchor: { readonly text: string; readonly before: readonly string[]; readonly after: readonly string[] };
+			};
+			readonly position: number;
+			readonly total: number;
+			readonly pinned: boolean;
 		};
 	};
 }
@@ -28,32 +42,34 @@ suite('Scenario: prompt-to-messages', () => {
 		}
 
 		await extension.activate();
+		await waitForMessagesViewReady();
 		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 		if (workspaceFolder === undefined) {
 			throw new Error('Expected the staged prompt workspace');
 		}
 
 		const uri = vscode.Uri.joinPath(workspaceFolder.uri, 'prompt.txt');
-		const fakeCli = vscode.Uri.joinPath(workspaceFolder.uri, 'fake-cli.js');
-		await vscode.workspace.getConfiguration('sundialEditor').update('cliPath', fakeCli.fsPath, vscode.ConfigurationTarget.Workspace);
+		const testableCli = vscode.Uri.joinPath(workspaceFolder.uri, 'testable-cli.js');
+		await vscode.workspace.getConfiguration('sundialEditor').update('cliPath', testableCli.fsPath, vscode.ConfigurationTarget.Workspace);
 		const document = await vscode.workspace.openTextDocument(uri);
 		const editor = await vscode.window.showTextDocument(document);
-		editor.selection = new vscode.Selection(0, 1, 0, 1);
+		editor.selection = new vscode.Selection(1, 1, 1, 1);
 
 		const completionList = await vscode.commands.executeCommand<vscode.CompletionList>(
 			'vscode.executeCompletionItemProvider',
 			uri,
-			new vscode.Position(0, 1),
+			new vscode.Position(1, 1),
 			'%',
 		);
 		const fixCompletion = completionList.items.find(item => item.label === '%F');
 		assert.ok(fixCompletion, 'Expected the %F command completion');
 		assert.equal(fixCompletion.command?.command, 'sundialEditor.submitPrompt');
 
-		editor.selection = new vscode.Selection(0, document.lineAt(0).text.length, 0, document.lineAt(0).text.length);
+		editor.selection = new vscode.Selection(1, document.lineAt(1).text.length, 1, document.lineAt(1).text.length);
 		await vscode.commands.executeCommand('sundialEditor.submitPrompt');
 
-		assert.equal(document.lineAt(0).text, 'keep this line');
+		assert.equal(document.lineAt(0).text, 'code before the command');
+		assert.equal(document.lineAt(1).text, 'keep this line');
 		const diagnostics = await waitForMessagesState();
 		assert.equal(diagnostics.viewResolved, true);
 		assert.equal(diagnostics.viewVisible, true);
@@ -64,17 +80,32 @@ suite('Scenario: prompt-to-messages', () => {
 				sourceUri: uri.toString(),
 				sourceLine: 0,
 				sourceText: '%F',
+				anchorText: 'code before the command',
+				anchorBefore: [],
+				anchorAfter: ['keep this line', 'and this second line'],
 			},
 			draft: '',
 		});
 
-		await vscode.commands.executeCommand('sundialEditor.internal.submitPendingMessage', 'Fix this through the fake provider.');
+		const submission = vscode.commands.executeCommand('sundialEditor.internal.submitPendingMessage', 'Fix this through the test provider.');
+		const savedDuringRun = await waitForAnnotationState(state => state.annotationViewer?.annotation.message === 'Fix this through the test provider.');
+		assert.equal(savedDuringRun.state.run?.status, 'working', 'Expected annotation persistence before agent completion');
+		assert.deepEqual(savedDuringRun.annotationMarkerLines, [0]);
+		await submission;
 		const completed = await waitForCompletedRun();
 		assert.equal(completed.state.run?.status, 'waiting');
 		assert.deepEqual(completed.state.run?.events.filter(event => event.kind === 'output'), [{
 			kind: 'output',
-			text: 'Applied the requested **fake patch**.\n\n- Done',
+			text: 'Applied the requested **test patch**.\n\n- Done',
 		}]);
+
+		const companionPath = vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', 'prompt.txt.comments').fsPath;
+		const companionYaml = await readFile(companionPath, 'utf8');
+		assert.match(companionYaml, /^version: 1\nannotations:\n/);
+		assert.match(companionYaml, /message: "Fix this through the test provider\."/);
+		assert.match(companionYaml, /text: "code before the command"/);
+		assert.match(companionYaml, /before: \[\]/);
+		assert.match(companionYaml, /after: \["keep this line","and this second line"\]/);
 
 		const received = JSON.parse(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'received-request.json').fsPath, 'utf8'));
 		assert.equal(received.provider, 'codex');
@@ -83,7 +114,7 @@ suite('Scenario: prompt-to-messages', () => {
 			uri: uri.toString(), line: 0, text: '%F',
 		});
 		assert.deepEqual(received.prompt, {
-			preset: '%F', scope: 'line', text: 'Fix this through the fake provider.',
+			preset: '%F', scope: 'line', text: 'Fix this through the test provider.',
 		});
 
 		const returnedEditor = vscode.window.activeTextEditor;
@@ -99,6 +130,56 @@ suite('Scenario: prompt-to-messages', () => {
 			1,
 			'Expected an editor keyboard command to move the restored source cursor',
 		);
+
+		const viewed = await waitForAnnotationState(state => state.annotationViewer?.annotation.message === 'Fix this through the test provider.');
+		assert.equal(viewed.state.annotationViewer?.annotation.anchor.text, 'code before the command');
+		assert.deepEqual(viewed.state.annotationViewer?.annotation.anchor.before, []);
+		assert.deepEqual(viewed.state.annotationViewer?.annotation.anchor.after, ['keep this line', 'and this second line']);
+		const annotationId = viewed.state.annotationViewer?.annotation.id;
+		assert.ok(annotationId);
+
+		returnedEditor.selection = new vscode.Selection(1, 0, 1, 0);
+		const retained = await waitForAnnotationState(state => state.annotationViewer?.annotation.id === annotationId);
+		assert.equal(retained.state.annotationViewer?.pinned, false, 'Expected the last viewed annotation to remain without explicit pinning');
+		await returnedEditor.edit(edit => edit.insert(
+			new vscode.Position(2, returnedEditor.document.lineAt(2).text.length),
+			'\n%Q',
+		));
+		returnedEditor.selection = new vscode.Selection(3, 2, 3, 2);
+		await vscode.commands.executeCommand('sundialEditor.submitPrompt');
+		await vscode.commands.executeCommand('sundialEditor.internal.submitPendingMessage', 'Explain the second source line.');
+		const secondViewed = await waitForAnnotationState(state => state.annotationViewer?.annotation.message === 'Explain the second source line.');
+		assert.equal(secondViewed.state.annotationViewer?.position, 2);
+		assert.equal(secondViewed.state.annotationViewer?.total, 2);
+		const secondAnnotationId = secondViewed.state.annotationViewer?.annotation.id;
+		assert.ok(secondAnnotationId);
+		await waitForCompletedRun();
+
+		await vscode.commands.executeCommand('sundialEditor.internal.previousAnnotation');
+		const previous = await waitForAnnotationState(state => state.annotationViewer?.annotation.id === annotationId);
+		assert.equal(previous.state.annotationViewer?.position, 1);
+		await vscode.commands.executeCommand('sundialEditor.internal.nextAnnotation');
+		await waitForAnnotationState(state => state.annotationViewer?.annotation.id === secondAnnotationId);
+
+		await vscode.commands.executeCommand('sundialEditor.internal.toggleAnnotationPin');
+		await waitForAnnotationState(state => state.annotationViewer?.pinned === true);
+		returnedEditor.selection = new vscode.Selection(0, 0, 0, 0);
+		assert.equal((await waitForAnnotationState(state => state.annotationViewer?.pinned === true)).state.annotationViewer?.annotation.id, secondAnnotationId);
+		await vscode.commands.executeCommand('sundialEditor.internal.toggleAnnotationPin');
+		await waitForAnnotationState(state => state.annotationViewer?.annotation.id === annotationId && state.annotationViewer.pinned === false);
+
+		await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+		const reopenedEditor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+		reopenedEditor.selection = new vscode.Selection(2, 0, 2, 0);
+		const reopened = await waitForAnnotationState(state => state.annotationViewer?.annotation.id === secondAnnotationId);
+		assert.equal(reopened.state.annotationViewer?.annotation.message, 'Explain the second source line.');
+
+		await vscode.commands.executeCommand('sundialEditor.internal.deleteAnnotation');
+		const afterDelete = await waitForAnnotationState(state => state.annotationViewer?.annotation.id === annotationId && state.annotationViewer.total === 1);
+		assert.deepEqual(afterDelete.annotationMarkerLines, [0]);
+		const afterDeleteYaml = await readFile(companionPath, 'utf8');
+		assert.match(afterDeleteYaml, /Fix this through the test provider/);
+		assert.doesNotMatch(afterDeleteYaml, /Explain the second source line/);
 	});
 });
 
@@ -117,6 +198,20 @@ async function waitForMessagesState(timeoutMs = 6000): Promise<MessagesDiagnosti
 	throw new Error(`Timed out waiting for Messages state: ${JSON.stringify(latest)}`);
 }
 
+async function waitForMessagesViewReady(timeoutMs = 6000): Promise<void> {
+	const started = Date.now();
+	while (Date.now() - started < timeoutMs) {
+		const diagnostics = await vscode.commands.executeCommand<MessagesDiagnostics>('sundialEditor.internal.messagesDiagnostics');
+		if (diagnostics.viewResolved && diagnostics.viewVisible) {
+			// Let the first-run reveal finish its focus command before opening the source editor.
+			await new Promise(resolve => setTimeout(resolve, 50));
+			return;
+		}
+		await new Promise(resolve => setTimeout(resolve, 25));
+	}
+	throw new Error('Timed out waiting for the first-run Messages view reveal');
+}
+
 async function waitForCompletedRun(timeoutMs = 6000): Promise<MessagesDiagnostics> {
 	const started = Date.now();
 	let latest: MessagesDiagnostics | undefined;
@@ -128,4 +223,20 @@ async function waitForCompletedRun(timeoutMs = 6000): Promise<MessagesDiagnostic
 		await new Promise(resolve => setTimeout(resolve, 50));
 	}
 	throw new Error(`Timed out waiting for completed agent run: ${JSON.stringify(latest)}`);
+}
+
+async function waitForAnnotationState(
+	predicate: (state: MessagesDiagnostics['state']) => boolean,
+	timeoutMs = 6000,
+): Promise<MessagesDiagnostics> {
+	const started = Date.now();
+	let latest: MessagesDiagnostics | undefined;
+	while (Date.now() - started < timeoutMs) {
+		latest = await vscode.commands.executeCommand<MessagesDiagnostics>('sundialEditor.internal.messagesDiagnostics');
+		if (predicate(latest.state)) {
+			return latest;
+		}
+		await new Promise(resolve => setTimeout(resolve, 50));
+	}
+	throw new Error(`Timed out waiting for annotation state: ${JSON.stringify(latest)}`);
 }

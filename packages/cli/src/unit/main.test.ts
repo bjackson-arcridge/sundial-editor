@@ -37,11 +37,51 @@ describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.1.1\n');
+		assert.equal(version.stdout.join(''), '0.2.0\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
 		assert.match(help.stdout.join(''), /prompt \[--input request\.json\]/);
+		assert.match(help.stdout.join(''), /annotations append/);
+		assert.match(help.stdout.join(''), /annotations delete/);
+	});
+
+	test('routes annotation append, delete, and read operations as JSON', async () => {
+		const append = harness('{"append":true}');
+		assert.equal(await main(['annotations', 'append'], append.io, {
+			adapters: {}, readFile: async () => '',
+			appendUserAnnotation: async value => {
+				assert.deepEqual(value, { append: true });
+				return {
+					id: 'annotation-1', message: 'Fix it.', preset: '%F', scope: 'line',
+					anchor: { line: 2, text: 'code', before: ['before'], after: ['after'] },
+				};
+			},
+		}), 0);
+		assert.equal(JSON.parse(append.stdout[0]).id, 'annotation-1');
+
+		const remove = harness('{"annotation":{"id":"annotation-1"}}');
+		assert.equal(await main(['annotations', 'delete'], remove.io, {
+			adapters: {}, readFile: async () => '',
+			deleteUserAnnotation: async value => {
+				assert.deepEqual(value, { annotation: { id: 'annotation-1' } });
+				return {
+					id: 'annotation-1', message: 'Fix it.', preset: '%F', scope: 'line',
+					anchor: { line: 2, text: 'code', before: [], after: [] },
+				};
+			},
+		}), 0);
+		assert.equal(JSON.parse(remove.stdout[0]).id, 'annotation-1');
+
+		const read = harness('{"read":true}');
+		assert.equal(await main(['annotations', 'read'], read.io, {
+			adapters: {}, readFile: async () => '',
+			readUserAnnotations: async value => {
+				assert.deepEqual(value, { read: true });
+				return { version: 1, annotations: [] };
+			},
+		}), 0);
+		assert.deepEqual(JSON.parse(read.stdout[0]), { version: 1, annotations: [] });
 	});
 
 	test('reports health as machine-readable capabilities', async () => {

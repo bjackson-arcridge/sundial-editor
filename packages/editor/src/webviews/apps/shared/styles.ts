@@ -3,6 +3,8 @@ import { css } from 'lit';
 export const tokenStyles = css`
 	:host {
 		--se-fg: var(--vscode-foreground);
+		--se-icon-fg: var(--vscode-foreground);
+		--se-toolbar-bg: var(--vscode-sideBarSectionHeader-background, var(--vscode-sideBar-background));
 		--se-muted-fg: var(--vscode-descriptionForeground);
 		--se-bg: var(--vscode-sideBar-background);
 		--se-surface-bg: var(--vscode-editorWidget-background);

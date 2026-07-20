@@ -15,9 +15,17 @@ Type `%` as the first character of a source line. Sundial takes over the trigger
 - `%C` — cleanup guidance
 - `%T` — test guidance
 
-Each command also has a project-scoped `@G` variant, such as `%F @G`. Commands do not select an agent; agent routing is deferred. The command line is removed in one undoable edit and the Messages view opens with the preset and scope shown above the message box. Submitted messages are delivered through the companion CLI.
+Each command also has a project-scoped `@G` variant, such as `%F @G`. Commands do not select an agent; agent routing is deferred. The command line is removed in one undoable edit and the Messages view opens a message box identified by its named source, such as `User %Q`. Submitted messages are delivered through the companion CLI.
+
+Place a command immediately after the source line it concerns. The resulting interaction anchors to that preceding physical line. A command on the first line falls forward to the following line because there is no preceding target.
 
 Enter sends the message and Shift+Enter inserts a newline. Sending and Escape cancellation return focus to the source location for a keyboard-only loop. When VSCodeVim is enabled, Sundial also returns it to Normal mode so the restored cursor is ready for navigation.
+
+## Source-anchored interactions
+
+When a user sends a message, Sundial records the interaction beside its source file independently of the agent's eventual result. For example, an interaction anchored in `src/example.ts` is stored in the checked-in YAML companion `.sundial/src/example.ts.comments`. Each anchor retains up to three non-empty source lines before and after its target as context for later re-anchoring. Opening or cancelling the composer before Send creates nothing, and malformed existing companions are left untouched.
+
+Annotated source lines carry an editor marker. Agent activity and annotations occupy independently scrolling halves of the Messages view; drag the separator to resize them. Moving onto a marked line selects its interaction below, and the last viewed interaction remains visible after moving away. The annotation toolbar navigates, deletes, pins, or expands the interaction; pinning prevents another marked line from replacing it. Metadata such as scope, line, and anchoring context remains collapsed by default. Toolbar state lasts for the current editor session; the interaction itself survives restarts through the companion file.
 
 ## Sundial Agents panel
 

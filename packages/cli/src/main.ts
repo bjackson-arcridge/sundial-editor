@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { createCodexAdapter } from './adapters/codex.js';
 import type { ProviderAdapter } from './adapters/adapter.js';
+import { appendUserAnnotation, deleteUserAnnotation, readUserAnnotations } from './annotations.js';
 import { parsePromptRequest, renderEvent } from './protocol.js';
 
-const packageVersion = '0.1.1';
+const packageVersion = '0.2.0';
 
 export interface CliIo {
 	readonly stdin: NodeJS.ReadableStream;
@@ -14,6 +15,9 @@ export interface CliIo {
 export interface MainServices {
 	readonly adapters: Readonly<Record<string, ProviderAdapter>>;
 	readonly readFile: (path: string) => Promise<string>;
+	readonly appendUserAnnotation?: typeof appendUserAnnotation;
+	readonly deleteUserAnnotation?: typeof deleteUserAnnotation;
+	readonly readUserAnnotations?: typeof readUserAnnotations;
 }
 
 const helpText = `Sundial Editor CLI ${packageVersion}
@@ -23,9 +27,15 @@ Usage:
   sundial-editor-cli help
   sundial-editor-cli health [--provider codex]
   sundial-editor-cli prompt [--input request.json]
+  sundial-editor-cli annotations append [--input request.json]
+  sundial-editor-cli annotations delete [--input request.json]
+  sundial-editor-cli annotations read [--input request.json]
 
 The prompt command reads JSON from stdin unless --input is provided and emits
 newline-delimited JSON events with kind=status, output, or error.
+
+Annotation commands read JSON from stdin unless --input is provided. They map a
+workspace source file to its checked-in .sundial YAML companion.
 `;
 
 export async function main(
@@ -59,6 +69,29 @@ export async function main(
 		} catch (error) {
 			io.stderr.write(`${errorMessage(error)}\n`);
 			return 2;
+		}
+	}
+	if (command === 'annotations') {
+		try {
+			const [operation, ...operationArgs] = args;
+			if (operation !== 'append' && operation !== 'delete' && operation !== 'read') {
+				throw new Error('annotations requires an append, delete, or read operation');
+			}
+			const inputPath = optionValue(operationArgs, '--input');
+			validateInputArgs(operationArgs, inputPath, `annotations ${operation}`);
+			const input = inputPath === undefined ? await readStream(io.stdin) : await services.readFile(inputPath);
+			const request: unknown = JSON.parse(input);
+			const result = operation === 'append'
+				? await (services.appendUserAnnotation ?? appendUserAnnotation)(request)
+				: operation === 'delete'
+					? await (services.deleteUserAnnotation ?? deleteUserAnnotation)(request)
+					: await (services.readUserAnnotations ?? readUserAnnotations)(request);
+			io.stdout.write(`${JSON.stringify(result)}\n`);
+			return 0;
+		} catch (error) {
+			const message = error instanceof SyntaxError ? `Invalid JSON: ${error.message}` : errorMessage(error);
+			io.stderr.write(`sundial-editor-cli: ${message}\n`);
+			return 1;
 		}
 	}
 	if (command !== 'prompt') {
@@ -109,9 +142,13 @@ function optionValue(args: readonly string[], name: string): string | undefined 
 }
 
 function validatePromptArgs(args: readonly string[], inputPath: string | undefined): void {
+	validateInputArgs(args, inputPath, 'prompt');
+}
+
+function validateInputArgs(args: readonly string[], inputPath: string | undefined, command: string): void {
 	const expected = inputPath === undefined ? 0 : 2;
 	if (args.length !== expected) {
-		throw new Error(`Unexpected prompt arguments: ${args.join(' ')}`);
+		throw new Error(`Unexpected ${command} arguments: ${args.join(' ')}`);
 	}
 }
 

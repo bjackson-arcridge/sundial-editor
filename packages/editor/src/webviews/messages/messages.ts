@@ -1,5 +1,6 @@
 import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';
 import type { AgentEvent, AgentStatus } from '../../agentProtocol.js';
+import { isUserAnnotation, type UserAnnotation } from '../../annotationProtocol.js';
 
 export interface AgentRunState {
 	readonly status: AgentStatus;
@@ -9,7 +10,30 @@ export interface AgentRunState {
 export interface MessagesState {
 	readonly prompt?: PromptContext;
 	readonly draft?: string;
+	readonly submitted?: true;
+	readonly annotationSaved?: true;
+	readonly deliveryComplete?: true;
 	readonly run?: AgentRunState;
+	readonly annotationViewer?: AnnotationViewerState;
+}
+
+export interface AnnotationViewerState {
+	readonly sourceUri: string;
+	readonly annotation: UserAnnotation;
+	readonly position: number;
+	readonly total: number;
+	readonly pinned: boolean;
+	readonly canPrevious: boolean;
+	readonly canNext: boolean;
+}
+
+export function annotationForLine(
+	annotations: readonly UserAnnotation[],
+	line: number,
+	preferredId?: string,
+): UserAnnotation | undefined {
+	const onLine = annotations.filter(annotation => annotation.anchor.line === line);
+	return onLine.find(annotation => annotation.id === preferredId) ?? onLine[0];
 }
 
 export function appendAgentEvent(events: readonly AgentEvent[], event: AgentEvent): readonly AgentEvent[] {
@@ -29,7 +53,11 @@ export type HostToWebview =
 
 export type WebviewToHost =
 	| { kind: 'submit'; message: string }
-	| { kind: 'cancel' };
+	| { kind: 'cancel' }
+	| { kind: 'previousAnnotation' }
+	| { kind: 'nextAnnotation' }
+	| { kind: 'toggleAnnotationPin' }
+	| { kind: 'deleteAnnotation' };
 
 export function isValidHostToWebviewMessage(value: unknown): value is HostToWebview {
 	if (!isRecord(value)) {
@@ -45,13 +73,18 @@ export function isValidHostToWebviewMessage(value: unknown): value is HostToWebv
 	}
 	const state = value.state;
 	if (state.prompt === undefined) {
-		if (state.draft !== undefined) {
+		if (state.draft !== undefined || state.submitted !== undefined || state.annotationSaved !== undefined || state.deliveryComplete !== undefined) {
 			return false;
 		}
-	} else if (!isPromptContext(state.prompt) || typeof state.draft !== 'string') {
+	} else if (!isPromptContext(state.prompt)
+		|| typeof state.draft !== 'string'
+		|| (state.submitted !== undefined && state.submitted !== true)
+		|| (state.annotationSaved !== undefined && state.annotationSaved !== true)
+		|| (state.deliveryComplete !== undefined && state.deliveryComplete !== true)) {
 		return false;
 	}
-	return state.run === undefined || isAgentRunState(state.run);
+	return (state.run === undefined || isAgentRunState(state.run))
+		&& (state.annotationViewer === undefined || isAnnotationViewerState(state.annotationViewer));
 }
 
 function isAgentRunState(value: unknown): boolean {
@@ -80,7 +113,24 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 	}
 
 	return (value.kind === 'submit' && typeof value.message === 'string')
-		|| value.kind === 'cancel';
+		|| value.kind === 'cancel'
+		|| value.kind === 'previousAnnotation'
+		|| value.kind === 'nextAnnotation'
+		|| value.kind === 'toggleAnnotationPin'
+		|| value.kind === 'deleteAnnotation';
+}
+
+function isAnnotationViewerState(value: unknown): boolean {
+	return isRecord(value)
+		&& typeof value.sourceUri === 'string'
+		&& isUserAnnotation(value.annotation)
+		&& Number.isInteger(value.position)
+		&& (value.position as number) >= 1
+		&& Number.isInteger(value.total)
+		&& (value.total as number) >= (value.position as number)
+		&& typeof value.pinned === 'boolean'
+		&& typeof value.canPrevious === 'boolean'
+		&& typeof value.canNext === 'boolean';
 }
 
 function isPromptContext(value: unknown): value is PromptContext {
@@ -94,7 +144,16 @@ function isPromptContext(value: unknown): value is PromptContext {
 		&& typeof value.sourceLine === 'number'
 		&& Number.isInteger(value.sourceLine)
 		&& value.sourceLine >= 0
-		&& typeof value.sourceText === 'string';
+		&& typeof value.sourceText === 'string'
+		&& typeof value.anchorText === 'string'
+		&& isStringArray(value.anchorBefore)
+		&& isStringArray(value.anchorAfter);
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+	return Array.isArray(value)
+		&& value.length <= 3
+		&& value.every(line => typeof line === 'string' && line.trim() !== '');
 }
 
 function isPromptPreset(value: unknown): value is PromptPreset {

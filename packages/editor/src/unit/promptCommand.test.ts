@@ -64,12 +64,23 @@ test('creates prompt context without changing the original source text', () => {
 		throw new Error('Expected the preset to parse.');
 	}
 
-	const context = createPromptContext(parsed, 'file:///workspace/src/example.ts', 8, '%C @G');
+	const context = createPromptContext(
+		parsed,
+		'file:///workspace/src/example.ts',
+		8,
+		'%C @G',
+		'const value = 1;',
+		['function calculate() {'],
+		['return value;', '}'],
+	);
 	assert.deepEqual(context, {
 		preset: '%C',
 		scope: 'project',
 		sourceUri: 'file:///workspace/src/example.ts',
 		sourceLine: 8,
 		sourceText: '%C @G',
+		anchorText: 'const value = 1;',
+		anchorBefore: ['function calculate() {'],
+		anchorAfter: ['return value;', '}'],
 	});
 });

@@ -34,6 +34,7 @@ export function renderWebviewHtml(options: WebviewHtmlOptions): string {
 	<meta http-equiv="Content-Security-Policy" content="${csp}">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<link rel="stylesheet" href="${options.codiconUri}" nonce="${nonce}">
+	<style nonce="${nonce}">html, body { height: 100%; margin: 0; overflow: hidden; }</style>
 	<title>${escapeHtml(options.title)}</title>
 </head>
 <body>

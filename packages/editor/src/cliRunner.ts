@@ -1,6 +1,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AgentEvent } from './agentProtocol';
 import type { PromptContext } from './promptCommand';
+import {
+	parseAnnotationCompanion,
+	parseUserAnnotation,
+	type AnnotationAppendRequest,
+	type AnnotationCompanion,
+	type AnnotationDeleteRequest,
+	type AnnotationReadRequest,
+	type UserAnnotation,
+} from './annotationProtocol';
 
 export interface AgentRunRequest {
 	readonly cliPath: string;
@@ -26,7 +35,7 @@ export function startAgentRun(
 	onEvent: (event: AgentEvent) => void,
 	services: CliProcessServices = defaultServices,
 ): AgentRun {
-	const invocation = resolveCliInvocation(request.cliPath, services.nodeExecutable);
+	const invocation = resolveCliInvocation(request.cliPath, services.nodeExecutable, ['prompt']);
 	const child = services.spawn(invocation.command, invocation.args, { cwd: request.cwd });
 	let stderr = '';
 	let stdoutBuffer = '';
@@ -90,10 +99,34 @@ export function startAgentRun(
 	};
 }
 
-export function resolveCliInvocation(cliPath: string, nodeExecutable: string): { command: string; args: string[] } {
+export function resolveCliInvocation(cliPath: string, nodeExecutable: string, args: readonly string[] = ['prompt']): { command: string; args: string[] } {
 	return cliPath.endsWith('.js')
-		? { command: nodeExecutable, args: [cliPath, 'prompt'] }
-		: { command: cliPath, args: ['prompt'] };
+		? { command: nodeExecutable, args: [cliPath, ...args] }
+		: { command: cliPath, args: [...args] };
+}
+
+export async function appendAnnotationViaCli(
+	cliPath: string,
+	request: AnnotationAppendRequest,
+	services: CliProcessServices = defaultServices,
+): Promise<UserAnnotation> {
+	return parseUserAnnotation(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'append'], request, services));
+}
+
+export async function readAnnotationsViaCli(
+	cliPath: string,
+	request: AnnotationReadRequest,
+	services: CliProcessServices = defaultServices,
+): Promise<AnnotationCompanion> {
+	return parseAnnotationCompanion(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'read'], request, services));
+}
+
+export async function deleteAnnotationViaCli(
+	cliPath: string,
+	request: AnnotationDeleteRequest,
+	services: CliProcessServices = defaultServices,
+): Promise<UserAnnotation> {
+	return parseUserAnnotation(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'delete'], request, services));
 }
 
 export function parseAgentEventLine(line: string): AgentEvent | undefined {
@@ -124,6 +157,45 @@ const defaultServices: CliProcessServices = {
 	spawn: (command, args, options) => spawn(command, args, { cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'] }),
 	nodeExecutable: process.execPath,
 };
+
+async function invokeJsonCommand(
+	cliPath: string,
+	cwd: string,
+	args: readonly string[],
+	request: unknown,
+	services: CliProcessServices,
+): Promise<unknown> {
+	const invocation = resolveCliInvocation(cliPath, services.nodeExecutable, args);
+	const child = services.spawn(invocation.command, invocation.args, { cwd });
+	let stdout = '';
+	let stderr = '';
+	child.stdout.on('data', chunk => { stdout += String(chunk); });
+	child.stderr.on('data', chunk => { stderr += String(chunk); });
+	child.stdin.end(JSON.stringify(request));
+	const exitCode = await new Promise<number>((resolve, reject) => {
+		let settled = false;
+		child.once('error', error => {
+			if (!settled) {
+				settled = true;
+				reject(new Error(errorMessageForStart(error, cliPath)));
+			}
+		});
+		child.once('exit', code => {
+			if (!settled) {
+				settled = true;
+				resolve(code ?? 1);
+			}
+		});
+	});
+	if (exitCode !== 0) {
+		throw new Error(stderr.trim() || `Sundial Editor CLI exited with code ${exitCode}.`);
+	}
+	try {
+		return JSON.parse(stdout);
+	} catch {
+		throw new Error('Sundial Editor CLI returned invalid JSON.');
+	}
+}
 
 function errorMessageForStart(error: Error, cliPath: string): string {
 	return 'code' in error && error.code === 'ENOENT'

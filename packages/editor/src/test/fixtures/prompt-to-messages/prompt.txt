@@ -1,2 +1,4 @@
+code before the command
 %F
 keep this line
+and this second line

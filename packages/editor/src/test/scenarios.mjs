@@ -10,6 +10,10 @@ export const scenarios = [
 	},
 	{
 		label: 'prompt-to-messages',
-		description: 'A percent command submits structured context to a fake CLI and streams its result.',
+		description: 'A percent command submits structured context to a testable CLI and streams the result.',
+	},
+	{
+		label: 'annotation-retry',
+		description: 'A failed companion append retries without delivering the agent prompt twice.',
 	},
 ];
