@@ -36,7 +36,7 @@ describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.5.0\n');
+		assert.equal(version.stdout.join(''), '0.6.0\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
@@ -107,6 +107,7 @@ describe('main', () => {
 			providers: ['codex'],
 			commands: [
 				'annotations append', 'annotations read', 'annotations delete',
+				'workflow state', 'workflow baseline', 'workflow checkpoint-file', 'workflow checkpoint-all', 'workflow consolidate',
 				'agent list', 'agent show', 'agent rename', 'agent session ensure',
 				'agent work enqueue', 'agent work ready', 'agent work list', 'agent work show',
 				'agent work claim', 'agent work complete', 'agent work requeue',

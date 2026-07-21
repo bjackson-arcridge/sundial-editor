@@ -2,7 +2,7 @@
   "name": "sundial-editor",
   "displayName": "Sundial Editor",
   "description": "A focused collaboration prompt surface for Sundial editing workflows.",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "publisher": "arcridge",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bjackson-arcridge/sundial-editor/tree/main/packages/editor#readme",
@@ -47,7 +47,16 @@
         "command": "sundialEditor.submitPrompt",
         "title": "Sundial Editor: Submit Prompt",
         "icon": "$(send)"
-      }
+      },
+      { "command": "sundialEditor.diff.toggle", "title": "Sundial Editor: Toggle Diff View" },
+      { "command": "sundialEditor.diff.inline", "title": "Sundial Editor: Toggle Inline Diff" },
+      { "command": "sundialEditor.diff.previous", "title": "Sundial Editor: Diff Baseline Previous Commit" },
+      { "command": "sundialEditor.diff.next", "title": "Sundial Editor: Diff Baseline Next Commit" },
+      { "command": "sundialEditor.diff.head", "title": "Sundial Editor: Diff Baseline HEAD" },
+      { "command": "sundialEditor.diff.permanent", "title": "Sundial Editor: Diff Baseline Last Permanent Commit" },
+      { "command": "sundialEditor.commit.file", "title": "Sundial Editor: Create Temporary Commit for Current File" },
+      { "command": "sundialEditor.commit.all", "title": "Sundial Editor: Create Temporary Commit for All Changes" },
+      { "command": "sundialEditor.commit.message", "title": "Sundial Editor: Consolidate Temporary Commits" }
     ],
     "viewsContainers": {
       "secondarySidebar": [

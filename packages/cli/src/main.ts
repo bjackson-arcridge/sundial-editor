@@ -25,6 +25,7 @@ import {
 	type WorkItem,
 } from './agentStore.js';
 import { appendUserAnnotation, createAnnotationAnchor, deleteUserAnnotation, readUserAnnotations } from './annotations.js';
+import { consolidateTemporaryCommits, createTemporaryCommit, moveGitWorkflowBaseline, readGitWorkflowState } from './gitWorkflow.js';
 import { renderManagedAgentContract, renderManagedPrompt } from './managedPrompts.js';
 import { parsePromptRequest, renderEvent, type PromptRequest } from './protocol.js';
 import { requeueWorkWithResponseReconciliation } from './responseRecording.js';
@@ -42,6 +43,10 @@ export interface MainServices {
 	readonly appendUserAnnotation?: typeof appendUserAnnotation;
 	readonly deleteUserAnnotation?: typeof deleteUserAnnotation;
 	readonly readUserAnnotations?: typeof readUserAnnotations;
+	readonly readGitWorkflowState?: typeof readGitWorkflowState;
+	readonly moveGitWorkflowBaseline?: typeof moveGitWorkflowBaseline;
+	readonly createTemporaryCommit?: typeof createTemporaryCommit;
+	readonly consolidateTemporaryCommits?: typeof consolidateTemporaryCommits;
 }
 
 const defaultServices: MainServices = {
@@ -59,6 +64,11 @@ Usage:
   sundial-editor-cli annotations append [--input request.json]
   sundial-editor-cli annotations read [--input request.json]
   sundial-editor-cli annotations delete [--input request.json]
+	  sundial-editor-cli workflow state [--input request.json]
+	  sundial-editor-cli workflow baseline [--input request.json]
+	  sundial-editor-cli workflow checkpoint-file [--input request.json]
+	  sundial-editor-cli workflow checkpoint-all [--input request.json]
+	  sundial-editor-cli workflow consolidate [--input request.json]
   sundial-editor-cli agent list [--input request.json]
   sundial-editor-cli agent show [--input request.json]
   sundial-editor-cli agent rename [--input request.json]
@@ -87,6 +97,7 @@ export async function main(argv: readonly string[], io: CliIo, services: MainSer
 	if (command === 'health') {return health(args, io, services);}
 	if (command === 'prompt') {return prompt(args, io, services);}
 	if (command === 'annotations') {return annotations(args, io, services);}
+	if (command === 'workflow') {return workflow(args, io, services);}
 	if (command === 'agent') {return agent(args, io, services);}
 	io.stderr.write(`Unknown command: ${command}\nRun sundial-editor-cli help for usage.\n`); return 2;
 }
@@ -106,10 +117,27 @@ async function health(args: readonly string[], io: CliIo, services: MainServices
 
 const editorCommands = [
 	'annotations append', 'annotations read', 'annotations delete',
+	'workflow state', 'workflow baseline', 'workflow checkpoint-file', 'workflow checkpoint-all', 'workflow consolidate',
 	'agent list', 'agent show', 'agent rename', 'agent session ensure',
 	'agent work enqueue', 'agent work ready', 'agent work list', 'agent work show', 'agent work claim', 'agent work complete', 'agent work requeue',
 	'agent transcript', 'agent open', 'agent interrupt', 'agent reset', 'prompt',
 ] as const;
+
+async function workflow(args: readonly string[], io: CliIo, services: MainServices): Promise<number> {
+	try {
+		const [operation, ...rest] = args;
+		if (operation !== 'state' && operation !== 'baseline' && operation !== 'checkpoint-file' && operation !== 'checkpoint-all' && operation !== 'consolidate') {
+			throw new Error('workflow requires state, baseline, checkpoint-file, checkpoint-all, or consolidate');
+		}
+		const request = await requestInput(rest, io, services, `workflow ${operation}`);
+		const result = operation === 'state' ? await (services.readGitWorkflowState ?? readGitWorkflowState)(request)
+			: operation === 'baseline' ? await (services.moveGitWorkflowBaseline ?? moveGitWorkflowBaseline)(request)
+				: operation === 'checkpoint-file' ? await (services.createTemporaryCommit ?? createTemporaryCommit)(request, false)
+					: operation === 'checkpoint-all' ? await (services.createTemporaryCommit ?? createTemporaryCommit)(request, true)
+						: await (services.consolidateTemporaryCommits ?? consolidateTemporaryCommits)(request);
+		writeJson(io, result); return 0;
+	} catch (error) { return machineFailure(io, error); }
+}
 
 async function annotations(args: readonly string[], io: CliIo, services: MainServices): Promise<number> {
 	try {

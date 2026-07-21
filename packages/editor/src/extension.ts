@@ -6,6 +6,7 @@ import type { PromptContext } from './promptCommand';
 import { submitPrompt } from './promptSubmission';
 import { returnToVSCodeVimNormalMode } from './vimNormalMode';
 import { MessagesWebviewProvider } from './webviews/messages/messagesWebviewProvider';
+import { runGitWorkflowViaCli } from './cliRunner';
 
 const messagesViewId = 'sundialEditor.messages';
 const agentsViewContainerId = 'sundialEditor';
@@ -60,6 +61,15 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('sundialEditor.internal.previousAnnotation', () => messagesProvider.selectAdjacentAnnotation(-1)),
 		vscode.commands.registerCommand('sundialEditor.internal.nextAnnotation', () => messagesProvider.selectAdjacentAnnotation(1)),
 		vscode.commands.registerCommand('sundialEditor.internal.deleteAnnotation', () => messagesProvider.deleteViewedAnnotation(true)),
+		vscode.commands.registerCommand('sundialEditor.diff.toggle', () => vscode.window.showInformationMessage('Sundial Editor: Diff view is enabled for workspace editors.')),
+		vscode.commands.registerCommand('sundialEditor.diff.inline', () => vscode.commands.executeCommand('toggle.diff.renderSideBySide')),
+		vscode.commands.registerCommand('sundialEditor.diff.previous', () => moveBaseline('previous')),
+		vscode.commands.registerCommand('sundialEditor.diff.next', () => moveBaseline('next')),
+		vscode.commands.registerCommand('sundialEditor.diff.head', () => moveBaseline('head')),
+		vscode.commands.registerCommand('sundialEditor.diff.permanent', () => moveBaseline('permanent')),
+		vscode.commands.registerCommand('sundialEditor.commit.file', () => checkpoint(false)),
+		vscode.commands.registerCommand('sundialEditor.commit.all', () => checkpoint(true)),
+		vscode.commands.registerCommand('sundialEditor.commit.message', () => consolidate()),
 		vscode.window.onDidChangeActiveTextEditor(editor => updateActiveLocation(editor, true)),
 		vscode.window.onDidChangeTextEditorSelection(event => {
 			if (event.textEditor === vscode.window.activeTextEditor) {
@@ -78,6 +88,33 @@ export function activate(context: vscode.ExtensionContext): void {
 			},
 		}),
 	);
+
+	async function workflowCwd(): Promise<string | undefined> {
+		const editor = vscode.window.activeTextEditor;
+		const cwd = editor === undefined ? undefined : workspaceCwdForSource(editor.document.uri);
+		if (cwd === undefined) { await vscode.window.showWarningMessage('Sundial Editor: Select a workspace file first.'); }
+		return cwd;
+	}
+	async function moveBaseline(action: 'previous' | 'next' | 'head' | 'permanent'): Promise<void> {
+		const cwd = await workflowCwd(); if (cwd === undefined) { return; }
+		try { const state = await runGitWorkflowViaCli(cliPath(), cwd, 'baseline', { action }); await vscode.window.showInformationMessage(`Sundial Editor: Diff baseline ${state.baseline.slice(0, 8)}.`); }
+		catch (error) { await vscode.window.showErrorMessage(`Sundial Editor: ${errorMessage(error)}`); }
+	}
+	async function checkpoint(all: boolean): Promise<void> {
+		const cwd = await workflowCwd(); if (cwd === undefined) { return; }
+		try {
+			const state = await runGitWorkflowViaCli(cliPath(), cwd, all ? 'checkpoint-all' : 'checkpoint-file', all ? {} : { file: vscode.window.activeTextEditor?.document.uri.fsPath });
+			await vscode.window.showInformationMessage(`Sundial Editor: Created temporary checkpoint for ${state.affectedPaths.length} file(s).`);
+		} catch (error) { await vscode.window.showErrorMessage(`Sundial Editor: ${errorMessage(error)}`); }
+	}
+	async function consolidate(): Promise<void> {
+		const cwd = await workflowCwd(); if (cwd === undefined) { return; }
+		const message = await vscode.window.showInputBox({ prompt: 'Commit message', validateInput: value => value.trim() === '' ? 'A commit message is required.' : undefined });
+		if (message === undefined) { return; }
+		try { await runGitWorkflowViaCli(cliPath(), cwd, 'consolidate', { message }); await vscode.window.showInformationMessage('Sundial Editor: Created permanent commit.'); }
+		catch (error) { await vscode.window.showErrorMessage(`Sundial Editor: ${errorMessage(error)}`); }
+	}
+	function cliPath(): string { return vscode.workspace.getConfiguration('sundialEditor').get<string>('cliPath', 'sundial-editor-cli'); }
 	updateActiveLocation(vscode.window.activeTextEditor, true);
 
 	setTimeout(() => {
@@ -87,6 +124,8 @@ export function activate(context: vscode.ExtensionContext): void {
 		}).catch(error => console.error('sundial-editor: failed to reveal Sundial Agents on first activation', error));
 	}, 0);
 }
+
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
 async function revealAnnotation(sourceUri: string, sourceLine: number, preserveFocus = true): Promise<void> {
 	const editor = await vscode.window.showTextDocument(vscode.Uri.parse(sourceUri), { preserveFocus });

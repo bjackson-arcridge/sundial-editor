@@ -113,4 +113,10 @@ None.
 
 ## Implementation Log
 
+- Added the CLI-owned Git workflow command family: state, first-parent baseline movement, exact temporary checkpoints, and permanent consolidation. Mutations use structured Git argv, reject conflicts/in-progress operations, and reject temporary stacks reachable from a remote branch (DR-0016, DR-0039).
+- Added typed editor CLI calls and command-palette integration for the diff baseline and commit commands. `%cm` obtains a non-empty message before invoking the CLI. Bumped the published CLI to 0.6.0 and editor to 0.13.0 (DR-0025).
+
 ## Test Log
+
+- Passed `npm run check-types`, `npm run lint`, `npm run test:unit`, and `git diff --check`.
+- VS Code integration acceptance coverage remains to be added for the global editor replacement controller; this implementation currently provides the command/CLI workflow surface but does not yet replace open editors with built-in diff editors.

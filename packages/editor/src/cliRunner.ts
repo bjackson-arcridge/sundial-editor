@@ -72,6 +72,14 @@ export interface OpenAgentResult {
 	readonly args: readonly string[];
 }
 
+export interface GitWorkflowState {
+	readonly head: string;
+	readonly baseline: string;
+	readonly lastPermanentCommit: string;
+	readonly temporaryCommitCount: number;
+	readonly affectedPaths: readonly string[];
+}
+
 export class CliConflictError extends Error {
 	constructor(
 		readonly code: string,
@@ -176,6 +184,22 @@ export async function deleteAnnotationViaCli(
 	services: CliProcessServices = defaultServices,
 ): Promise<Annotation> {
 	return parseAnnotation(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'delete'], request, services));
+}
+
+export async function runGitWorkflowViaCli(
+	cliPath: string,
+	cwd: string,
+	operation: 'state' | 'baseline' | 'checkpoint-file' | 'checkpoint-all' | 'consolidate',
+	request: Record<string, unknown>,
+	services: CliProcessServices = defaultServices,
+): Promise<GitWorkflowState> {
+	const value = await invokeJsonCommand(cliPath, cwd, ['workflow', operation], { workspace: { cwd }, ...request }, services);
+	if (!isRecord(value) || !['head', 'baseline', 'lastPermanentCommit'].every(key => typeof value[key] === 'string')
+		|| !Number.isSafeInteger(value.temporaryCommitCount) || !Array.isArray(value.affectedPaths)
+		|| !value.affectedPaths.every(candidate => typeof candidate === 'string')) {
+		throw new Error('Sundial Editor CLI returned malformed Git workflow state.');
+	}
+	return value as unknown as GitWorkflowState;
 }
 
 export async function listAgentsViaCli(
