@@ -13,33 +13,33 @@ describe('prompt command parser', () => {
 	test('accepts every preset with optional global scope', () => {
 		for (const preset of promptPresets) {
 			assert.deepEqual(parsePromptCommand(preset), { preset, scope: 'line' });
-			assert.deepEqual(parsePromptCommand(`${preset} @G`), { preset, scope: 'project' });
+			assert.deepEqual(parsePromptCommand(`${preset}@G`), { preset, scope: 'project' });
 		}
 
-		assert.deepEqual(parsePromptCommand('\u2003\t   %F @G\t '), { preset: '%F', scope: 'project' });
+		assert.deepEqual(parsePromptCommand('\u2003\t   %F@G\t '), { preset: '%F', scope: 'project' });
 	});
 
 	test('parses stable slot and named target selectors before optional project scope', () => {
 		assert.deepEqual(parsePromptCommand('%Q>1'), {
 			preset: '%Q', scope: 'line', targetSelector: { kind: 'slot', slot: 1 },
 		});
-		assert.deepEqual(parsePromptCommand('   %W>27 @G'), {
+		assert.deepEqual(parsePromptCommand('   %W>27@G'), {
 			preset: '%W', scope: 'project', targetSelector: { kind: 'slot', slot: 27 },
 		});
 		assert.deepEqual(parsePromptCommand('%R>Bob'), {
 			preset: '%R', scope: 'line', targetSelector: { kind: 'name', name: 'Bob' },
 		});
-		assert.deepEqual(parsePromptCommand('\t%C>build-agent_2 @G  '), {
+		assert.deepEqual(parsePromptCommand('\t%C>build-agent_2@G  '), {
 			preset: '%C', scope: 'project', targetSelector: { kind: 'name', name: 'build-agent_2' },
 		});
-		assert.deepEqual(parsePromptCommand('%T>Build Bob @G'), {
+		assert.deepEqual(parsePromptCommand('%T>Build Bob@G'), {
 			preset: '%T', scope: 'project', targetSelector: { kind: 'name', name: 'Build Bob' },
 		});
 		assert.deepEqual(parsePromptCommand('%F>123Bob'), {
 			preset: '%F', scope: 'line', targetSelector: { kind: 'name', name: '123Bob' },
 		});
 		assert.deepEqual(parsePromptCommand('%F>Bob@G'), {
-			preset: '%F', scope: 'line', targetSelector: { kind: 'name', name: 'Bob@G' },
+			preset: '%F', scope: 'project', targetSelector: { kind: 'name', name: 'Bob' },
 		});
 	});
 
@@ -51,17 +51,17 @@ describe('prompt command parser', () => {
 			':Q',
 			'>1:F',
 			'%X',
-			'%F@G',
+			'%F @G',
 			'%F @g',
-			'%F @G trailing',
-			'%Q @G @G',
+			'%F@G trailing',
+			'%Q@G@G',
 			'% F',
 			'%Q >1',
 			'%Q>0',
 			'%Q>01',
 			'%Q>',
 			'%Q>   ',
-			'%Q> @G',
+			'%Q>@G',
 			'%Q>Bob\n@G',
 			'%Q>Bob\u2028@G',
 			`%Q>${Number.MAX_SAFE_INTEGER}0`,
@@ -144,7 +144,7 @@ describe('command line deletion ranges', () => {
 });
 
 test('creates prompt context without changing the original source text or target selector', () => {
-	const parsed = parsePromptCommand('  %C>Ty @G');
+	const parsed = parsePromptCommand('  %C>Ty@G');
 	if (parsed === undefined) {
 		throw new Error('Expected the preset to parse.');
 	}
@@ -153,7 +153,7 @@ test('creates prompt context without changing the original source text or target
 		parsed,
 		'file:///workspace/src/example.ts',
 		8,
-		'  %C>Ty @G',
+		'  %C>Ty@G',
 		'const value = 1;',
 		['function calculate() {'],
 		['return value;', '}'],
@@ -164,7 +164,7 @@ test('creates prompt context without changing the original source text or target
 		targetSelector: { kind: 'name', name: 'Ty' },
 		sourceUri: 'file:///workspace/src/example.ts',
 		sourceLine: 8,
-		sourceText: '  %C>Ty @G',
+		sourceText: '  %C>Ty@G',
 		anchorText: 'const value = 1;',
 		anchorBefore: ['function calculate() {'],
 		anchorAfter: ['return value;', '}'],

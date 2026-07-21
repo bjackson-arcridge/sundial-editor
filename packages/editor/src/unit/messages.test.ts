@@ -32,7 +32,7 @@ const prompt = {
 	targetSelector: { kind: 'name', name: 'Bob' },
 	sourceUri: 'file:///workspace/src/example.ts',
 	sourceLine: 3,
-	sourceText: '%W>Bob @G',
+	sourceText: '%W>Bob@G',
 	anchorText: 'const value = 1;',
 	anchorBefore: ['function calculate() {'],
 	anchorAfter: ['return value;', '}'],

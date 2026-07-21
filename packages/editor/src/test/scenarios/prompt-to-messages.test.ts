@@ -68,7 +68,7 @@ suite('Scenario: prompt-to-messages', () => {
 			'%',
 		);
 		const targetChoices = presetCompletionList.items.filter(item => String(item.label).startsWith('%F>'));
-		assert.deepEqual(targetChoices.map(item => item.label), ['%F>1', '%F>1 @G', '%F>2', '%F>2 @G']);
+		assert.deepEqual(targetChoices.map(item => item.label), ['%F>1', '%F>1@G', '%F>2', '%F>2@G']);
 		assert.match(targetChoices[0].detail ?? '', /Bob \(agent 1\)/);
 
 		const completionList = await vscode.commands.executeCommand<vscode.CompletionList>(

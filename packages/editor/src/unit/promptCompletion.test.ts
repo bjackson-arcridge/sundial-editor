@@ -17,12 +17,12 @@ describe('prompt command completions', () => {
 		assert.deepEqual(
 			promptCommandCompletions.map(completion => completion.insertText),
 			[
-				'%Q', '%Q @G',
-				'%F', '%F @G',
-				'%W', '%W @G',
-				'%R', '%R @G',
-				'%C', '%C @G',
-				'%T', '%T @G',
+				'%Q', '%Q@G',
+				'%F', '%F@G',
+				'%W', '%W@G',
+				'%R', '%R@G',
+				'%C', '%C@G',
+				'%T', '%T@G',
 			],
 		);
 	});
@@ -46,10 +46,10 @@ describe('prompt command completions', () => {
 	test('enters command mode for viable commands after optional indentation and while targeting', () => {
 		assert.equal(isPromptCommandMode('%'), true);
 		assert.equal(isPromptCommandMode('%F'), true);
-		assert.equal(isPromptCommandMode('%F @'), true);
+		assert.equal(isPromptCommandMode('%F@'), true);
 		assert.equal(isPromptCommandMode(' \t%F'), true);
 		assert.equal(isPromptCommandMode('%Q>1'), true);
-		assert.equal(isPromptCommandMode('%Q>Build Bob @G'), true);
+		assert.equal(isPromptCommandMode('%Q>Build Bob@G'), true);
 		assert.equal(isPromptCommandMode('const value = %'), false);
 		assert.equal(isPromptCommandMode('%unknown'), false);
 	});
@@ -57,26 +57,26 @@ describe('prompt command completions', () => {
 	test('narrows completions while preserving a project-scope choice', () => {
 		assert.deepEqual(
 			completionsForPromptCommandPrefix('%F').map(completion => completion.insertText),
-			['%F', '%F @G'],
+			['%F', '%F@G'],
 		);
 		assert.deepEqual(
-			completionsForPromptCommandPrefix('%F @').map(completion => completion.insertText),
-			['%F @G'],
+			completionsForPromptCommandPrefix('%F@').map(completion => completion.insertText),
+			['%F@G'],
 		);
 	});
 
 	test('preserves typed slot and name selectors in submit completions', () => {
 		assert.deepEqual(
 			completionsForPromptCommandPrefix('%Q>1').map(completion => completion.insertText),
-			['%Q>1', '%Q>1 @G'],
+			['%Q>1', '%Q>1@G'],
 		);
 		assert.deepEqual(
 			completionsForPromptCommandPrefix('%R>Build Bob').map(completion => completion.insertText),
-			['%R>Build Bob', '%R>Build Bob @G'],
+			['%R>Build Bob', '%R>Build Bob@G'],
 		);
 		assert.deepEqual(
-			completionsForPromptCommandPrefix('%R>Build Bob @').map(completion => completion.insertText),
-			['%R>Build Bob @G'],
+			completionsForPromptCommandPrefix('%R>Build Bob@').map(completion => completion.insertText),
+			['%R>Build Bob@G'],
 		);
 		assert.deepEqual(completionsForPromptCommandPrefix('%Q>'), []);
 		assert.deepEqual(completionsForPromptCommandPrefix('%Q>0'), []);
@@ -85,15 +85,15 @@ describe('prompt command completions', () => {
 	test('offers current agents after a preset and filters slot or name selectors while typing', () => {
 		assert.deepEqual(
 			completionsForPromptCommandPrefix('%Q', targets).map(completion => completion.insertText),
-			['%Q', '%Q @G', '%Q>1', '%Q>1 @G', '%Q>2', '%Q>2 @G'],
+			['%Q', '%Q@G', '%Q>1', '%Q>1@G', '%Q>2', '%Q>2@G'],
 		);
 		assert.deepEqual(
 			completionsForPromptCommandPrefix('%Q>', targets).map(completion => completion.insertText),
-			['%Q>1', '%Q>1 @G', '%Q>2', '%Q>2 @G'],
+			['%Q>1', '%Q>1@G', '%Q>2', '%Q>2@G'],
 		);
 		assert.deepEqual(
 			completionsForPromptCommandPrefix('%Q>B', targets).map(completion => completion.insertText),
-			['%Q>Bob', '%Q>Bob @G', '%Q>Build Amy', '%Q>Build Amy @G'],
+			['%Q>Bob', '%Q>Bob@G', '%Q>Build Amy', '%Q>Build Amy@G'],
 		);
 		assert.match(completionsForPromptCommandPrefix('%Q>1', targets)[0].detail, /Bob \(agent 1\)/);
 	});

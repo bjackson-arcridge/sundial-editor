@@ -15,7 +15,7 @@ Type `%` on its own source line, with optional leading whitespace. Sundial takes
 - `%C` — cleanup guidance
 - `%T` — test guidance
 
-Each command also has a project-scoped `@G` variant, such as `%F @G`, and accepts an optional agent selector. The command line is removed in one undoable edit and the Messages view opens a message box identified by its named source, such as `User %Q`. Submitted messages are delivered through the editor CLI.
+Each command also has a project-scoped `@G` variant, such as `%F@G`, and accepts an optional agent selector. The command line is removed in one undoable edit and the Messages view opens a message box identified by its named source, such as `User %Q`. Submitted messages are delivered through the editor CLI.
 
 Target a named agent by adding its stable slot or name after the command, such as `%Q>1` or `%Q>Bob`. Names match without regard to case. The composer preselects that agent and shows the current agent dropdown so you can confirm or change the target before sending.
 

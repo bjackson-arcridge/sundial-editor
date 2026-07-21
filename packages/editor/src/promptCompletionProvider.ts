@@ -35,13 +35,16 @@ export function registerPromptCommandMode(services?: PromptCommandModeServices):
 					}
 
 					const replacement = new vscode.Range(position.line, 0, position.line, position.character);
-					const items = completions.map(completion => {
+					const commandPrefix = linePrefix.trimStart();
+					const targeting = /^%(?:[QFWRCT])?(?:>|@)/i.test(commandPrefix);
+					const items = completions.map((completion, index) => {
 						const item = new vscode.CompletionItem(completion.insertText, vscode.CompletionItemKind.Keyword);
 						item.detail = completion.detail;
-						item.filterText = completion.insertText;
+						item.filterText = targeting ? commandPrefix : completion.insertText;
 						item.insertText = completion.insertText;
 						item.range = replacement;
 						item.sortText = completion.sortText;
+						item.preselect = index === 0;
 						item.command = {
 							command: submitPromptCommandId,
 							title: 'Submit Sundial prompt',
@@ -53,14 +56,35 @@ export function registerPromptCommandMode(services?: PromptCommandModeServices):
 				},
 			},
 			promptCommandPrefix,
+			'>',
+			'@',
 		),
-		vscode.workspace.onDidChangeTextDocument(() => queueMicrotask(hideInlineSuggestionInCommandMode)),
+		vscode.workspace.onDidChangeTextDocument(event => {
+			const refreshRequired = event.contentChanges.some(change => change.rangeLength > change.text.length);
+			queueMicrotask(() => refreshRequired
+				? refreshPromptCommandCompletions(event.document)
+				: hideInlineSuggestionInCommandMode());
+		}),
 		vscode.window.onDidChangeTextEditorSelection(event => hideInlineSuggestionInCommandMode(event.textEditor)),
 	];
 }
 
 function needsPromptTargets(linePrefix: string): boolean {
-	return /^%[QFWRCT](?:>|$)/i.test(linePrefix.trim());
+	return /^%(?:[QFWRCT](?:>|$)|>)/i.test(linePrefix.trim());
+}
+
+function refreshPromptCommandCompletions(document: vscode.TextDocument): void {
+	const editor = vscode.window.activeTextEditor;
+	if (editor === undefined || editor.document !== document) {
+		return;
+	}
+
+	const position = editor.selection.active;
+	const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
+	if (isPromptCommandMode(linePrefix)) {
+		hideInlineSuggestionInCommandMode(editor);
+		void vscode.commands.executeCommand('editor.action.triggerSuggest');
+	}
 }
 
 function hideInlineSuggestionInCommandMode(editor = vscode.window.activeTextEditor): void {

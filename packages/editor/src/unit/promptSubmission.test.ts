@@ -30,7 +30,7 @@ function createEditor(lines: readonly string[], activeLine: number, didDelete = 
 
 describe('submitPrompt', () => {
 	test('deletes a valid complete command in one edit and opens the composer with preserved context', async () => {
-		const harness = createEditor(['first', '%F @G', 'last'], 1);
+		const harness = createEditor(['first', '%F@G', 'last'], 1);
 		const opened: PromptContext[] = [];
 
 		const submitted = await submitPrompt({
@@ -51,7 +51,7 @@ describe('submitPrompt', () => {
 			scope: 'project',
 			sourceUri: 'file:///workspace/src/example.ts',
 			sourceLine: 0,
-			sourceText: '%F @G',
+			sourceText: '%F@G',
 			anchorText: 'first',
 			anchorBefore: [],
 			anchorAfter: ['last'],

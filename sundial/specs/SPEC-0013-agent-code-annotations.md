@@ -1,9 +1,9 @@
 ---
 id: SPEC-0013
 title: Agent control and feedback coordination
-status: Todo
+status: Done
 created: 2026-07-13
-updated: 2026-07-20
+updated: 2026-07-21
 created_by: bjackson
 parent: SPEC-0008
 domain: editor

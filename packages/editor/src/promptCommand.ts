@@ -68,16 +68,19 @@ export function parsePromptCommand(sourceLine: string): ParsedPromptCommand | un
 	let targetSelector: PromptTargetSelector | undefined;
 	if (remainder.startsWith('>')) {
 		remainder = remainder.slice(1);
-		const projectScope = /^(.*\S)\s+@G$/u.exec(remainder);
+		const projectScope = /^(.*\S)@G$/u.exec(remainder);
 		if (projectScope !== null) {
 			remainder = projectScope[1];
 			scope = 'project';
+		}
+		if (remainder === '@G') {
+			return undefined;
 		}
 		targetSelector = parseTargetSelector(remainder);
 		if (targetSelector === undefined) {
 			return undefined;
 		}
-	} else if (/^\s+@G$/u.test(remainder)) {
+	} else if (/^@G$/u.test(remainder)) {
 		scope = 'project';
 	} else if (remainder !== '') {
 		return undefined;

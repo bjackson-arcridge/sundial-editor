@@ -13,7 +13,6 @@ import {
 import { isAnnotation, type AgentFileAnnotation, type Annotation, type AnnotationLink, type UserAnnotation } from '../../annotationProtocol.js';
 import { maximumPaneSplitPercent, minimumPaneSplitPercent } from '../../paneSplit.js';
 import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';
-
 export interface HostNotice {
 	readonly tone: 'info' | 'error';
 	readonly message: string;
