@@ -13,6 +13,7 @@ export interface PromptEditor {
 		readonly lineCount: number;
 		readonly uri: { readonly toString: () => string };
 		readonly lineAt: (line: number) => { readonly text: string };
+		readonly save: () => Thenable<boolean>;
 	};
 	readonly edit: (callback: (edit: { delete: (range: vscode.Range) => void }) => void) => Thenable<boolean>;
 }
@@ -80,6 +81,10 @@ export async function submitPrompt(dependencies: SubmitPromptDependencies): Prom
 
 	if (!didDelete) {
 		await dependencies.reportValidationFailure('Sundial Editor: The prompt command line could not be removed safely.');
+		return false;
+	}
+	if (!await editor.document.save()) {
+		await dependencies.reportValidationFailure('Sundial Editor: The document could not be saved before creating the annotation.');
 		return false;
 	}
 

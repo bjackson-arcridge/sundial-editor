@@ -5,7 +5,7 @@ import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises
 import { homedir, tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
-import type { AgentEvent, PromptRequest } from '../protocol.js';
+import type { AgentEvent } from '../protocol.js';
 import { packageVersion } from '../version.js';
 import {
 	AdapterError,
@@ -62,14 +62,6 @@ export function createCodexAdapter(services: CodexProcessServices = defaultServi
 	const requireHealthy = async (): Promise<string> => requireHealthyCodex(health);
 	return {
 		health,
-		run: async (request, emit, signal) => {
-			const executablePath = await requireHealthy();
-			return runAppServerTurn(services, executablePath, {
-				cwd: request.workspace.cwd,
-				model: request.model,
-				prompt: buildPrompt(request),
-			}, emit, signal);
-		},
 		createSession: async request => {
 			const executablePath = await requireHealthy();
 			const started = await withConnection(services, executablePath, request.cwd, async connection => {
@@ -776,14 +768,6 @@ function transcriptText(item: Record<string, unknown> | undefined): string {
 		const record = asRecord(part);
 		return recordString(record, 'text') ?? recordString(record, 'input_text') ?? recordString(record, 'output_text') ?? '';
 	}).filter(Boolean).join('\n');
-}
-
-
-function buildPrompt(request: PromptRequest): string {
-	const context = request.prompt.scope === 'project'
-		? `Project prompt from ${request.document.uri}`
-		: `Prompt from ${request.document.uri}, line ${request.document.line + 1}:\n${request.document.text}`;
-	return `${request.prompt.text}\n\nOriginating Sundial context:\n${context}`;
 }
 
 const capabilityCachePath = machineConfigurationPath('provider-capabilities.json');

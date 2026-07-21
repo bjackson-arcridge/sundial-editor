@@ -139,12 +139,13 @@ async function containsEvidenceResponse(
 	evidence: PendingResponseEvidence,
 ): Promise<boolean> {
 	const companion = await readUserAnnotations({ workspace: { cwd: workspaceCwd }, document: { uri: work.source.uri } });
-	return companion.annotations.find(annotation => annotation.id === work.id)?.officialResponses.some(response =>
+	const annotation = companion.annotations.find(candidate => candidate.kind === 'user' && candidate.id === work.id);
+	return annotation?.kind === 'user' && annotation.officialResponses.some(response =>
 		response.userAnnotationId === work.id
 		&& response.agentId === work.agentId
 		&& response.agentSessionId === evidence.assignment.sessionId
 		&& response.createdAt === evidence.createdAt
-		&& digest(response.body) === evidence.bodyDigest) === true;
+		&& digest(response.body) === evidence.bodyDigest);
 }
 
 function completedEvidence(work: UserAnnotationWorkItem, input: RecordTaskResponseInput): PendingResponseEvidence | undefined {

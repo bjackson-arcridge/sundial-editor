@@ -1,19 +1,12 @@
 import * as assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, test } from 'node:test';
 import type { ProviderAdapter } from '../adapters/adapter';
 import { main, type CliIo } from '../main';
-import type { AgentEvent, PromptRequest } from '../protocol';
-
-const request: PromptRequest = {
-	provider: 'codex',
-	workspace: { cwd: '/workspace' },
-	document: { uri: 'file:///workspace/example.ts', line: 2, text: '%F' },
-	prompt: { preset: '%F', scope: 'line', text: 'Fix this.' },
-};
+import type { AgentEvent } from '../protocol';
 
 function harness(input = ''): { io: CliIo; stdout: string[]; stderr: string[] } {
 	const stdout: string[] = [];
@@ -32,7 +25,10 @@ function harness(input = ''): { io: CliIo; stdout: string[]; stderr: string[] } 
 function adapter(events: readonly AgentEvent[] = []): ProviderAdapter {
 	return {
 		health: async () => ({ provider: 'codex', available: true, compatible: true, version: '0.131.0' }),
-		run: async (_request, emit) => { events.forEach(emit); },
+		runSession: async (request, emit) => {
+			events.forEach(emit);
+			return { providerSessionId: request.providerSessionId, output: '', outcome: 'completed' };
+		},
 	};
 }
 
@@ -40,7 +36,7 @@ describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.4.0\n');
+		assert.equal(version.stdout.join(''), '0.5.0\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
@@ -56,9 +52,11 @@ describe('main', () => {
 			appendUserAnnotation: async value => {
 				assert.deepEqual(value, { append: true });
 				return {
+					kind: 'user',
 					id: 'annotation-1', message: 'Fix it.', preset: '%F', scope: 'line',
 					anchor: { line: 2, text: 'code', before: ['before'], after: ['after'] },
 					officialResponses: [],
+					agentAnnotations: [],
 				};
 			},
 		}), 0);
@@ -70,9 +68,11 @@ describe('main', () => {
 			deleteUserAnnotation: async value => {
 				assert.deepEqual(value, { annotation: { id: 'annotation-1' } });
 				return {
+					kind: 'user',
 					id: 'annotation-1', message: 'Fix it.', preset: '%F', scope: 'line',
 					anchor: { line: 2, text: 'code', before: [], after: [] },
 					officialResponses: [],
+					agentAnnotations: [],
 				};
 			},
 		}), 0);
@@ -83,10 +83,10 @@ describe('main', () => {
 			adapters: {}, readFile: async () => '',
 			readUserAnnotations: async value => {
 				assert.deepEqual(value, { read: true });
-				return { version: 1, annotations: [] };
+				return { version: 3, annotations: [] };
 			},
 		}), 0);
-		assert.deepEqual(JSON.parse(read.stdout[0]), { version: 1, annotations: [] });
+		assert.deepEqual(JSON.parse(read.stdout[0]), { version: 3, annotations: [] });
 	});
 
 	test('reports health as machine-readable capabilities', async () => {
@@ -119,23 +119,6 @@ describe('main', () => {
 			adapters: { codex: provider }, readFile: async () => '',
 		}), 0);
 		assert.deepEqual(requestedOptions, [{ forceRefresh: false }, { forceRefresh: true }]);
-	});
-
-	test('validates stdin and emits newline-delimited adapter events', async () => {
-		const run = harness(JSON.stringify(request));
-		const code = await main(['prompt'], run.io, {
-			adapters: { codex: adapter([
-				{ kind: 'status', status: 'working' },
-				{ kind: 'output', text: 'Done.' },
-			]) },
-			readFile: async () => '',
-		});
-		assert.equal(code, 0);
-		assert.deepEqual(run.stdout.map(line => JSON.parse(line)), [
-			{ kind: 'status', status: 'working' },
-			{ kind: 'output', text: 'Done.' },
-			{ kind: 'status', status: 'waiting' },
-		]);
 	});
 
 	test('reads a JSON file and maps validation failures to blocked/error events', async () => {
@@ -181,6 +164,7 @@ describe('main', () => {
 			return JSON.parse(run.stdout.join(''));
 		};
 		try {
+			await writeFile(path.join(cwd, 'file.ts'), '\n');
 			const listed = await invoke(['agent', 'list'], { workspace: { cwd } }) as { agents: Array<{ id: string; name: string }> };
 			assert.equal(listed.agents.length, 5);
 			const agent = listed.agents[0];
@@ -260,6 +244,7 @@ describe('main', () => {
 			return JSON.parse(run.stdout.join(''));
 		};
 		try {
+			await writeFile(path.join(cwd, 'file.ts'), 'code\n');
 			const listed = await invoke(['agent', 'list'], { workspace: { cwd } }) as { agents: Array<{ id: string }> };
 			const agentId = listed.agents[0].id;
 			const ensured = await invoke(['agent', 'session', 'ensure'], {

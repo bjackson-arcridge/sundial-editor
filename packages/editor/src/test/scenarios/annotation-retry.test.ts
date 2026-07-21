@@ -49,7 +49,7 @@ suite('Scenario: annotation-retry', () => {
 		assert.equal(completed.state.work[0].prompt.text, 'Persist this once.');
 		assert.equal(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'delivery-count.txt').fsPath, 'utf8'), '1');
 		const companion = await readFile(vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', 'prompt.txt.comments').fsPath, 'utf8');
-		assert.match(companion, /message: "Persist this once\."/);
+		assert.match(companion, /"message":"Persist this once\."/);
 		assert.doesNotMatch(companion, /replacement/);
 
 		const sourceEditor = vscode.window.activeTextEditor;

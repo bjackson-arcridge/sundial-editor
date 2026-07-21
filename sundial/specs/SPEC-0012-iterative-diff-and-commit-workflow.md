@@ -51,7 +51,7 @@ As a part of this feature; we will add a commit hash field to annotations. The a
 
 This is the revised functional slice 5 from SPEC-0008 and depends on completion of SPEC-0013's three child functions through SPEC-0020. It extends their persistent agent control, official-response, and latest-source code-annotation contracts with version selection, latest-code and editable diff views, iteration and cumulative baselines, diff-scoped annotation presentation, explicit temporary commits, consolidation into a real commit, stable annotation identities, and companion-file inclusion within commit scope.
 
-All version and diff complexity is owned here. SPEC-0018 supplies persistent agent control, SPEC-0019 supplies official responses, and SPEC-0020 supplies latest-source code annotations plus file-scope fallback without a diff-shaped placeholder. This slice adds the version/diff states and controls rather than building a parallel sidebar model.
+All version and diff complexity is owned here. SPEC-0018 supplies persistent agent control, SPEC-0019 supplies official responses, and SPEC-0020 supplies fixed-line latest-source code annotations. This slice adds version/diff states, re-anchoring, and any file-scope fallback rather than building a parallel sidebar model.
 
 ## Applicable Decision Records
 

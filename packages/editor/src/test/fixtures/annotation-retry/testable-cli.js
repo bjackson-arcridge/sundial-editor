@@ -57,7 +57,7 @@ function handleAgent(operation, action, request) {
 			enqueuedAt: at,
 			updatedAt: at,
 			latestUpdate: update,
-			source: request.work.source,
+			source: { ...request.work.source, ...anchorForRequest({ document: request.work.source }) },
 			prompt: request.work.prompt,
 			updates: [update],
 		};
@@ -137,17 +137,14 @@ function handleAnnotations(operation, request) {
 			return;
 		}
 		const annotation = {
+			kind: 'user',
 			id: request.annotation.id,
 			message: request.annotation.message,
 			preset: request.annotation.preset,
 			scope: request.annotation.scope,
-			anchor: {
-				line: request.document.line,
-				text: request.document.text,
-				before: request.document.before,
-					after: request.document.after,
-				},
+			anchor: anchorForRequest(request),
 				officialResponses: [],
+				agentAnnotations: [],
 		};
 		companion.annotations.push(annotation);
 		fs.mkdirSync(path.dirname(companionPath), { recursive: true });
@@ -172,7 +169,6 @@ function recordFixtureResponse(request) {
 	annotation.officialResponses.push({
 		userAnnotationId: work.id, agentId: work.agentId, agentSessionId: work.assignment.sessionId, body, createdAt: at,
 	});
-	companion.version = 2;
 	fs.writeFileSync(companionPath, renderCompanion(companion));
 	work.status = 'completed';
 	addUpdate(work, 'completed', 'Official response recorded.');
@@ -257,70 +253,25 @@ function annotationCompanionPath(request) {
 
 function readCompanion(companionPath) {
 	if (!fs.existsSync(companionPath)) {
-		return { version: 1, annotations: [] };
+		return { version: 3, annotations: [] };
 	}
 	const lines = fs.readFileSync(companionPath, 'utf8').trimEnd().split('\n');
 	const version = Number(lines[0].slice('version: '.length));
-	const annotations = [];
-	let index = 2;
-	while (index < lines.length) {
-		const annotation = {
-			id: JSON.parse(lines[index].slice('  - id: '.length)),
-			message: JSON.parse(lines[index + 1].slice('    message: '.length)),
-			preset: JSON.parse(lines[index + 2].slice('    preset: '.length)),
-			scope: JSON.parse(lines[index + 3].slice('    scope: '.length)),
-			anchor: {
-				line: Number(lines[index + 5].slice('      line: '.length)),
-				text: JSON.parse(lines[index + 6].slice('      text: '.length)),
-				before: JSON.parse(lines[index + 7].slice('      before: '.length)),
-				after: JSON.parse(lines[index + 8].slice('      after: '.length)),
-			},
-			officialResponses: [],
-		};
-		index += 9;
-		if (version === 2) {
-			index += 1;
-			while (lines[index]?.startsWith('      - userAnnotationId: ')) {
-				annotation.officialResponses.push({
-					userAnnotationId: JSON.parse(lines[index].slice('      - userAnnotationId: '.length)),
-					agentId: JSON.parse(lines[index + 1].slice('        agentId: '.length)),
-					agentSessionId: JSON.parse(lines[index + 2].slice('        agentSessionId: '.length)),
-					body: JSON.parse(lines[index + 3].slice('        body: '.length)),
-					createdAt: JSON.parse(lines[index + 4].slice('        createdAt: '.length)),
-				});
-				index += 5;
-			}
-		}
-		annotations.push(annotation);
-	}
-	return { version, annotations };
+	return { version, annotations: lines.slice(2).map(line => JSON.parse(line.slice(4))) };
 }
 
 function renderCompanion(companion) {
 	return [
 		`version: ${companion.version}`,
 		'annotations:',
-		...companion.annotations.flatMap(annotation => [
-			`  - id: ${JSON.stringify(annotation.id)}`,
-			`    message: ${JSON.stringify(annotation.message)}`,
-			`    preset: ${JSON.stringify(annotation.preset)}`,
-			`    scope: ${JSON.stringify(annotation.scope)}`,
-			'    anchor:',
-			`      line: ${annotation.anchor.line}`,
-			`      text: ${JSON.stringify(annotation.anchor.text)}`,
-			`      before: ${JSON.stringify(annotation.anchor.before)}`,
-			`      after: ${JSON.stringify(annotation.anchor.after)}`,
-			...(companion.version === 1 ? [] : [
-				'    officialResponses:',
-				...annotation.officialResponses.flatMap(response => [
-					`      - userAnnotationId: ${JSON.stringify(response.userAnnotationId)}`,
-					`        agentId: ${JSON.stringify(response.agentId)}`,
-					`        agentSessionId: ${JSON.stringify(response.agentSessionId)}`,
-					`        body: ${JSON.stringify(response.body)}`,
-					`        createdAt: ${JSON.stringify(response.createdAt)}`,
-				]),
-			]),
-		]),
+		...companion.annotations.map(annotation => `  - ${JSON.stringify(annotation)}`),
 		'',
 	].join('\n');
+}
+
+function anchorForRequest(request) {
+	const lines = fs.readFileSync(fileURLToPath(request.document.uri), 'utf8').replace(/\r\n?/g, '\n').split('\n');
+	const before = lines.slice(0, request.document.line).filter(line => line.trim() !== '').slice(-3);
+	const after = lines.slice(request.document.line + 1).filter(line => line.trim() !== '').slice(0, 3);
+	return { line: request.document.line, text: lines[request.document.line] ?? '', before, after };
 }

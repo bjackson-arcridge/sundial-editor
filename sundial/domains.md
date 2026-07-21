@@ -51,3 +51,7 @@ Webview client UI components, styling, theming, accessibility, and interaction b
 ### editor
 
 Interactive editor UX, annotations, agent coordination, and iterative Git workflows.
+
+### general
+
+Cross-cutting product and implementation guidance that does not belong to one delivery surface.

@@ -161,17 +161,12 @@ describe('CLI runner', () => {
 		let invocation: ProcessInvocation | undefined;
 		const request = {
 			workspace: { cwd },
-			document: {
-				uri: waitingWork.source.uri,
-				line: waitingWork.source.line,
-				text: waitingWork.source.text,
-				before: waitingWork.source.before,
-					after: waitingWork.source.after,
-				},
-				annotation: { id: workId, message: waitingWork.prompt.text, preset: '%W' as const, scope: 'project' as const },
+			document: { uri: waitingWork.source.uri, line: waitingWork.source.line },
+			annotation: { id: workId, message: waitingWork.prompt.text, preset: '%W' as const, scope: 'project' as const },
 		};
 		const result = appendAnnotationViaCli(cliPath, request, servicesFor(child, captured => { invocation = captured; }));
 		finishJson(child, {
+			kind: 'user',
 			id: workId,
 			message: waitingWork.prompt.text,
 			preset: '%W',
@@ -180,10 +175,11 @@ describe('CLI runner', () => {
 				line: waitingWork.source.line,
 				text: waitingWork.source.text,
 				before: waitingWork.source.before,
-					after: waitingWork.source.after,
-				},
-				officialResponses: [],
-			});
+				after: waitingWork.source.after,
+			},
+			officialResponses: [],
+			agentAnnotations: [],
+		});
 
 		assert.equal((await result).id, workId);
 		assert.deepEqual(invocation, { command: '/node', args: [cliPath, 'annotations', 'append'], cwd });
@@ -197,8 +193,8 @@ describe('CLI runner', () => {
 		}, servicesFor(readChild, invocation => {
 			assert.deepEqual(invocation.args, ['annotations', 'read']);
 		}));
-		finishJson(readChild, { version: 1, annotations: [] });
-		assert.deepEqual(await read, { version: 1, annotations: [] });
+		finishJson(readChild, { version: 3, annotations: [] });
+		assert.deepEqual(await read, { version: 3, annotations: [] });
 
 		const deleteChild = fakeChild();
 		const remove = deleteAnnotationViaCli(cliPath, {
@@ -207,12 +203,14 @@ describe('CLI runner', () => {
 			assert.deepEqual(invocation.args, [cliPath, 'annotations', 'delete']);
 		}));
 		finishJson(deleteChild, {
+			kind: 'user',
 			id: workId,
 			message: waitingWork.prompt.text,
 			preset: '%W',
 			scope: 'project',
 				anchor: { line: 4, text: 'const value = 1;', before: [], after: [] },
-				officialResponses: [],
+			officialResponses: [],
+			agentAnnotations: [],
 		});
 		assert.equal((await remove).id, workId);
 	});

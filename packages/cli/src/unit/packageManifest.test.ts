@@ -7,7 +7,7 @@ describe('CLI package manifest', () => {
 	test('defines the public executable package contract', async () => {
 		const manifest = JSON.parse(await readFile(path.resolve(__dirname, '../../package.json'), 'utf8'));
 		assert.equal(manifest.name, '@arcridge/sundial-editor-cli');
-		assert.equal(manifest.version, '0.4.1');
+		assert.equal(manifest.version, '0.5.0');
 		assert.equal(manifest.engines.node, '>=20');
 		assert.deepEqual(manifest.bin, {
 			'sundial-editor-cli': 'dist/main.js',

@@ -17,6 +17,7 @@ function createEditor(lines: readonly string[], activeLine: number, didDelete = 
 				lineCount: lines.length,
 				uri: { toString: () => 'file:///workspace/src/example.ts' },
 				lineAt: line => ({ text: lines[line] }),
+				save: async () => true,
 			},
 			edit: async callback => {
 				callback({ delete: range => deletedRanges.push(range as unknown as CommandLineDeletionRange) });

@@ -5,21 +5,16 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, test } from 'node:test';
 import { createCodexAdapter } from '../adapters/codex';
-import type { AgentEvent, PromptRequest } from '../protocol';
+import type { AgentEvent } from '../protocol';
 
 const fixturePath = path.resolve(__dirname, '../../src/integration/fixtures/fake-codex-app-server.js');
 
-const request: PromptRequest = {
-	provider: 'codex',
-	workspace: { cwd: '/workspace' },
-	document: { uri: 'file:///workspace/example.ts', line: 2, text: '%F' },
-	prompt: { preset: '%F', scope: 'line', text: 'Fix this.' },
-};
+const request = { cwd: '/workspace', providerSessionId: 'thread-persistent', prompt: 'Fix this.' } as const;
 
 describe('Codex app-server integration', () => {
 	test('discovers models but lets Codex apply its configured model when no model was requested', async () => {
 		await withServer('default-success', async ({ adapter, events, readTrace }) => {
-			await adapter.run(request, event => events.push(event));
+			await adapter.runSession?.(request, event => events.push(event));
 
 			assert.deepEqual(events, [
 				{ kind: 'status', status: 'working', message: 'Codex is working.' },
@@ -27,18 +22,17 @@ describe('Codex app-server integration', () => {
 			]);
 			const calls = operationalCalls(await readTrace());
 			assert.deepEqual(calls.map(call => call.method), [
-				'initialize', 'initialized', 'model/list', 'thread/start', 'turn/start',
+				'initialize', 'initialized', 'model/list', 'thread/resume', 'turn/start',
 			]);
-			assert.equal('model' in findCall(calls, 'thread/start').params, false);
+			assert.equal('model' in findCall(calls, 'thread/resume').params, false);
 			assert.equal('model' in findCall(calls, 'turn/start').params, false);
-			assert.equal(findCall(calls, 'thread/start').params.ephemeral, false);
 		});
 	});
 
 	test('creates, resumes, and reads a persistent managed session', async () => {
 		await withServer('default-success', async ({ adapter, events, readTrace }) => {
 			const session = await adapter.createSession?.({
-				cwd: request.workspace.cwd,
+				cwd: request.cwd,
 				baseInstructions: 'Managed contract.',
 			});
 			assert.deepEqual(session, { providerSessionId: 'thread-1' });
@@ -60,7 +54,7 @@ describe('Codex app-server integration', () => {
 
 		await withServer('default-success', async ({ adapter, events, readTrace }) => {
 			const result = await adapter.runSession?.({
-				cwd: request.workspace.cwd,
+				cwd: request.cwd,
 				providerSessionId: 'thread-persistent',
 				prompt: 'Current assignment.',
 			}, event => events.push(event));
@@ -76,7 +70,7 @@ describe('Codex app-server integration', () => {
 
 		await withServer('default-success', async ({ adapter, readTrace }) => {
 			const transcript = await adapter.readSession?.({
-				cwd: request.workspace.cwd,
+				cwd: request.cwd,
 				providerSessionId: 'thread-persistent',
 			});
 			assert.deepEqual(transcript, {
@@ -94,7 +88,7 @@ describe('Codex app-server integration', () => {
 	test('reports Codex thread-not-loaded as unavailable session state', async () => {
 		await withServer('missing-session', async ({ adapter }) => {
 			assert.deepEqual(await adapter.readSession?.({
-				cwd: request.workspace.cwd,
+				cwd: request.cwd,
 				providerSessionId: 'missing-thread',
 			}), {
 				providerSessionId: 'missing-thread', available: false, transcript: [],
@@ -104,12 +98,11 @@ describe('Codex app-server integration', () => {
 
 	test('paginates model discovery and accepts an available explicit model id', async () => {
 		await withServer('explicit-pagination', async ({ adapter, events, readTrace }) => {
-			await adapter.run({ ...request, model: 'requested-id' }, event => events.push(event));
+			await adapter.runSession?.({ ...request, model: 'requested-id' }, event => events.push(event));
 
 			const calls = operationalCalls(await readTrace());
 			const modelCalls = calls.filter(call => call.method === 'model/list');
 			assert.deepEqual(modelCalls.map(call => call.params.cursor), [null, 'page-2']);
-			assert.equal(findCall(calls, 'thread/start').params.model, 'gpt-requested');
 			assert.equal(findCall(calls, 'turn/start').params.model, 'gpt-requested');
 		});
 	});
@@ -117,7 +110,7 @@ describe('Codex app-server integration', () => {
 	test('rejects an unavailable explicit model before creating a thread', async () => {
 		await withServer('default-success', async ({ adapter, events, readTrace }) => {
 			await assert.rejects(
-				adapter.run({ ...request, model: 'gpt-missing' }, event => events.push(event)),
+				adapter.runSession!({ ...request, model: 'gpt-missing' }, event => events.push(event)),
 				/Requested Codex model "gpt-missing" is unavailable.*gpt-fallback, gpt-default/,
 			);
 
@@ -129,14 +122,14 @@ describe('Codex app-server integration', () => {
 	test('propagates model discovery and Codex-version RPC errors cleanly', async () => {
 		await withServer('model-list-error', async ({ adapter, events }) => {
 			await assert.rejects(
-				adapter.run(request, event => events.push(event)),
+				adapter.runSession!(request, event => events.push(event)),
 				/Could not load available models/,
 			);
 		});
 
-		await withServer('newer-codex-required', async ({ adapter, events }) => {
+		await withServer('newer-codex-required', async ({ adapter }) => {
 			await assert.rejects(
-				adapter.run(request, event => events.push(event)),
+				adapter.createSession!({ cwd: request.cwd, baseInstructions: 'Managed contract.' }),
 				/requires a newer version of Codex/,
 			);
 		});
@@ -166,7 +159,7 @@ describe('Codex app-server integration', () => {
 			const afterInitialProbe = (await readTrace()).length;
 			const nextProcess = createAdapter();
 			await nextProcess.runSession?.({
-				cwd: request.workspace.cwd,
+				cwd: request.cwd,
 				providerSessionId: 'thread-persistent',
 				prompt: 'Current assignment.',
 			}, event => events.push(event));
@@ -218,7 +211,7 @@ describe('Codex app-server integration', () => {
 			assert.equal(health.compatible, true);
 			assert.match(health.message ?? '', /thread\/start persisted immediately/);
 			assert.deepEqual(await adapter.createSession?.({
-				cwd: request.workspace.cwd,
+				cwd: request.cwd,
 				baseInstructions: 'Managed contract.',
 			}), { providerSessionId: 'thread-1' });
 		});

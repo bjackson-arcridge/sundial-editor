@@ -97,13 +97,17 @@ const amy: NamedAgent = {
 
 const readyAgents = { kind: 'ready', agents: [bob, amy] } as const;
 const annotations = [{
+	kind: 'user',
 	id: 'annotation-1', message: 'Fix this.', preset: '%F', scope: 'line',
 	anchor: { line: 3, text: 'const value = 1;', before: ['function calculate() {'], after: ['return value;', '}'] },
 	officialResponses: [],
+	agentAnnotations: [],
 }, {
+	kind: 'user',
 	id: 'annotation-2', message: 'Add coverage.', preset: '%T', scope: 'project',
 	anchor: { line: 3, text: 'const value = 1;', before: ['function calculate() {'], after: ['return value;', '}'] },
 	officialResponses: [],
+	agentAnnotations: [],
 }] as const;
 
 const annotationViewer = {
@@ -219,6 +223,7 @@ describe('messages protocol guards', () => {
 			{ kind: 'interruptAgent', agentId: bobId },
 			{ kind: 'resetAgent', agentId: bobId },
 			{ kind: 'revealAnnotation', annotationId: workId },
+			{ kind: 'openAnnotation', link: { annotationId: 'agent-note-1', file: 'src/other.ts', line: 4 } },
 			{ kind: 'previousAnnotation' },
 			{ kind: 'nextAnnotation' },
 			{ kind: 'toggleAnnotationPin' },
@@ -241,6 +246,7 @@ describe('messages protocol guards', () => {
 		assert.equal(isValidWebviewToHostMessage({ kind: 'revealAnnotation', annotationId: '' }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'revealAnnotation', agentId: bobId }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'revealAnnotation', annotationId: workId, extra: true }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'openAnnotation', link: { annotationId: '', file: 'src/a.ts', line: 0 } }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'refresh', extra: true }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'refreshAgents' }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'showTranscript', agentId: bobId }), false);
@@ -250,6 +256,19 @@ describe('messages protocol guards', () => {
 		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: 91 }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: Number.NaN }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: 50, extra: true }), false);
+	});
+
+	test('presents agent annotations without exposing the provider session identity', () => {
+		const presented = presentAnnotation({
+			kind: 'agent', id: 'agent-note-1', agentId: bobId, agentSessionId: bobSessionId,
+			body: '**Important.**', createdAt: '2026-07-20T14:05:00.000Z',
+			anchor: { line: 4, text: 'return value;', before: [], after: [] },
+			userAnnotation: { annotationId: 'annotation-1', file: 'src/example.ts', line: 3 },
+		}, [{ ...bob, name: 'Robert' }, amy]);
+		assert.equal(presented.kind, 'agent');
+		if (presented.kind !== 'agent') { assert.fail('expected agent annotation'); }
+		assert.equal(presented.agentName, 'Robert');
+		assert.equal(JSON.stringify(presented).includes('session-bob-1'), false);
 	});
 });
 
@@ -266,6 +285,8 @@ describe('messages view projections', () => {
 			}],
 		}, [{ ...bob, name: 'Robert' }, amy]);
 
+		assert.equal(presented.kind, 'user');
+		if (presented.kind !== 'user') { assert.fail('expected user annotation'); }
 		assert.deepEqual(presented.officialResponses, [{
 			body: '**Fixed.**',
 			createdAt: '2026-07-20T14:05:00.000Z',

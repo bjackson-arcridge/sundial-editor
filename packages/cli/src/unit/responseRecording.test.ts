@@ -15,7 +15,7 @@ import {
 	prepareResponseEvidence,
 	showWork,
 } from '../agentStore';
-import { appendOfficialResponse, appendUserAnnotation, readUserAnnotations } from '../annotations';
+import { appendOfficialResponse, appendUserAnnotation, readUserAnnotations, type UserAnnotation } from '../annotations';
 import { recordTaskResponse, requeueWorkWithResponseReconciliation } from '../responseRecording';
 
 const directories: string[] = [];
@@ -49,6 +49,13 @@ async function assigned() {
 	};
 }
 
+async function storedUser(cwd: string, sourceUri: string): Promise<UserAnnotation> {
+	const annotation = (await readUserAnnotations({ workspace: { cwd }, document: { uri: sourceUri } })).annotations[0];
+	assert.equal(annotation.kind, 'user');
+	if (annotation.kind !== 'user') { throw new Error('Expected user annotation.'); }
+	return annotation;
+}
+
 describe('official response recording', () => {
 	test('upgrades the companion, completes work, consumes the handoff, and retries from its receipt', async () => {
 		const context = await assigned();
@@ -61,19 +68,20 @@ describe('official response recording', () => {
 		await assert.rejects(() => readFile(context.absoluteResponsePath), error => (error as NodeJS.ErrnoException).code === 'ENOENT');
 
 		const companion = await readUserAnnotations({ workspace: { cwd: context.cwd }, document: { uri: context.sourceUri } });
-		assert.equal(companion.version, 2);
+		assert.equal(companion.version, 3);
 		assert.equal(companion.annotations[0].id, 'query-1');
-		assert.equal(companion.annotations[0].officialResponses.length, 1);
-		assert.equal(companion.annotations[0].officialResponses[0].body, '# Done\n\nValidated.\n');
-		assert.equal(companion.annotations[0].officialResponses[0].agentId, context.agentId);
-		assert.equal(companion.annotations[0].officialResponses[0].agentSessionId, context.sessionId);
+		const user = await storedUser(context.cwd, context.sourceUri);
+		assert.equal(user.officialResponses.length, 1);
+		assert.equal(user.officialResponses[0].body, '# Done\n\nValidated.\n');
+		assert.equal(user.officialResponses[0].agentId, context.agentId);
+		assert.equal(user.officialResponses[0].agentSessionId, context.sessionId);
 		const completed = await showWork(context.cwd, 'query-1');
 		assert.equal(completed.status, 'completed');
 		assert.equal(completed.assignment, undefined);
 		assert.equal(completed.pendingResponse?.phase, 'completed');
 
 		assert.deepEqual(await recordTaskResponse(input), { file: 'src/example.ts' });
-		assert.equal((await readUserAnnotations({ workspace: { cwd: context.cwd }, document: { uri: context.sourceUri } })).annotations[0].officialResponses.length, 1);
+		assert.equal((await storedUser(context.cwd, context.sourceUri)).officialResponses.length, 1);
 		assert.equal((await requeueWorkWithResponseReconciliation({
 			workspaceCwd: context.cwd,
 			agentId: context.agentId,
@@ -154,6 +162,6 @@ describe('official response recording', () => {
 		});
 		assert.equal(completed.status, 'completed');
 		await assert.rejects(() => readFile(context.absoluteResponsePath), error => (error as NodeJS.ErrnoException).code === 'ENOENT');
-		assert.equal((await readUserAnnotations({ workspace: { cwd: context.cwd }, document: { uri: context.sourceUri } })).annotations[0].officialResponses.length, 1);
+		assert.equal((await storedUser(context.cwd, context.sourceUri)).officialResponses.length, 1);
 	});
 });

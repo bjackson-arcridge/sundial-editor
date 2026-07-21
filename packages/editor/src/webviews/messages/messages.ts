@@ -10,7 +10,7 @@ import {
 	type UserAnnotationId,
 	type UserAnnotationWorkItem,
 } from '../../agentProtocol.js';
-import { isUserAnnotation, type UserAnnotation } from '../../annotationProtocol.js';
+import { isAnnotation, type AgentFileAnnotation, type Annotation, type AnnotationLink, type UserAnnotation } from '../../annotationProtocol.js';
 import { maximumPaneSplitPercent, minimumPaneSplitPercent } from '../../paneSplit.js';
 import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';
 
@@ -43,7 +43,7 @@ export type MessagesState = MessagesStateBase & (
 
 export interface AnnotationViewerState {
 	readonly sourceUri: string;
-	readonly annotation: PresentedUserAnnotation;
+	readonly annotation: PresentedAnnotation;
 	readonly position: number;
 	readonly total: number;
 	readonly pinned: boolean;
@@ -61,26 +61,28 @@ export interface PresentedUserAnnotation extends Omit<UserAnnotation, 'officialR
 	readonly officialResponses: readonly PresentedOfficialResponse[];
 }
 
-export function presentAnnotation(annotation: UserAnnotation, agents: readonly NamedAgent[]): PresentedUserAnnotation {
-	return {
-		id: annotation.id,
-		message: annotation.message,
-		preset: annotation.preset,
-		scope: annotation.scope,
-		anchor: annotation.anchor,
-		officialResponses: annotation.officialResponses.map(response => ({
-			body: response.body,
-			createdAt: response.createdAt,
-			agentName: agents.find(agent => agent.id === response.agentId)?.name ?? 'Unknown agent',
-		})),
-	};
+export interface PresentedAgentAnnotation extends Omit<AgentFileAnnotation, 'agentSessionId'> {
+	readonly agentName: string;
+}
+
+export type PresentedAnnotation = PresentedUserAnnotation | PresentedAgentAnnotation;
+
+export function presentAnnotation(annotation: Annotation, agents: readonly NamedAgent[]): PresentedAnnotation {
+	if (annotation.kind === 'agent') {
+		const { agentSessionId: _agentSessionId, ...safe } = annotation;
+		return { ...safe, agentName: agents.find(agent => agent.id === annotation.agentId)?.name ?? 'Unknown agent' };
+	}
+	return { ...annotation, officialResponses: annotation.officialResponses.map(response => ({
+		body: response.body, createdAt: response.createdAt,
+		agentName: agents.find(agent => agent.id === response.agentId)?.name ?? 'Unknown agent',
+	})) };
 }
 
 export function annotationForLine(
-	annotations: readonly UserAnnotation[],
+	annotations: readonly Annotation[],
 	line: number,
 	preferredId?: string,
-): UserAnnotation | undefined {
+): Annotation | undefined {
 	const onLine = annotations.filter(annotation => annotation.anchor.line === line);
 	return onLine.find(annotation => annotation.id === preferredId) ?? onLine[0];
 }
@@ -175,6 +177,7 @@ export type WebviewToHost =
 	| { readonly kind: 'interruptAgent'; readonly agentId: AgentId }
 	| { readonly kind: 'resetAgent'; readonly agentId: AgentId }
 	| { readonly kind: 'revealAnnotation'; readonly annotationId: UserAnnotationId }
+	| { readonly kind: 'openAnnotation'; readonly link: AnnotationLink }
 	| { readonly kind: 'previousAnnotation' }
 	| { readonly kind: 'nextAnnotation' }
 	| { readonly kind: 'toggleAnnotationPin' }
@@ -222,6 +225,8 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 			return hasExactKeys(value, ['kind', 'agentId']) && isAgentId(value.agentId);
 		case 'revealAnnotation':
 			return hasExactKeys(value, ['kind', 'annotationId']) && isUserAnnotationId(value.annotationId);
+		case 'openAnnotation':
+			return hasExactKeys(value, ['kind', 'link']) && isAnnotationLink(value.link);
 		case 'cancel':
 		case 'ready':
 		case 'refresh':
@@ -286,7 +291,7 @@ function isAnnotationViewerState(value: unknown): value is AnnotationViewerState
 			'sourceUri', 'annotation', 'position', 'total', 'pinned', 'canPrevious', 'canNext',
 		])
 		&& typeof value.sourceUri === 'string'
-		&& isPresentedUserAnnotation(value.annotation)
+		&& isPresentedAnnotation(value.annotation)
 		&& Number.isInteger(value.position)
 		&& (value.position as number) >= 1
 		&& Number.isInteger(value.total)
@@ -296,20 +301,28 @@ function isAnnotationViewerState(value: unknown): value is AnnotationViewerState
 		&& typeof value.canNext === 'boolean';
 }
 
-function isPresentedUserAnnotation(value: unknown): value is PresentedUserAnnotation {
-	if (!isRecord(value)
-		|| !hasExactKeys(value, ['id', 'message', 'preset', 'scope', 'anchor', 'officialResponses'])
-		|| !isRecord(value.anchor)
-		|| !hasExactKeys(value.anchor, ['line', 'text', 'before', 'after'])) { return false; }
-	const persistedShape = { ...value, officialResponses: [] };
-	return isUserAnnotation(persistedShape)
-		&& Array.isArray(value.officialResponses)
+function isPresentedAnnotation(value: unknown): value is PresentedAnnotation {
+	if (!isRecord(value)) { return false; }
+	if (value.kind === 'agent') {
+		if (!hasExactKeys(value, ['kind', 'id', 'agentId', 'agentName', 'body', 'createdAt', 'anchor', 'userAnnotation'])) { return false; }
+		const persisted: Record<string, unknown> = { ...value, agentSessionId: 'redacted' };
+		delete persisted.agentName;
+		return isAnnotation(persisted) && isNonEmptyString(value.agentName);
+	}
+	if (!hasExactKeys(value, ['kind', 'id', 'message', 'preset', 'scope', 'anchor', 'officialResponses', 'agentAnnotations'])) { return false; }
+	const persisted = { ...value, officialResponses: [] };
+	return isAnnotation(persisted) && Array.isArray(value.officialResponses)
 		&& value.officialResponses.every(response => isRecord(response)
 			&& hasExactKeys(response, ['body', 'createdAt', 'agentName'])
-			&& isNonEmptyString(response.body)
-			&& isNonEmptyString(response.agentName)
-			&& typeof response.createdAt === 'string'
-			&& !Number.isNaN(Date.parse(response.createdAt)));
+			&& isNonEmptyString(response.body) && isNonEmptyString(response.agentName)
+			&& typeof response.createdAt === 'string' && !Number.isNaN(Date.parse(response.createdAt)));
+}
+
+function isAnnotationLink(value: unknown): value is AnnotationLink {
+	return isRecord(value) && hasExactKeys(value, ['annotationId', 'file', 'line'])
+		&& typeof value.annotationId === 'string' && value.annotationId !== ''
+		&& typeof value.file === 'string' && value.file !== ''
+		&& Number.isSafeInteger(value.line) && (value.line as number) >= 0;
 }
 
 function isPromptContext(value: unknown): value is PromptContext {
