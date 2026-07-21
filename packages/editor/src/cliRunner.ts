@@ -15,11 +15,12 @@ import {
 import type { PromptContext } from './promptCommand';
 import {
 	parseAnnotationCompanion,
-	parseUserAnnotation,
+	parseAnnotation,
 	type AnnotationAppendRequest,
 	type AnnotationCompanion,
 	type AnnotationDeleteRequest,
 	type AnnotationReadRequest,
+	type Annotation,
 	type UserAnnotation,
 } from './annotationProtocol';
 
@@ -54,7 +55,7 @@ export interface CliProcessServices {
 
 export interface WorkEnqueueInput {
 	readonly userAnnotationId?: UserAnnotationId;
-	readonly source: UserAnnotationWorkItem['source'];
+	readonly source: Pick<UserAnnotationWorkItem['source'], 'uri' | 'line'> & { readonly path?: string };
 	readonly prompt: UserAnnotationWorkItem['prompt'];
 }
 
@@ -156,7 +157,9 @@ export async function appendAnnotationViaCli(
 	request: AnnotationAppendRequest,
 	services: CliProcessServices = defaultServices,
 ): Promise<UserAnnotation> {
-	return parseUserAnnotation(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'append'], request, services));
+	const annotation = parseAnnotation(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'append'], request, services));
+	if (annotation.kind !== 'user') { throw new Error('Sundial Editor CLI returned the wrong annotation kind.'); }
+	return annotation;
 }
 
 export async function readAnnotationsViaCli(
@@ -171,8 +174,8 @@ export async function deleteAnnotationViaCli(
 	cliPath: string,
 	request: AnnotationDeleteRequest,
 	services: CliProcessServices = defaultServices,
-): Promise<UserAnnotation> {
-	return parseUserAnnotation(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'delete'], request, services));
+): Promise<Annotation> {
+	return parseAnnotation(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'delete'], request, services));
 }
 
 export async function listAgentsViaCli(

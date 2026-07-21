@@ -120,13 +120,13 @@ suite('Scenario: prompt-to-messages', () => {
 
 		const companionPath = vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', 'prompt.txt.comments').fsPath;
 		const companionYaml = await readFile(companionPath, 'utf8');
-		assert.match(companionYaml, /^version: 2\nannotations:\n/);
-		assert.match(companionYaml, /message: "Fix this through the test provider\."/);
-		assert.match(companionYaml, /text: "code before the command"/);
-		assert.match(companionYaml, /before: \[\]/);
-		assert.match(companionYaml, /after: \["keep this line","and this second line"\]/);
-		assert.match(companionYaml, /officialResponses:/);
-		assert.match(companionYaml, /agentSessionId: "session-bob"/);
+		assert.match(companionYaml, /^version: 3\nannotations:\n/);
+		assert.match(companionYaml, /"message":"Fix this through the test provider\."/);
+		assert.match(companionYaml, /"text":"code before the command"/);
+		assert.match(companionYaml, /"before":\[\]/);
+		assert.match(companionYaml, /"after":\["keep this line","and this second line"\]/);
+		assert.match(companionYaml, /"officialResponses":\[/);
+		assert.match(companionYaml, /"agentSessionId":"session-bob"/);
 		await assert.rejects(() => readFile(vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', `${completed.state.work[0].id}response.md`).fsPath));
 
 		const received = JSON.parse(await readFile(vscode.Uri.joinPath(workspaceFolder.uri, 'received-request.json').fsPath, 'utf8'));

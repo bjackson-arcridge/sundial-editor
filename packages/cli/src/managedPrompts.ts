@@ -30,6 +30,7 @@ const knownPlaceholders = new Set([
 	'source_line',
 	'source_context',
 	'response_file',
+	'annotation_file',
 ]);
 
 export type ManagedPromptTemplateName =
@@ -82,6 +83,7 @@ export function renderManagedPrompt(
 	const context = [...input.anchor.before, input.anchor.text, ...input.anchor.after].join('\n');
 
 	const responseFile = `.sundial/${input.userAnnotationId}response.md`;
+	const annotationFile = `.sundial/${input.userAnnotationId}newAnnotation.md`;
 	const shared = renderManagedAgentContract(input.agentName, { loadTemplate, responseFile });
 	const presetTemplate = presetTemplates[input.preset];
 	const preset = renderTemplate(presetTemplate, loadTemplate(presetTemplate), {}, []);
@@ -96,8 +98,9 @@ export function renderManagedPrompt(
 			source_line: String(input.anchor.line + 1),
 			source_context: escapeDelimitedValue(context),
 			response_file: responseFile,
+			annotation_file: annotationFile,
 		},
-		['user_request', 'source_path', 'source_line', 'source_context', 'response_file'],
+		['user_request', 'source_path', 'source_line', 'source_context', 'response_file', 'annotation_file'],
 	);
 
 	return [shared, preset, scope, assignment].join('\n\n');

@@ -24,9 +24,9 @@ import {
 	type AgentSelector,
 	type WorkItem,
 } from './agentStore.js';
-import { appendUserAnnotation, deleteUserAnnotation, readUserAnnotations } from './annotations.js';
+import { appendUserAnnotation, createAnnotationAnchor, deleteUserAnnotation, readUserAnnotations } from './annotations.js';
 import { renderManagedAgentContract, renderManagedPrompt } from './managedPrompts.js';
-import { isManagedPromptRequest, parseCliPromptRequest, renderEvent } from './protocol.js';
+import { parsePromptRequest, renderEvent, type PromptRequest } from './protocol.js';
 import { requeueWorkWithResponseReconciliation } from './responseRecording.js';
 import { packageVersion } from './version.js';
 
@@ -187,10 +187,13 @@ async function ensureSessionCommand(cwd: string, request: Record<string, unknown
 
 async function enqueueCommand(cwd: string, request: Record<string, unknown>): Promise<WorkItem> {
 	const work = recordField(request, 'work'); const source = recordField(work, 'source'); const promptValue = recordField(work, 'prompt');
+	const uri = stringField(source, 'uri');
+	const line = integerField(source, 'line');
+	const anchor = createAnnotationAnchor(await readFile(fileURLToPath(new URL(uri)), 'utf8'), line);
 	return enqueueWork({ workspaceCwd: cwd, agentSelector: selector(request), userAnnotationId: optionalString(work.userAnnotationId ?? work.id), source: {
-		uri: stringField(source, 'uri'),
-		path: workspaceRelativeSourcePath(cwd, stringField(source, 'uri'), optionalString(source.path)),
-		line: integerField(source, 'line'), text: textValue(source.text, 'source.text'), before: stringArray(source.before, 'source.before'), after: stringArray(source.after, 'source.after'),
+		uri,
+		path: workspaceRelativeSourcePath(cwd, uri, optionalString(source.path)),
+		...anchor,
 	}, prompt: { preset: preset(promptValue.preset), scope: scope(promptValue.scope), text: stringField(promptValue, 'text') } });
 }
 
@@ -247,11 +250,10 @@ async function reconcileCurrentWork(cwd: string, detail: AgentDetail, reason: st
 
 async function prompt(args: readonly string[], io: CliIo, services: MainServices): Promise<number> {
 	try {
-		const request = parseCliPromptRequest(await requestInput(args, io, services, 'prompt'));
+		const request = parsePromptRequest(await requestInput(args, io, services, 'prompt'));
 		const adapter = requiredAdapter(services, request.provider); const abortController = new AbortController(); const abort = (): void => abortController.abort(); process.once('SIGINT', abort); process.once('SIGTERM', abort);
 		try {
-			if (!isManagedPromptRequest(request)) {await adapter.run(request, event => io.stdout.write(`${renderEvent(event)}\n`), abortController.signal);}
-			else {await runManagedPrompt(request, adapter, io, abortController.signal);}
+			await runManagedPrompt(request, adapter, io, abortController.signal);
 			io.stdout.write(`${renderEvent({ kind: 'status', status: 'waiting' })}\n`); return 0;
 		} finally { process.removeListener('SIGINT', abort); process.removeListener('SIGTERM', abort); }
 	} catch (error) {
@@ -262,8 +264,7 @@ async function prompt(args: readonly string[], io: CliIo, services: MainServices
 	}
 }
 
-async function runManagedPrompt(request: ReturnType<typeof parseCliPromptRequest> & { readonly managed: unknown }, adapter: ProviderAdapter, io: CliIo, signal: AbortSignal): Promise<void> {
-	if (!isManagedPromptRequest(request)) {throw new Error('Expected managed prompt request.');}
+async function runManagedPrompt(request: PromptRequest, adapter: ProviderAdapter, io: CliIo, signal: AbortSignal): Promise<void> {
 	const work = await showWork(request.workspace.cwd, request.managed.userAnnotationId);
 	if (work.agentId !== request.managed.agentId
 		|| work.status !== 'working'
@@ -279,6 +280,7 @@ async function runManagedPrompt(request: ReturnType<typeof parseCliPromptRequest
 	try {
 		result = await adapter.runSession({ cwd: request.workspace.cwd, providerSessionId: session.providerSessionId, prompt: rendered, model: request.model, invocationEnvironment: {
 			SUNDIAL_WORKSPACE_CWD: request.workspace.cwd, SUNDIAL_AGENT_ID: work.agentId, SUNDIAL_AGENT_SESSION_ID: session.id, SUNDIAL_USER_ANNOTATION_ID: work.id, SUNDIAL_ASSIGNMENT_SEQUENCE: String(work.assignment.sequence),
+			SUNDIAL_USER_ANNOTATION_FILE: work.source.path ?? workspaceRelativeSourcePath(request.workspace.cwd, work.source.uri),
 		} }, event => io.stdout.write(`${renderEvent(event)}\n`), signal);
 	} catch (error) {
 		if (isMissingProviderSession(error)) {

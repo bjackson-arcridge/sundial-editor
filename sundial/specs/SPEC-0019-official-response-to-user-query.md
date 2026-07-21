@@ -3,7 +3,7 @@ id: SPEC-0019
 title: Official response to user query
 status: Done
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-07-21
 created_by: bjackson
 parent: SPEC-0013
 domain: editor
@@ -11,13 +11,15 @@ slice: 2
 ---
 # Official response to user query
 
+> SPEC-0020 replaces the version-1/version-2 companion implementation described here with version 3 only. The compatibility details below record this completed slice; they are not current compatibility requirements.
+
 ## Discovery
 
 This is Function 2 under SPEC-0013 and depends on SPEC-0018. It delivers one complete feedback operation: a managed agent appends its official response to the user annotation for the prompt it is currently handling, and the user can read that response in the annotation pane immediately and after restart.
 
 An official response is not a new annotation. Under DR-0035 it reuses the originating query's `UserAnnotationId` and is stored as an ordered response entry on that user annotation. The active assignment gives the agent exactly one deterministic handoff path, `.sundial/<UserAnnotationId>response.md`. The agent writes the complete Markdown response there, then invokes `sundial-annotations-cli record-task-response <path>`. SPEC-0018's work assignment supplies and validates the source URI, stable named `AgentId`, and current `AgentSessionId`; the path is the only response input to the command. A later explicit reassignment of the same user query reuses the handoff path after its prior contents are consumed and may append another response without changing the annotation identity.
 
-This slice evolves SPEC-0011's strict version-1 companion into a strict version-2 companion that adds official responses while preserving every version-1 user annotation field and behavior. It also extends the existing annotation pane to render responses. It does not introduce agent-authored file annotations, prefix/suffix matching, cross-file mutation, file-scope feedback, or diff behavior.
+This slice evolves SPEC-0011's strict version-1 companion into a strict version-2 companion that adds official responses while preserving every version-1 user annotation field and behavior. It also extends the existing annotation pane to render responses. It does not introduce agent-authored file annotations, shared anchor creation, cross-file mutation, or diff behavior.
 
 The workflow is end to end: managed-agent instructions and the narrow agent-facing CLI help expose the operation; the agent-authored Markdown handoff plus CLI-owned runtime and companion stores make it retryable and durable; the extension reloads it through typed ports; the Lit UI presents it with the originating query; and deletion, documentation, migrations, and staged tests are included.
 

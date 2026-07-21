@@ -18,6 +18,7 @@ import {
 	paneSplitPercentFromPointer,
 } from '../../../paneSplit.js';
 import type { PromptContext } from '../../../promptCommand.js';
+import type { AnnotationLink } from '../../../annotationProtocol.js';
 import {
 	type AnnotationViewerState,
 	type HostNotice,
@@ -1055,10 +1056,11 @@ export class MessagesApp extends LitElement {
 
 	private renderAnnotationPane() {
 		const viewer = this.annotationViewer;
-		const waitingAgent = viewer === undefined || this.agents.kind !== 'ready'
+		const waitingAgent = viewer === undefined || viewer.annotation.kind !== 'user' || this.agents.kind !== 'ready'
 			? undefined
 			: waitingAgentForAnnotation(this.work, this.agents.agents, viewer.annotation.id);
-		const sourceName = viewer === undefined ? 'Annotations' : `User ${viewer.annotation.preset}`;
+		const sourceName = viewer === undefined ? 'Annotations'
+			: viewer.annotation.kind === 'user' ? `User ${viewer.annotation.preset}` : viewer.annotation.agentName;
 		const metadataTitle = this.metadataExpanded ? 'Collapse annotation metadata' : 'Expand annotation metadata';
 		const pinTitle = viewer?.pinned ? 'Unpin annotation' : 'Pin annotation';
 		const takeoverTitle = this.takeoverExpanded ? 'Restore annotation pane' : 'Expand annotation pane';
@@ -1105,10 +1107,14 @@ export class MessagesApp extends LitElement {
 							${waitingAgent === undefined
 								? nothing
 								: html`<p class="annotation-work-status">Waiting for ${waitingAgent.name}</p>`}
-							<p class="annotation-message">${viewer.annotation.message}</p>
-							${viewer.annotation.officialResponses.length === 0
-								? nothing
-								: html`
+							${viewer.annotation.kind === 'agent' ? html`
+								<header><strong>${viewer.annotation.agentName}</strong> · <time datetime=${viewer.annotation.createdAt}>${this.formatTimestamp(viewer.annotation.createdAt)}</time></header>
+								<div class="response-markdown">${unsafeHTML(renderMarkdown(viewer.annotation.body))}</div>
+								${this.renderAnnotationLink(viewer.annotation.userAnnotation, 'Open user annotation')}
+							` : html`
+								<p class="annotation-message">${viewer.annotation.message}</p>
+								${viewer.annotation.agentAnnotations.map(link => this.renderAnnotationLink(link, `Open agent annotation in ${link.file} at line ${link.line + 1}`))}
+								${viewer.annotation.officialResponses.length === 0 ? nothing : html`
 									<section class="official-responses" aria-label="Official responses">
 										${viewer.annotation.officialResponses.map(response => html`
 											<article class="official-response">
@@ -1121,6 +1127,7 @@ export class MessagesApp extends LitElement {
 										`)}
 									</section>
 								`}
+							`}
 						`}
 				</div>
 			</section>
@@ -1140,7 +1147,8 @@ export class MessagesApp extends LitElement {
 		return html`
 			<div class="annotation-metadata" aria-label="Annotation metadata">
 				<dl>
-					<dt>Scope</dt><dd>${annotation.scope === 'project' ? 'Project' : 'Current line'}</dd>
+					<dt>Kind</dt><dd>${annotation.kind === 'user' ? 'User' : 'Agent'}</dd>
+					${annotation.kind === 'user' ? html`<dt>Scope</dt><dd>${annotation.scope === 'project' ? 'Project' : 'Current line'}</dd>` : nothing}
 					<dt>Line</dt><dd>${annotation.anchor.line + 1}</dd>
 					<dt>Target</dt><dd><code>${annotation.anchor.text}</code></dd>
 					<dt>Before</dt><dd>${annotation.anchor.before.length === 0 ? 'None' : annotation.anchor.before.map(line => html`<div><code>${line}</code></div>`)}</dd>
@@ -1148,6 +1156,11 @@ export class MessagesApp extends LitElement {
 				</dl>
 			</div>
 		`;
+	}
+
+	private renderAnnotationLink(link: AnnotationLink, label: string) {
+		return html`<button class="work-annotation-link" type="button" aria-label=${label} title=${label}
+			@click=${() => this.openAnnotation(link)}>${this.renderToolbarIcon('return')}<span class="work-annotation-label">${link.file} · Line ${link.line + 1}</span></button>`;
 	}
 
 	private handleHostMessageEvent = (messageEvent: MessageEvent<unknown>): void => {
@@ -1361,6 +1374,10 @@ export class MessagesApp extends LitElement {
 
 	private revealAnnotation(annotationId: UserAnnotationWorkItem['id']): void {
 		this.webviewHost.postMessage({ kind: 'revealAnnotation', annotationId });
+	}
+
+	private openAnnotation(link: AnnotationLink): void {
+		this.webviewHost.postMessage({ kind: 'openAnnotation', link });
 	}
 
 	private toggleAnnotationPin = (): void => {

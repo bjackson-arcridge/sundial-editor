@@ -1,8 +1,7 @@
-import type { AgentEvent, PromptRequest } from '../protocol.js';
+import type { AgentEvent } from '../protocol.js';
 
 export interface ProviderAdapter {
 	readonly health: (options?: ProviderHealthOptions) => Promise<ProviderHealth>;
-	readonly run: (request: PromptRequest, emit: (event: AgentEvent) => void, signal?: AbortSignal) => Promise<ProviderRunResult | void>;
 	readonly createSession?: (request: ProviderSessionCreateRequest) => Promise<ProviderSession>;
 	readonly runSession?: (
 		request: ProviderSessionRunRequest,

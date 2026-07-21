@@ -6,7 +6,7 @@ import {
 	type UserAnnotationId,
 	type UserAnnotationWorkItem,
 } from '../../agentProtocol.js';
-import type { UserAnnotation } from '../../annotationProtocol.js';
+import type { Annotation, AnnotationLink } from '../../annotationProtocol.js';
 import {
 	defaultPaneSplitPercent,
 	normalizePaneSplitPercent,
@@ -61,7 +61,7 @@ export interface MessagesServices {
 	readonly resetAgent?: typeof resetAgentViaCli;
 	readonly confirmFreshSession?: (agent: NamedAgent) => boolean | Promise<boolean>;
 	readonly confirmResetAgent?: (agent: NamedAgent) => boolean | Promise<boolean>;
-	readonly confirmDeleteAnnotation?: (annotation: UserAnnotation) => boolean | Promise<boolean>;
+	readonly confirmDeleteAnnotation?: (annotation: Annotation) => boolean | Promise<boolean>;
 	readonly openTerminal?: (name: string, command: string, args: readonly string[], cwd: string) => void;
 	readonly showAnnotationMarkers?: (sourceUri: string | undefined, lines: readonly number[]) => void;
 	readonly revealAnnotation?: (sourceUri: string, line: number, preserveFocus?: boolean) => void | Promise<void>;
@@ -107,8 +107,8 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	private busy = false;
 	private notice: MessagesState['notice'];
 	private activeLocation: ActiveLocation | undefined;
-	private loadedAnnotations: { readonly sourceUri: string; readonly cwd: string; readonly annotations: readonly UserAnnotation[] } | undefined;
-	private viewedAnnotation: { readonly sourceUri: string; readonly cwd: string; readonly annotation: UserAnnotation } | undefined;
+	private loadedAnnotations: { readonly sourceUri: string; readonly cwd: string; readonly annotations: readonly Annotation[] } | undefined;
+	private viewedAnnotation: { readonly sourceUri: string; readonly cwd: string; readonly annotation: Annotation } | undefined;
 	private annotationPinned = false;
 	private paneSplitPercent: number;
 	private paneSplitPersistence = Promise.resolve();
@@ -315,10 +315,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			try {
 				await (this.services.appendAnnotation ?? appendAnnotationViaCli)(this.cliPath(), {
 					workspace: { cwd },
-					document: {
-						uri: item.source.uri, line: item.source.line, text: item.source.text,
-						before: item.source.before, after: item.source.after,
-					},
+					document: { uri: item.source.uri, line: item.source.line },
 					annotation: {
 						id: item.id, message: item.prompt.text, preset: item.prompt.preset, scope: item.prompt.scope,
 					},
@@ -393,7 +390,12 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		const viewed = this.viewedAnnotation;
 		if (viewed === undefined) { return; }
 		const confirmed = confirmedForTest || (this.services.confirmDeleteAnnotation === undefined
-			? await vscode.window.showWarningMessage('Delete this annotation, its official responses, and all corresponding work items?', { modal: true }, 'Delete') === 'Delete'
+			? await vscode.window.showWarningMessage(
+				viewed.annotation.kind === 'user'
+					? 'Delete this user annotation, its official responses, linked agent annotations, and corresponding work item?'
+					: 'Delete this agent annotation and its link from the user annotation?',
+				{ modal: true }, 'Delete',
+			) === 'Delete'
 			: await this.services.confirmDeleteAnnotation(viewed.annotation));
 		if (!confirmed) { return; }
 		try {
@@ -427,6 +429,24 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		await this.services.revealAnnotation?.(annotationWork.source.uri, annotationWork.source.line, false);
 	}
 
+	async openLinkedAnnotation(link: AnnotationLink): Promise<void> {
+		const cwd = this.viewedAnnotation?.cwd ?? this.currentCwd();
+		if (cwd === undefined) { return; }
+		const sourceUri = vscode.Uri.file(path.join(cwd, ...link.file.split('/'))).toString();
+		await this.services.revealAnnotation?.(sourceUri, link.line, false);
+		const companion = await (this.services.readAnnotations ?? readAnnotationsViaCli)(
+			this.cliPath(), { workspace: { cwd }, document: { uri: sourceUri } },
+		);
+		const annotation = companion.annotations.find(candidate => candidate.id === link.annotationId);
+		if (annotation === undefined) { this.setError('The linked annotation no longer exists.'); return; }
+		this.activeLocation = { sourceUri, line: link.line, cwd };
+		this.loadedAnnotations = { sourceUri, cwd, annotations: companion.annotations };
+		this.viewedAnnotation = { sourceUri, cwd, annotation };
+		this.annotationPinned = false;
+		this.services.showAnnotationMarkers?.(sourceUri, annotationLines(companion.annotations));
+		this.postState();
+	}
+
 	private handleWebviewMessage(message: WebviewToHost): void {
 		switch (message.kind) {
 			case 'ready': this.postState(); this.focusPendingComposer(); return;
@@ -444,6 +464,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			case 'interruptAgent': void this.interruptAgent(message.agentId); return;
 			case 'resetAgent': void this.resetAgent(message.agentId); return;
 			case 'revealAnnotation': void this.revealWorkAnnotation(message.annotationId); return;
+			case 'openAnnotation': void this.openLinkedAnnotation(message.link); return;
 			case 'previousAnnotation': void this.selectAdjacentAnnotation(-1); return;
 			case 'nextAnnotation': void this.selectAdjacentAnnotation(1); return;
 			case 'toggleAnnotationPin': this.toggleAnnotationPin(); return;
@@ -484,9 +505,6 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 					source: {
 						uri: pending.prompt.sourceUri,
 						line: pending.prompt.sourceLine,
-						text: pending.prompt.anchorText,
-						before: pending.prompt.anchorBefore,
-						after: pending.prompt.anchorAfter,
 					},
 					prompt: { preset: pending.prompt.preset, scope: pending.prompt.scope, text: draft },
 				},
@@ -497,9 +515,6 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 				document: {
 					uri: pending.prompt.sourceUri,
 					line: pending.prompt.sourceLine,
-					text: pending.prompt.anchorText,
-					before: pending.prompt.anchorBefore,
-					after: pending.prompt.anchorAfter,
 				},
 				annotation: { id: work.id, message: draft, preset: pending.prompt.preset, scope: pending.prompt.scope },
 			});
@@ -642,7 +657,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		return agents;
 	}
 
-	private acceptSavedAnnotation(annotation: UserAnnotation, cwd: string): void {
+	private acceptSavedAnnotation(annotation: Annotation, cwd: string): void {
 		const pending = this.pendingPrompt;
 		const loaded = this.loadedAnnotations;
 		if (pending !== undefined && loaded?.sourceUri === pending.prompt.sourceUri) {
@@ -761,13 +776,13 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	private postToMessagesWebviews(message: HostToWebview): void { for (const router of this.messageRouters) { router.post(message); } }
 }
 
-function orderedAnnotations(annotations: readonly UserAnnotation[]): readonly UserAnnotation[] {
+function orderedAnnotations(annotations: readonly Annotation[]): readonly Annotation[] {
 	return annotations.map((annotation, index) => ({ annotation, index }))
 		.sort((left, right) => left.annotation.anchor.line - right.annotation.anchor.line || left.index - right.index)
 		.map(item => item.annotation);
 }
 
-function annotationLines(annotations: readonly UserAnnotation[]): readonly number[] {
+function annotationLines(annotations: readonly Annotation[]): readonly number[] {
 	return [...new Set(annotations.map(annotation => annotation.anchor.line))].sort((left, right) => left - right);
 }
 

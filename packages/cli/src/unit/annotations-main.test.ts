@@ -1,6 +1,11 @@
 import * as assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, test } from 'node:test';
 import { annotationsMain } from '../annotations-main';
+import { appendUserAnnotation, readUserAnnotations } from '../annotations';
 
 function io() {
 	const stdout: string[] = [];
@@ -9,12 +14,39 @@ function io() {
 }
 
 describe('agent-facing annotations CLI', () => {
-	test('advertises only the two managed-agent operations', async () => {
+	test('advertises only the three managed-agent operations', async () => {
 		const run = io();
 		assert.equal(await annotationsMain(['help'], run.value), 0);
 		assert.match(run.stdout.join(''), /provide-status-update/);
 		assert.match(run.stdout.join(''), /record-task-response/);
+		assert.match(run.stdout.join(''), /annotate --file/);
 		assert.doesNotMatch(run.stdout.join(''), /enqueue|claim|reset|transcript/);
+	});
+
+	test('creates an annotation from turn context without consulting assignment lifecycle state', async () => {
+		const cwd = await mkdtemp(path.join(os.tmpdir(), 'sundial-annotate-cli-'));
+		try {
+			const source = path.join(cwd, 'src.ts');
+			await writeFile(source, 'first\nsecond\n');
+			const sourceUri = pathToFileURL(source).toString();
+			await appendUserAnnotation({
+				workspace: { cwd }, document: { uri: sourceUri, line: 0 },
+				annotation: { id: 'work-1', message: 'Review this.', preset: '%Q', scope: 'line' },
+			});
+			await writeFile(path.join(cwd, '.sundial', 'work-1newAnnotation.md'), 'Agent note.');
+			const run = io();
+			assert.equal(await annotationsMain([
+				'annotate', '--file', 'src.ts', '--line', '2', '--content', '.sundial/work-1newAnnotation.md',
+			], run.value, {
+				SUNDIAL_WORKSPACE_CWD: cwd, SUNDIAL_AGENT_ID: 'agent-1', SUNDIAL_AGENT_SESSION_ID: 'session-1',
+				SUNDIAL_USER_ANNOTATION_ID: 'work-1', SUNDIAL_USER_ANNOTATION_FILE: 'src.ts',
+			}), 0, run.stderr.join(''));
+			assert.deepEqual(JSON.parse(run.stdout.join('')), { files: ['src.ts'] });
+			const companion = await readUserAnnotations({ workspace: { cwd }, document: { uri: sourceUri } });
+			assert.deepEqual(companion.annotations.map(annotation => annotation.kind), ['user', 'agent']);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 
 	test('records a response using only hidden assignment context and one path', async () => {
