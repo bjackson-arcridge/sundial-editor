@@ -55,3 +55,68 @@ annotations:
       before: ["\t\t\t\t${agent.controls.canInterrupt","\t\t\t\t\t? html`","\t\t\t\t\t\t<div class=\"agent-actions\">"]
       after: ["\t\t\t\t\t\t</div>","\t\t\t\t\t`","\t\t\t\t\t: nothing}"]
     officialResponses:
+      - userAnnotationId: "3bc4e25c-6728-4137-b976-db10b7321e78"
+        agentId: "79d20f8e-58af-43f7-a01e-74fc93193e45"
+        agentSessionId: "82829a20-86c9-41c9-a68b-2a0bd9a8073c"
+        body: "Implemented the agent-card layout update.\n\n### Changes\n- Replaced the text **Interrupt** action with an accessible X icon in the card’s right-aligned toolbar, retaining its disabled state, tooltip, and agent-specific label.\n- Updated status rendering so normal text, explicit line breaks, and long unbroken strings wrap within the card.\n- Prevented horizontal scrolling in the agents pane while preserving vertical scrolling.\n- Added source-contract coverage for the icon control, wrapping rules, and vertical-only overflow behavior in `packages/editor/src/unit/packageManifest.test.ts`.\n\n### Files\n- `packages/editor/src/webviews/apps/messages/messages-app.ts`\n- `packages/editor/src/unit/packageManifest.test.ts`\n\n### Validation\n- `npm run check-types --workspace packages/editor`\n- `npx eslint packages/editor/src/webviews/apps/messages/messages-app.ts packages/editor/src/unit/packageManifest.test.ts`\n- `npm run test:unit --workspace packages/editor` — 81/81 passed\n- Scoped `git diff --check`\n\nNo blockers remain.\n"
+        createdAt: "2026-07-21T01:20:29.047Z"
+  - id: "3545a2b2-67e4-406f-92d8-6e5f7cfb1fae"
+    message: "Let's have the link back to the user annotation for work remain visible after the work is completed; it is shown for the current active work, or the last completed work.  When opening history, each work item has the link back to the note."
+    preset: "%W"
+    scope: "line"
+    anchor:
+      line: 0
+      text: "import { LitElement, css, html, nothing } from 'lit';"
+      before: []
+      after: ["import { customElement, state } from 'lit/decorators.js';","import { repeat } from 'lit/directives/repeat.js';","import { unsafeHTML } from 'lit/directives/unsafe-html.js';"]
+    officialResponses:
+      - userAnnotationId: "3545a2b2-67e4-406f-92d8-6e5f7cfb1fae"
+        agentId: "2b89b483-909d-4313-b072-d183c121594d"
+        agentSessionId: "d22f3bad-2557-4648-8f66-fc3b67b8255d"
+        body: "Implemented persistent links back to originating user annotations.\n\n### What changed\n- Agent cards now show the link for active work, falling back to that agent’s most recently completed work.\n- Every work item shown in agent history includes the same accessible link with its annotation preset and source line.\n- The extension-host reveal path now accepts completed and historical work IDs, not only currently working items.\n- Added projection and UI-contract coverage for active-work priority, latest-completed selection, history link metadata, and historical reveal handling.\n- Bumped the Sundial Editor extension release from `0.10.0` to `0.11.0` for the new user-facing behavior.\n\nKey files include:\n- `packages/editor/src/webviews/apps/messages/messages-app.ts`\n- `packages/editor/src/webviews/messages/messages.ts`\n- `packages/editor/src/webviews/messages/messagesWebviewProvider.ts`\n- `packages/editor/src/unit/messages.test.ts`\n- `packages/editor/src/unit/packageManifest.test.ts`\n- `packages/editor/package.json` and `package-lock.json`\n\n### Validation\n- `npm --workspace packages/editor run check-types` — passed.\n- `npm --workspace packages/editor run test:unit` — passed, 83 tests.\n- `npm run lint` — passed.\n- `git diff --check` on the changed files — passed.\n- `npm test` — CLI integration passed (11 tests), and editor compilation/type checking passed during pretest. The VS Code integration scenarios could not launch because the pinned runtime was absent and the restricted environment could not resolve `update.code.visualstudio.com` (`ENOTFOUND`).\n\nApplied DR-0003, DR-0004, DR-0006, DR-0008, DR-0034, and DR-0036. No new durable decision record was warranted for this focused UI behavior.\n"
+        createdAt: "2026-07-21T01:37:46.545Z"
+  - id: "6f9b1752-5f55-42cd-8daf-5839641195a5"
+    message: "There are kind of duplicate X's in that toolbar now; here is the idea.  We want one \"clear/interrupt\" button for each agent.  There is no need to have a separate interrupt button; if the agent is mid-task, we will interrupt; during the clear; if not we will not.  Check if the existing resetAgent(agent.id) performs an interrupt.  If it does, then simply remove the interrupt icon.  If it doesn't, then we should ensure the reset action interrupts if needed.  \n\nThen in terms of the button styling, I think we want to have an icon that means [new].  Like a pencil on a square.\n\nBe sure the alert message says it will reset and interrupt any active work and delete all work that has been assigned to that agent."
+    preset: "%W"
+    scope: "line"
+    anchor:
+      line: 961
+      text: "\t\t\t\t\t\t\t\t: nothing}"
+      before: ["\t\t\t\t\t\t\t\t\t\taria-label=\"Interrupt ${agent.name}\" title=\"Interrupt ${agent.name}\"","\t\t\t\t\t\t\t\t\t\t@click=${() => this.interruptAgent(agent.id)}>${this.renderToolbarIcon('close')}</button>","\t\t\t\t\t\t\t\t`"]
+      after: ["\t\t\t\t\t\t</div>","\t\t\t\t\t</div>","\t\t\t\t\t${isCurrentTarget ? html`<p class=\"agent-slot\">Current message target</p>` : nothing}"]
+    officialResponses:
+      - userAnnotationId: "6f9b1752-5f55-42cd-8daf-5839641195a5"
+        agentId: "79d20f8e-58af-43f7-a01e-74fc93193e45"
+        agentSessionId: "b1e5e505-5159-4f75-866f-827475110e63"
+        body: "## Completed\n\n- Replaced the duplicate reset/interrupt controls with one reset button per agent and changed its icon to a pencil-on-square “new session” symbol.\n- Confirmed reset already cancels an active editor-managed run. User-triggered CLI reset now also deletes every work item assigned to the selected agent before creating the replacement session; automatic missing-session recovery remains non-destructive.\n- Updated the modal warning to state that reset will interrupt active work and delete all work assigned to the agent.\n- Added focused regressions for the single toolbar control, warning copy, and reset work cleanup.\n\nImportant files changed:\n- `packages/editor/src/webviews/apps/messages/messages-app.ts`\n- `packages/editor/src/webviews/messages/messagesWebviewProvider.ts`\n- `packages/editor/src/unit/packageManifest.test.ts`\n- `packages/cli/src/agentStore.ts`\n- `packages/cli/src/main.ts`\n- `packages/cli/src/unit/main.test.ts`\n\nApplied DR-0003, DR-0004, DR-0006, DR-0008, DR-0012, DR-0019, and DR-0037.\n\n## Validation\n\nPassed:\n- Editor and CLI TypeScript checks\n- `npm run lint`\n- Editor unit suite: 83/83\n- Focused CLI main suite: 8/8\n- CLI integration suite: 11/11\n- `git diff --check`\n\nThe full CLI unit command reached 41/44 passing tests; its three failures are unrelated managed-prompt snapshots where the already-checked-in `packages/cli/src/prompts/shared.md` content differs from expectations in `managedPrompts.test.ts`. The reset regression itself passed, and this pre-existing mismatch does not block the affected path.\n"
+        createdAt: "2026-07-21T01:32:48.323Z"
+  - id: "82c939b7-7dcc-405b-b32d-ac5208e73b72"
+    message: "Let's move this edit icon directly after the name to be edited, so that it is more clearly associated."
+    preset: "%W"
+    scope: "line"
+    anchor:
+      line: 915
+      text: "\t\t\t\t\t\t<div class=\"agent-title-actions\" role=\"toolbar\" aria-label=\"${agent.name} controls\" @keydown=${this.handleAgentToolbarKeydown}>"
+      before: ["\t\t\t\t\t\t\t\t`","\t\t\t\t\t\t\t\t: agent.name}","\t\t\t\t\t\t</h3>"]
+      after: ["\t\t\t\t\t\t\t${agent.controls.canRename && !isRenaming","\t\t\t\t\t\t\t\t? html`","\t\t\t\t\t\t\t\t\t<button"]
+    officialResponses:
+      - userAnnotationId: "82c939b7-7dcc-405b-b32d-ac5208e73b72"
+        agentId: "329dcccb-9f05-454e-9c49-4e0cdee57f55"
+        agentSessionId: "ddf0f022-6deb-46b1-ab28-0f82d35e522b"
+        body: "Moved the rename pencil directly after each agent’s displayed name, making its relationship to the name clear while leaving history, open, and reset controls in their existing toolbar.\n\n### Changed\n- Updated `packages/editor/src/webviews/apps/messages/messages-app.ts` so the rename button renders inside the agent heading immediately after the name.\n- Preserved the existing accessible label, disabled state, edit behavior, focus restoration, and card-surface styling.\n- Added a focused source-order regression in `packages/editor/src/unit/packageManifest.test.ts`.\n- Kept the existing uncommitted `0.11.0` release version rather than stacking another bump.\n- Applied DR-0003, DR-0006, DR-0007, and DR-0015. No new Decision Record is warranted for this localized layout adjustment.\n\n### Validation\n- `npm --prefix packages/editor run test:unit` — passed, 83 tests.\n- `npm --prefix packages/editor run check-types` — passed for host and webview.\n- `npm run lint` — passed.\n- `npm --prefix packages/editor run package` — passed, including the production Lit webview bundle.\n- `git diff --check` — passed.\n\nNo blockers remain.\n"
+        createdAt: "2026-07-21T01:32:59.925Z"
+  - id: "0adb6014-890f-49f4-8a39-e09a7a19f6b4"
+    message: "What is the right way to reduce the size of this icon?"
+    preset: "%Q"
+    scope: "project"
+    anchor:
+      line: 625
+      text: "\t\t\t\theight: 0.5em;"
+      before: ["\t\t\t.agent-title-actions button.icon {","\t\t\t\tborder-color: var(--se-surface-bg);","\t\t\t\tbackground: var(--se-surface-bg);"]
+      after: ["\t\t\t}","\t\t\t.annotation-content {","\t\t\t\tflex: 1;"]
+    officialResponses:
+      - userAnnotationId: "0adb6014-890f-49f4-8a39-e09a7a19f6b4"
+        agentId: "2b89b483-909d-4313-b072-d183c121594d"
+        agentSessionId: "d22f3bad-2557-4648-8f66-fc3b67b8255d"
+        body: "The icon should be resized on the SVG, not on its button.\n\n`renderToolbarIcon()` gives every glyph the `.toolbar-icon` class, whose current size is `16px` by `16px`. Meanwhile, `button.icon` keeps a `28px` minimum height. Consequently, `height: 0.5em` on `.agent-title-actions button.icon` does not reduce the glyph and is overridden by the button's minimum height.\n\nFor all agent title action glyphs, use a scoped SVG override:\n\n```css\n.agent-title-actions .toolbar-icon {\n\twidth: 12px;\n\theight: 12px;\n}\n```\n\nIf only the rename glyph should shrink, target it instead:\n\n```css\n.rename-button .toolbar-icon {\n\twidth: 12px;\n\theight: 12px;\n}\n```\n\nRemove the `height: 0.5em` button declaration. Retaining the button's existing `28px` dimensions preserves a consistent, accessible click and focus target while the SVG's `viewBox=\"0 0 16 16\"` scales the path cleanly inside it. Changing the path data, view box, or using `transform: scale()` is unnecessary.\n\nRelevant locations are `button.icon`, `.toolbar-icon`, and `renderToolbarIcon()` in `packages/editor/src/webviews/apps/messages/messages-app.ts`. This conclusion was validated by read-only inspection of the component styles and rendered SVG markup; no product files were changed.\n"
+        createdAt: "2026-07-21T01:38:45.035Z"

@@ -232,6 +232,14 @@ describe('main', () => {
 			assert.equal(work.work[0].status, 'waiting');
 			assert.equal(work.work[0].latestUpdate.kind, 'requeued');
 			assert.equal(work.work[0].latestUpdate.message, 'Provider ended without a response.');
+			const reset = await invoke(['agent', 'reset'], { workspace: { cwd }, agent: { id: agent.id } }) as {
+				session: { state: string };
+			};
+			assert.equal(reset.session.state, 'available');
+			const cleared = await invoke(['agent', 'work', 'list'], { workspace: { cwd }, agent: { id: agent.id } }) as {
+				work: unknown[];
+			};
+			assert.deepEqual(cleared.work, []);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

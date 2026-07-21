@@ -422,9 +422,9 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	}
 
 	async revealWorkAnnotation(annotationId: UserAnnotationId): Promise<void> {
-		const currentWork = this.work.find(item => item.id === annotationId && item.status === 'working');
-		if (currentWork === undefined) { return; }
-		await this.services.revealAnnotation?.(currentWork.source.uri, currentWork.source.line, false);
+		const annotationWork = this.work.find(item => item.id === annotationId);
+		if (annotationWork === undefined) { return; }
+		await this.services.revealAnnotation?.(annotationWork.source.uri, annotationWork.source.line, false);
 	}
 
 	private handleWebviewMessage(message: WebviewToHost): void {
@@ -621,7 +621,10 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		const agent = this.currentAgents().find(candidate => candidate.id === agentId);
 		if (cwd === undefined || agent === undefined) { return; }
 		const confirmed = this.services.confirmResetAgent === undefined
-			? await vscode.window.showWarningMessage(`Reset ${agent.name}'s provider session?`, { modal: true }, 'Reset') === 'Reset'
+			? await vscode.window.showWarningMessage(
+				`This will reset ${agent.name}, interrupt any active work, and delete all work that has been assigned to this agent. Continue?`,
+				{ modal: true }, 'Reset',
+			) === 'Reset'
 			: await this.services.confirmResetAgent(agent);
 		if (!confirmed) { return; }
 		const active = this.activeRuns.get(agentId);

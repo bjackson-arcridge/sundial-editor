@@ -43,11 +43,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.10.0 extension package', () => {
+	test('is an independent 0.11.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.10.0');
+		assert.equal(manifest.version, '0.11.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -136,6 +136,18 @@ describe('Sundial Editor manifest', () => {
 		assert.match(messagesSource, /<option value=\$\{agent\.id\} \.selected=\$\{agent\.id === this\.targetAgentId\}>/);
 	});
 
+	test('places the rename control directly after the agent name', () => {
+		const messagesSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
+		const headingStart = messagesSource.indexOf('<h3 id="agent-${agentIndex}-heading">');
+		const renameButton = messagesSource.indexOf('class="icon rename-button"', headingStart);
+		const headingEnd = messagesSource.indexOf('</h3>', headingStart);
+		const controlsToolbar = messagesSource.indexOf('class="agent-title-actions"', headingStart);
+
+		assert.ok(headingStart >= 0);
+		assert.ok(renameButton > headingStart && renameButton < headingEnd);
+		assert.ok(controlsToolbar > headingEnd);
+	});
+
 	test('renders the new-message composer as the highest-priority sidebar takeover', () => {
 		const messagesSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
 
@@ -164,7 +176,8 @@ describe('Sundial Editor manifest', () => {
 		assert.match(messagesSource, /renderToolbarIcon\('history'\)/);
 		assert.match(messagesSource, /renderToolbarIcon\('open-external'\)/);
 		assert.match(messagesSource, /renderToolbarIcon\('clear-agent'\)/);
-		assert.match(messagesSource, /class="icon interrupt-button"[\s\S]*?aria-label="Interrupt \$\{agent\.name\}"[\s\S]*?renderToolbarIcon\('close'\)/);
+		assert.doesNotMatch(messagesSource, /aria-label="Interrupt \$\{agent\.name\}"/);
+		assert.match(providerSource, /This will reset \$\{agent\.name\}, interrupt any active work, and delete all work that has been assigned to this agent\./);
 		assert.doesNotMatch(messagesSource, /class="agent-actions"/);
 		assert.match(messagesSource, /return this\.renderHistoryTakeover\(historyAgent\)/);
 		assert.match(messagesSource, /sessionStatusHistoryGroupsForAgent\(this\.work, agent\)/);
@@ -189,11 +202,13 @@ describe('Sundial Editor manifest', () => {
 		assert.match(messagesSource, /@keyframes pending-status-dot/);
 		assert.match(messagesSource, /@media \(prefers-reduced-motion: reduce\)/);
 		assert.match(messagesSource, /class="work-annotation-link"/);
+		assert.match(messagesSource, /displayedWorkForAgent\(this\.work, agent\)/);
+		assert.match(messagesSource, /renderWorkAnnotationLink\(group\.annotationId, group\.preset, group\.sourceLine\)/);
 		assert.match(messagesSource, /renderToolbarIcon\('return'\)/);
 		assert.match(messagesSource, /kind: 'revealAnnotation', annotationId/);
 		assert.doesNotMatch(messagesSource, /renderWorkCard|class="work-card"/);
 		assert.match(providerSource, /case 'revealAnnotation': void this\.revealWorkAnnotation\(message\.annotationId\)/);
-		assert.match(providerSource, /this\.services\.revealAnnotation\?\.\(currentWork\.source\.uri, currentWork\.source\.line, false\)/);
+		assert.match(providerSource, /this\.services\.revealAnnotation\?\.\(annotationWork\.source\.uri, annotationWork\.source\.line, false\)/);
 		assert.match(messagesSource, /fill: currentColor/);
 		assert.doesNotMatch(messagesSource, /class="codicon/);
 		assert.match(sharedStyles, /--se-icon-fg: var\(--vscode-foreground\)/);

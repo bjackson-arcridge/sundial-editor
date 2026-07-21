@@ -24,6 +24,7 @@ import {
 	type HostToWebview,
 	type WebviewToHost,
 	currentWorkForAgent,
+	displayedWorkForAgent,
 	isValidHostToWebviewMessage,
 	latestSessionStatusForAgent,
 	latestStatusForWork,
@@ -38,7 +39,7 @@ const toolbarIconPaths = {
 	'chevron-up': 'M3.14603 9.85423C3.34103 10.0492 3.65803 10.0492 3.85303 9.85423L7.99903 5.70823L12.145 9.85423C12.34 10.0492 12.657 10.0492 12.852 9.85423C13.047 9.65923 13.047 9.34223 12.852 9.14723L8.35203 4.64723C8.15703 4.45223 7.84003 4.45223 7.64503 4.64723L3.14503 9.14723C2.95003 9.34223 2.95103 9.65923 3.14603 9.85423Z',
 	'chevron-down': 'M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z',
 	'chevron-right': 'M6.14601 3.14579C5.95101 3.34079 5.95101 3.65779 6.14601 3.85279L10.292 7.99879L6.14601 12.1448C5.95101 12.3398 5.95101 12.6568 6.14601 12.8518C6.34101 13.0468 6.65801 13.0468 6.85301 12.8518L11.353 8.35179C11.548 8.15679 11.548 7.83979 11.353 7.64478L6.85301 3.14479C6.65801 2.94979 6.34101 2.95079 6.14601 3.14579Z',
-	'clear-agent': 'M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z',
+	'clear-agent': 'M3.5 2H8.5V3H3.5C3.224 3 3 3.224 3 3.5V12.5C3 12.776 3.224 13 3.5 13H12.5C12.776 13 13 12.776 13 12.5V7.5H14V12.5C14 13.328 13.328 14 12.5 14H3.5C2.672 14 2 13.328 2 12.5V3.5C2 2.672 2.672 2 3.5 2ZM12.146 1.646C12.341 1.451 12.658 1.451 12.853 1.646L14.353 3.146C14.548 3.341 14.548 3.658 14.353 3.853L8.353 9.853C8.294 9.912 8.221 9.955 8.141 9.978L5.641 10.692C5.467 10.742 5.279 10.694 5.151 10.566C5.023 10.438 4.975 10.25 5.025 10.076L5.739 7.576C5.762 7.496 5.805 7.423 5.864 7.364L12.146 1.646ZM12.5 2.707L6.665 8.072L6.232 9.588L7.748 9.155L13.292 3.5L12.5 2.707Z',
 	close: 'M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z',
 	'open-external': 'M15 9.5V12.5C15 13.879 13.879 15 12.5 15H3.5C2.121 15 1 13.879 1 12.5V3.5C1 2.121 2.121 1 3.5 1H6.5C6.776 1 7 1.224 7 1.5C7 1.776 6.776 2 6.5 2H3.5C2.673 2 2 2.673 2 3.5V12.5C2 13.327 2.673 14 3.5 14H12.5C13.327 14 14 13.327 14 12.5V9.5C14 9.224 14.224 9 14.5 9C14.776 9 15 9.224 15 9.5ZM14.5 1H9.5C9.224 1 9 1.224 9 1.5C9 1.776 9.224 2 9.5 2H13.293L9.147 6.146C8.952 6.341 8.952 6.658 9.147 6.853C9.245 6.951 9.373 6.999 9.501 6.999C9.629 6.999 9.757 6.95 9.855 6.853L14.001 2.707V6.5C14.001 6.776 14.225 7 14.501 7C14.777 7 15.001 6.776 15.001 6.5V1.5C15.001 1.224 14.777 1 14.501 1H14.5Z',
 	question: 'M8 11C8.41421 11 8.75 11.3358 8.75 11.75C8.75 12.1642 8.41421 12.5 8 12.5C7.58579 12.5 7.25 12.1642 7.25 11.75C7.25 11.3358 7.58579 11 8 11ZM8 4C9.262 4 10.25 4.988 10.25 6.25C10.25 7.333 9.68352 7.89852 9.22852 8.35352C8.82052 8.76052 8.5 9.082 8.5 9.75C8.5 10.026 8.276 10.25 8 10.25C7.724 10.25 7.5 10.026 7.5 9.75C7.5 8.667 8.06648 8.10148 8.52148 7.64648C8.92948 7.23948 9.25 6.918 9.25 6.25C9.25 5.538 8.712 5 8 5C7.288 5 6.75 5.538 6.75 6.25C6.75 6.526 6.526 6.75 6.25 6.75C5.974 6.75 5.75 6.526 5.75 6.25C5.75 4.988 6.738 4 8 4Z',
@@ -607,6 +608,11 @@ export class MessagesApp extends LitElement {
 				pointer-events: none;
 			}
 
+			.rename-button .toolbar-icon {
+				width: 10px;
+				height: 10px;
+			}
+
 			button.icon:hover:not(:disabled),
 			button.icon[aria-pressed="true"] {
 				background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
@@ -618,6 +624,7 @@ export class MessagesApp extends LitElement {
 				color: var(--se-icon-fg);
 			}
 
+			.agent-title-row .rename-button,
 			.agent-title-actions button.icon {
 				border-color: var(--se-surface-bg);
 				background: var(--se-surface-bg);
@@ -886,6 +893,7 @@ export class MessagesApp extends LitElement {
 
 	private renderAgent(agent: NamedAgent, agentIndex: number) {
 		const currentWork = currentWorkForAgent(this.work, agent);
+		const displayedWork = displayedWorkForAgent(this.work, agent);
 		const latestStatus = currentWork === undefined
 			? latestSessionStatusForAgent(this.work, agent)
 			: latestStatusForWork(currentWork);
@@ -910,8 +918,6 @@ export class MessagesApp extends LitElement {
 									>
 								`
 								: agent.name}
-						</h3>
-						<div class="agent-title-actions" role="toolbar" aria-label="${agent.name} controls" @keydown=${this.handleAgentToolbarKeydown}>
 							${agent.controls.canRename && !isRenaming
 								? html`
 									<button
@@ -925,6 +931,8 @@ export class MessagesApp extends LitElement {
 									>${this.renderToolbarIcon('edit')}</button>
 								`
 								: nothing}
+						</h3>
+						<div class="agent-title-actions" role="toolbar" aria-label="${agent.name} controls" @keydown=${this.handleAgentToolbarKeydown}>
 							${agent.session.state === 'available'
 								? html`
 									<button
@@ -951,13 +959,6 @@ export class MessagesApp extends LitElement {
 										@click=${() => this.resetAgent(agent.id)}>${this.renderToolbarIcon('clear-agent')}</button>
 								`
 								: nothing}
-							${agent.controls.canInterrupt
-								? html`
-									<button class="icon interrupt-button" type="button" ?disabled=${this.busy}
-										aria-label="Interrupt ${agent.name}" title="Interrupt ${agent.name}"
-										@click=${() => this.interruptAgent(agent.id)}>${this.renderToolbarIcon('close')}</button>
-								`
-								: nothing}
 						</div>
 					</div>
 					${isCurrentTarget ? html`<p class="agent-slot">Current message target</p>` : nothing}
@@ -980,20 +981,13 @@ export class MessagesApp extends LitElement {
 					: latestStatus === undefined
 						? nothing
 						: html`<p class="agent-last-status" title=${latestStatus.message}>${latestStatus.message}</p>`}
-				${currentWork === undefined
+				${displayedWork === undefined
 					? nothing
-					: html`
-						<button
-							class="work-annotation-link"
-							type="button"
-							aria-label="Return to User ${currentWork.prompt.preset} annotation at line ${currentWork.source.line + 1}"
-							title="Return to User ${currentWork.prompt.preset} annotation at line ${currentWork.source.line + 1}"
-							@click=${() => this.revealAnnotation(currentWork.id)}
-						>
-							${this.renderToolbarIcon('return')}
-							<span class="work-annotation-label">User ${currentWork.prompt.preset} · Line ${currentWork.source.line + 1}</span>
-						</button>
-					`}
+					: this.renderWorkAnnotationLink(
+						displayedWork.id,
+						displayedWork.prompt.preset,
+						displayedWork.source.line,
+					)}
 			</section>
 		`;
 	}
@@ -1021,6 +1015,7 @@ export class MessagesApp extends LitElement {
 									<section class="history-group" aria-labelledby="history-group-${groupIndex}-heading">
 										<h2 id="history-group-${groupIndex}-heading">User message</h2>
 										<p class="history-user-message">${group.userMessage}</p>
+										${this.renderWorkAnnotationLink(group.annotationId, group.preset, group.sourceLine)}
 										<ol class="history-entries" aria-label="Status updates">
 											${group.updates.map(update => html`
 												<li class="history-entry">
@@ -1035,6 +1030,26 @@ export class MessagesApp extends LitElement {
 						`}
 				</div>
 			</section>
+		`;
+	}
+
+	private renderWorkAnnotationLink(
+		annotationId: UserAnnotationWorkItem['id'],
+		preset: UserAnnotationWorkItem['prompt']['preset'],
+		sourceLine: number,
+	) {
+		const label = `Return to User ${preset} annotation at line ${sourceLine + 1}`;
+		return html`
+			<button
+				class="work-annotation-link"
+				type="button"
+				aria-label=${label}
+				title=${label}
+				@click=${() => this.revealAnnotation(annotationId)}
+			>
+				${this.renderToolbarIcon('return')}
+				<span class="work-annotation-label">User ${preset} · Line ${sourceLine + 1}</span>
+			</button>
 		`;
 	}
 
@@ -1327,12 +1342,6 @@ export class MessagesApp extends LitElement {
 	private openAgent(agentId: AgentId): void {
 		if (!this.busy) {
 			this.webviewHost.postMessage({ kind: 'openAgent', agentId });
-		}
-	}
-
-	private interruptAgent(agentId: AgentId): void {
-		if (!this.busy) {
-			this.webviewHost.postMessage({ kind: 'interruptAgent', agentId });
 		}
 	}
 

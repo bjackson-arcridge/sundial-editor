@@ -220,7 +220,12 @@ async function interruptCommand(cwd: string, request: Record<string, unknown>): 
 async function resetCommand(cwd: string, request: Record<string, unknown>, services: MainServices): Promise<unknown> {
 	const target = selector(request); const before = await showAgent(cwd, target);
 	await reconcileCurrentWork(cwd, before, 'Agent session reset by the user.');
-	const reset = await resetAgentSession({ workspaceCwd: cwd, selector: target, reason: 'Agent session reset by the user.' }); const session = reset.session;
+	const reset = await resetAgentSession({
+		workspaceCwd: cwd,
+		selector: target,
+		reason: 'Agent session reset by the user.',
+		deleteAssignedWork: true,
+	}); const session = reset.session;
 	const adapter = requiredAdapter(services, session.provider); if (adapter.createSession === undefined) {throw new Error('Provider cannot create managed sessions.');}
 	const provider = await adapter.createSession({ cwd, model: optionalString(request.model), baseInstructions: renderManagedAgentContract(before.name) });
 	await attachProviderSession({ workspaceCwd: cwd, agentSessionId: session.id, providerSessionId: provider.providerSessionId });

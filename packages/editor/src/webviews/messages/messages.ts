@@ -95,6 +95,15 @@ export function currentWorkForAgent(
 		: work.find(item => item.id === currentWorkId && item.agentId === agent.id && item.status === 'working');
 }
 
+export function displayedWorkForAgent(
+	work: readonly UserAnnotationWorkItem[],
+	agent: NamedAgent,
+): UserAnnotationWorkItem | undefined {
+	return currentWorkForAgent(work, agent) ?? work
+		.filter(item => item.agentId === agent.id && item.status === 'completed')
+		.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
+}
+
 export function latestSessionStatusForAgent(
 	work: readonly UserAnnotationWorkItem[],
 	agent: NamedAgent,
@@ -109,6 +118,8 @@ export function latestStatusForWork(work: UserAnnotationWorkItem): WorkUpdate | 
 export interface SessionStatusHistoryGroup {
 	readonly annotationId: UserAnnotationId;
 	readonly userMessage: string;
+	readonly preset: PromptPreset;
+	readonly sourceLine: number;
 	readonly updates: readonly WorkUpdate[];
 }
 
@@ -128,7 +139,13 @@ export function sessionStatusHistoryGroupsForAgent(
 			.filter(update => update.kind === 'status')
 			.sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
 		if (updates.length > 0) {
-			groups.push({ annotationId: item.id, userMessage: item.prompt.text, updates });
+			groups.push({
+				annotationId: item.id,
+				userMessage: item.prompt.text,
+				preset: item.prompt.preset,
+				sourceLine: item.source.line,
+				updates,
+			});
 		}
 	}
 	return groups.sort((left, right) => Date.parse(left.updates[0].at) - Date.parse(right.updates[0].at));

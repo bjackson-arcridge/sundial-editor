@@ -10,6 +10,7 @@ import {
 import {
 	annotationForLine,
 	currentWorkForAgent,
+	displayedWorkForAgent,
 	isValidHostToWebviewMessage,
 	isValidWebviewToHostMessage,
 	latestSessionStatusForAgent,
@@ -301,6 +302,30 @@ describe('messages view projections', () => {
 		assert.equal(currentWorkForAgent([work, amyWork, current], bob), undefined);
 	});
 
+	test('shows active work or the agent latest completed work as the annotation target', () => {
+		const earlierCompleted: UserAnnotationWorkItem = {
+			...work,
+			id: parseUserAnnotationId('annotation-work-earlier'),
+			status: 'completed',
+			updatedAt: '2026-07-20T14:03:00.000Z',
+		};
+		const latestCompleted: UserAnnotationWorkItem = {
+			...earlierCompleted,
+			id: parseUserAnnotationId('annotation-work-latest'),
+			updatedAt: '2026-07-20T14:05:00.000Z',
+		};
+		const active: UserAnnotationWorkItem = {
+			...work,
+			id: parseUserAnnotationId('annotation-work-active'),
+			status: 'working',
+		};
+		const workingBob: NamedAgent = { ...bob, currentWork: active };
+
+		assert.equal(displayedWorkForAgent([latestCompleted, earlierCompleted], bob)?.id, latestCompleted.id);
+		assert.equal(displayedWorkForAgent([latestCompleted, active], workingBob)?.id, active.id);
+		assert.equal(displayedWorkForAgent([work, { ...latestCompleted, agentId: amyId }], bob), undefined);
+	});
+
 	test('uses only agent-authored status updates for compact active-work feedback', () => {
 		const firstStatus = { at: '2026-07-20T14:02:00.000Z', kind: 'status', message: 'Reviewing the request.' } as const;
 		const latestStatus = { at: '2026-07-20T14:03:00.000Z', kind: 'status', message: 'Updating the card.' } as const;
@@ -365,10 +390,25 @@ describe('messages view projections', () => {
 
 		const groups = sessionStatusHistoryGroupsForAgent([secondCompleted, oldSessionWork, completed], bob);
 		assert.deepEqual(
-			groups.map(group => ({ userMessage: group.userMessage, updates: group.updates.map(update => update.message) })),
+			groups.map(group => ({
+				userMessage: group.userMessage,
+				preset: group.preset,
+				sourceLine: group.sourceLine,
+				updates: group.updates.map(update => update.message),
+			})),
 			[
-				{ userMessage: completed.prompt.text, updates: [statusUpdate.message, latestStatusUpdate.message] },
-				{ userMessage: secondCompleted.prompt.text, updates: [secondStatusUpdate.message] },
+				{
+					userMessage: completed.prompt.text,
+					preset: completed.prompt.preset,
+					sourceLine: completed.source.line,
+					updates: [statusUpdate.message, latestStatusUpdate.message],
+				},
+				{
+					userMessage: secondCompleted.prompt.text,
+					preset: secondCompleted.prompt.preset,
+					sourceLine: secondCompleted.source.line,
+					updates: [secondStatusUpdate.message],
+				},
 			],
 		);
 		assert.equal(latestSessionStatusForAgent([completed, secondCompleted, oldSessionWork], bob)?.message, secondStatusUpdate.message);

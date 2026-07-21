@@ -356,13 +356,22 @@ export async function markProviderSessionMissing(input: { workspaceCwd: string; 
 	});
 }
 
-export async function resetAgentSession(input: { workspaceCwd: string; selector: AgentSelector; reason?: string }): Promise<AgentResetResult> {
+export async function resetAgentSession(input: {
+	workspaceCwd: string;
+	selector: AgentSelector;
+	reason?: string;
+	deleteAssignedWork?: boolean;
+}): Promise<AgentResetResult> {
 	await ensureDefaultAgents(input.workspaceCwd);
 	return withStoreLock(input.workspaceCwd, defaultServices, async () => {
 		const agent = selectAgent(await readAgents(input.workspaceCwd), input.selector);
 		const requeued: UserAnnotationWorkItem[] = [];
-		for (const item of (await readWork(input.workspaceCwd)).filter(work => work.agentId === agent.id && work.status === 'working')) {
-			const next = requeueItem(item, input.reason ?? 'Agent session reset.'); await replaceDocument(workFilePath(input.workspaceCwd, item.id), next); requeued.push(next);
+		for (const item of (await readWork(input.workspaceCwd)).filter(work => work.agentId === agent.id)) {
+			if (input.deleteAssignedWork === true) {
+				await rm(workFilePath(input.workspaceCwd, item.id));
+			} else if (item.status === 'working') {
+				const next = requeueItem(item, input.reason ?? 'Agent session reset.'); await replaceDocument(workFilePath(input.workspaceCwd, item.id), next); requeued.push(next);
+			}
 		}
 		if (agent.currentSessionId !== undefined) {await rm(sessionFilePath(input.workspaceCwd, agent.currentSessionId), { force: true });}
 		const now = defaultServices.now().toISOString();
