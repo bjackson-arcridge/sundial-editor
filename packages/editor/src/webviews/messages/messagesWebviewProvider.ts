@@ -35,8 +35,10 @@ import { renderWebviewHtml } from '../shared/csp.js';
 import { attachMessageRouter, type MessageRouter } from '../shared/messageRouter.js';
 import {
 	annotationForLine,
+	annotationsForCurrentPermanentCommit,
 	type HostToWebview,
 	type MessagesState,
+	type WorkflowPresentation,
 	type WebviewToHost,
 	isValidWebviewToHostMessage,
 	presentAnnotation,
@@ -66,6 +68,7 @@ export interface MessagesServices {
 	readonly showAnnotationMarkers?: (sourceUri: string | undefined, lines: readonly number[]) => void;
 	readonly revealAnnotation?: (sourceUri: string, line: number, preserveFocus?: boolean) => void | Promise<void>;
 	readonly cliPath?: () => string;
+	readonly workspaceRootCwd?: () => string | undefined;
 	readonly workspaceCwd?: (prompt: PromptContext) => string | undefined;
 }
 
@@ -96,6 +99,14 @@ interface ActiveRun {
 	cancelReason?: string;
 }
 
+interface LoadedAnnotations {
+	readonly sourceUri: string;
+	readonly cwd: string;
+	readonly annotations: readonly Annotation[];
+	readonly currentPermanentCommit: string;
+	readonly currentPermanentAnnotationIds: readonly string[];
+}
+
 export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	private readonly messageRouters = new Set<MessageRouter<WebviewToHost, HostToWebview>>();
 	private readonly activeRuns = new Map<AgentId, ActiveRun>();
@@ -107,9 +118,12 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	private busy = false;
 	private notice: MessagesState['notice'];
 	private activeLocation: ActiveLocation | undefined;
-	private loadedAnnotations: { readonly sourceUri: string; readonly cwd: string; readonly annotations: readonly Annotation[] } | undefined;
+	private loadedAnnotations: LoadedAnnotations | undefined;
 	private viewedAnnotation: { readonly sourceUri: string; readonly cwd: string; readonly annotation: Annotation } | undefined;
 	private annotationPinned = false;
+	private workflow: WorkflowPresentation = {
+		diffEnabled: false, diffLayout: 'side-by-side', annotationFilterEnabled: false,
+	};
 	private paneSplitPercent: number;
 	private paneSplitPersistence = Promise.resolve();
 	private pendingPaneSplitWrites = 0;
@@ -132,6 +146,11 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			this.paneSplitPercent = configured;
 			this.postState();
 		}
+	}
+
+	setDiffPresentation(presentation: Pick<WorkflowPresentation, 'diffEnabled' | 'diffLayout' | 'baseline' | 'currentPermanentCommit'>): void {
+		this.workflow = { ...this.workflow, ...presentation };
+		this.postState();
 	}
 
 	async resolveWebviewView(messagesView: vscode.WebviewView): Promise<void> {
@@ -158,9 +177,8 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			this.messageRouters.delete(router);
 			if (this.activeMessagesView === messagesView) { this.activeMessagesView = undefined; }
 		});
-		if (this.activeLocation !== undefined) {
-			void this.refreshAgentState(this.activeLocation.cwd);
-		}
+		const cwd = this.currentCwd();
+		if (cwd !== undefined) { void this.refreshAgentState(cwd); }
 		if (messagesView.visible) { queueMicrotask(() => this.focusPendingComposer()); }
 	}
 
@@ -216,7 +234,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		return {
 			viewResolved: this.activeMessagesView !== undefined,
 			viewVisible: this.activeMessagesView?.visible === true,
-			annotationMarkerLines: annotationLines(this.loadedAnnotations?.annotations ?? []),
+			annotationMarkerLines: annotationLines(this.visibleAnnotations()),
 			state: this.currentState(),
 		};
 	}
@@ -342,8 +360,13 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 				{ workspace: { cwd: location.cwd }, document: { uri: location.sourceUri } },
 			);
 			if (generation !== this.annotationLoadGeneration || this.activeLocation?.sourceUri !== location.sourceUri) { return; }
-			this.loadedAnnotations = { sourceUri: location.sourceUri, cwd: location.cwd, annotations: companion.annotations };
-			this.services.showAnnotationMarkers?.(location.sourceUri, annotationLines(companion.annotations));
+			this.loadedAnnotations = {
+				sourceUri: location.sourceUri, cwd: location.cwd, annotations: companion.annotations,
+				currentPermanentCommit: companion.currentPermanentCommit,
+				currentPermanentAnnotationIds: companion.currentPermanentAnnotationIds,
+			};
+			this.workflow = { ...this.workflow, currentPermanentCommit: companion.currentPermanentCommit };
+			this.services.showAnnotationMarkers?.(location.sourceUri, annotationLines(this.visibleAnnotations()));
 			this.updateViewedAnnotation();
 			this.postState();
 		} catch (error) {
@@ -373,11 +396,24 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		this.postState();
 	}
 
+	toggleAnnotationFilter(): void {
+		this.workflow = { ...this.workflow, annotationFilterEnabled: !this.workflow.annotationFilterEnabled };
+		const loaded = this.loadedAnnotations;
+		if (loaded !== undefined && this.viewedAnnotation?.sourceUri === loaded.sourceUri
+			&& !this.visibleAnnotations(loaded).some(annotation => annotation.id === this.viewedAnnotation?.annotation.id)) {
+			this.viewedAnnotation = undefined;
+			this.annotationPinned = false;
+		}
+		this.updateViewedAnnotation(true);
+		this.services.showAnnotationMarkers?.(loaded?.sourceUri, annotationLines(this.visibleAnnotations()));
+		this.postState();
+	}
+
 	async selectAdjacentAnnotation(direction: -1 | 1): Promise<void> {
 		const loaded = this.loadedAnnotations;
 		const viewed = this.viewedAnnotation;
 		if (loaded === undefined || viewed?.sourceUri !== loaded.sourceUri) { return; }
-		const annotations = orderedAnnotations(loaded.annotations);
+		const annotations = orderedAnnotations(this.visibleAnnotations(loaded));
 		const currentIndex = annotations.findIndex(annotation => annotation.id === viewed.annotation.id);
 		const next = annotations[currentIndex + direction];
 		if (next === undefined) { return; }
@@ -409,14 +445,19 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			}
 			const loaded = this.loadedAnnotations;
 			if (loaded?.sourceUri === viewed.sourceUri) {
-				const ordered = orderedAnnotations(loaded.annotations);
+				const ordered = orderedAnnotations(this.visibleAnnotations(loaded));
 				const deletedIndex = ordered.findIndex(annotation => annotation.id === viewed.annotation.id);
-				const remaining = ordered.filter(annotation => annotation.id !== viewed.annotation.id);
-				this.loadedAnnotations = { ...loaded, annotations: remaining };
-				const replacement = remaining[Math.min(Math.max(deletedIndex, 0), remaining.length - 1)];
+				const remaining = loaded.annotations.filter(annotation => annotation.id !== viewed.annotation.id);
+				this.loadedAnnotations = {
+					...loaded,
+					annotations: remaining,
+					currentPermanentAnnotationIds: loaded.currentPermanentAnnotationIds.filter(id => id !== viewed.annotation.id),
+				};
+				const visibleRemaining = orderedAnnotations(this.visibleAnnotations());
+				const replacement = visibleRemaining[Math.min(Math.max(deletedIndex, 0), visibleRemaining.length - 1)];
 				this.viewedAnnotation = replacement === undefined ? undefined : { sourceUri: loaded.sourceUri, cwd: loaded.cwd, annotation: replacement };
 				this.annotationPinned = false;
-				this.services.showAnnotationMarkers?.(loaded.sourceUri, annotationLines(remaining));
+				this.services.showAnnotationMarkers?.(loaded.sourceUri, annotationLines(visibleRemaining));
 			}
 			this.postState();
 			await this.refreshAgentState(viewed.cwd);
@@ -437,13 +478,27 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		const companion = await (this.services.readAnnotations ?? readAnnotationsViaCli)(
 			this.cliPath(), { workspace: { cwd }, document: { uri: sourceUri } },
 		);
-		const annotation = companion.annotations.find(candidate => candidate.id === link.annotationId);
-		if (annotation === undefined) { this.setError('The linked annotation no longer exists.'); return; }
 		this.activeLocation = { sourceUri, line: link.line, cwd };
-		this.loadedAnnotations = { sourceUri, cwd, annotations: companion.annotations };
+		this.loadedAnnotations = {
+			sourceUri, cwd, annotations: companion.annotations,
+			currentPermanentCommit: companion.currentPermanentCommit,
+			currentPermanentAnnotationIds: companion.currentPermanentAnnotationIds,
+		};
+		this.workflow = { ...this.workflow, currentPermanentCommit: companion.currentPermanentCommit };
+		const annotation = this.visibleAnnotations().find(candidate => candidate.id === link.annotationId);
+		if (annotation === undefined) {
+			this.viewedAnnotation = undefined;
+			this.annotationPinned = false;
+			this.updateViewedAnnotation(true);
+			this.services.showAnnotationMarkers?.(sourceUri, annotationLines(this.visibleAnnotations()));
+			this.setError(this.workflow.annotationFilterEnabled
+				? 'The linked annotation is outside the current permanent-commit filter.'
+				: 'The linked annotation no longer exists.');
+			return;
+		}
 		this.viewedAnnotation = { sourceUri, cwd, annotation };
 		this.annotationPinned = false;
-		this.services.showAnnotationMarkers?.(sourceUri, annotationLines(companion.annotations));
+		this.services.showAnnotationMarkers?.(sourceUri, annotationLines(this.visibleAnnotations()));
 		this.postState();
 	}
 
@@ -468,6 +523,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			case 'previousAnnotation': void this.selectAdjacentAnnotation(-1); return;
 			case 'nextAnnotation': void this.selectAdjacentAnnotation(1); return;
 			case 'toggleAnnotationPin': this.toggleAnnotationPin(); return;
+			case 'toggleAnnotationFilter': this.toggleAnnotationFilter(); return;
 			case 'deleteAnnotation': void this.deleteViewedAnnotation(); return;
 			case 'setPaneSplitPercent': this.persistPaneSplitPercent(message.percent); return;
 			default: { const unhandled: never = message; throw new Error(`Unexpected webview message: ${JSON.stringify(unhandled)}`); }
@@ -662,8 +718,12 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		const loaded = this.loadedAnnotations;
 		if (pending !== undefined && loaded?.sourceUri === pending.prompt.sourceUri) {
 			const annotations = loaded.annotations.some(existing => existing.id === annotation.id) ? loaded.annotations : [...loaded.annotations, annotation];
-			this.loadedAnnotations = { ...loaded, annotations };
-			this.services.showAnnotationMarkers?.(pending.prompt.sourceUri, annotationLines(annotations));
+			const currentPermanentAnnotationIds = annotation.permanentBaseCommit === loaded.currentPermanentCommit
+				&& !loaded.currentPermanentAnnotationIds.includes(annotation.id)
+				? [...loaded.currentPermanentAnnotationIds, annotation.id]
+				: loaded.currentPermanentAnnotationIds;
+			this.loadedAnnotations = { ...loaded, annotations, currentPermanentAnnotationIds };
+			this.services.showAnnotationMarkers?.(pending.prompt.sourceUri, annotationLines(this.visibleAnnotations()));
 		}
 		if (!this.annotationPinned && pending !== undefined) {
 			this.viewedAnnotation = { sourceUri: pending.prompt.sourceUri, cwd, annotation };
@@ -676,17 +736,19 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		this.postToMessagesWebviews({ kind: 'focusComposer' });
 	}
 
-	private updateViewedAnnotation(): void {
+	private updateViewedAnnotation(allowFileFallback = false): void {
 		const location = this.activeLocation;
 		const loaded = this.loadedAnnotations;
 		if (location === undefined || loaded?.sourceUri !== location.sourceUri) { return; }
+		const visible = this.visibleAnnotations(loaded);
 		if (this.viewedAnnotation?.sourceUri === loaded.sourceUri) {
-			const refreshed = loaded.annotations.find(annotation => annotation.id === this.viewedAnnotation?.annotation.id);
+			const refreshed = visible.find(annotation => annotation.id === this.viewedAnnotation?.annotation.id);
 			this.viewedAnnotation = refreshed === undefined ? undefined : { sourceUri: loaded.sourceUri, cwd: loaded.cwd, annotation: refreshed };
 			if (refreshed === undefined) { this.annotationPinned = false; }
 		}
 		if (!this.annotationPinned) {
-			const annotation = annotationForLine(loaded.annotations, location.line, this.viewedAnnotation?.annotation.id);
+			const annotation = annotationForLine(visible, location.line, this.viewedAnnotation?.annotation.id)
+				?? (allowFileFallback ? orderedAnnotations(visible)[0] : undefined);
 			if (annotation !== undefined) { this.viewedAnnotation = { sourceUri: loaded.sourceUri, cwd: loaded.cwd, annotation }; }
 		}
 	}
@@ -697,6 +759,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			agents: this.agentsState,
 			work: this.work,
 			paneSplitPercent: this.paneSplitPercent,
+			workflow: this.workflow,
 			...(this.busy ? { busy: true as const } : {}),
 			...(this.notice === undefined ? {} : { notice: this.notice }),
 			...(viewer === undefined ? {} : { annotationViewer: viewer }),
@@ -716,7 +779,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		const viewed = this.viewedAnnotation;
 		if (viewed === undefined) { return undefined; }
 		const loaded = this.loadedAnnotations;
-		const annotations = loaded?.sourceUri === viewed.sourceUri ? orderedAnnotations(loaded.annotations) : [viewed.annotation];
+		const annotations = loaded?.sourceUri === viewed.sourceUri ? orderedAnnotations(this.visibleAnnotations(loaded)) : [viewed.annotation];
 		const index = annotations.findIndex(annotation => annotation.id === viewed.annotation.id);
 		const position = index < 0 ? 0 : index;
 		return {
@@ -730,8 +793,16 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		return this.agentsState.kind === 'ready' ? this.agentsState.agents : [];
 	}
 
+	private visibleAnnotations(loaded = this.loadedAnnotations): readonly Annotation[] {
+		return loaded === undefined ? [] : annotationsForCurrentPermanentCommit(
+			loaded.annotations,
+			loaded.currentPermanentAnnotationIds,
+			this.workflow.annotationFilterEnabled,
+		);
+	}
+
 	private currentCwd(): string | undefined {
-		return this.pendingPrompt?.cwd ?? this.activeLocation?.cwd;
+		return this.pendingPrompt?.cwd ?? this.activeLocation?.cwd ?? this.services.workspaceRootCwd?.();
 	}
 
 	private setError(message: string): void {

@@ -53,10 +53,15 @@ suite('Scenario: prompt-to-messages', () => {
 		if (workspaceFolder === undefined) {
 			throw new Error('Expected the staged prompt workspace');
 		}
+		const startupState = await waitForAgentState(state => state.agents.kind === 'ready');
+		assert.equal(startupState.state.agents.kind, 'ready');
+		assert.ok((startupState.state.agents.agents?.length ?? 0) > 0);
 
 		const uri = vscode.Uri.joinPath(workspaceFolder.uri, 'prompt.txt');
 		const testableCli = vscode.Uri.joinPath(workspaceFolder.uri, 'testable-cli.js');
 		await vscode.workspace.getConfiguration('sundialEditor').update('cliPath', testableCli.fsPath, vscode.ConfigurationTarget.Workspace);
+		await waitForAgentState(state => state.agents.kind === 'ready'
+			&& state.agents.agents?.map(agent => agent.name).join(',') === 'Bob,Amy');
 		const document = await vscode.workspace.openTextDocument(uri);
 		const editor = await vscode.window.showTextDocument(document);
 		editor.selection = new vscode.Selection(1, 1, 1, 1);
@@ -120,7 +125,8 @@ suite('Scenario: prompt-to-messages', () => {
 
 		const companionPath = vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', 'prompt.txt.comments').fsPath;
 		const companionYaml = await readFile(companionPath, 'utf8');
-		assert.match(companionYaml, /^version: 3\nannotations:\n/);
+		assert.match(companionYaml, /^version: 4\nannotations:\n/);
+		assert.match(companionYaml, /"permanentBaseCommit":"[0-9a-f]{40}"/);
 		assert.match(companionYaml, /"message":"Fix this through the test provider\."/);
 		assert.match(companionYaml, /"text":"code before the command"/);
 		assert.match(companionYaml, /"before":\[\]/);
@@ -236,6 +242,21 @@ async function waitForMessagesState(timeoutMs = 6000): Promise<MessagesDiagnosti
 	}
 
 	throw new Error(`Timed out waiting for Messages state: ${JSON.stringify(latest)}`);
+}
+
+async function waitForAgentState(predicate: (state: MessagesDiagnostics['state']) => boolean, timeoutMs = 6000): Promise<MessagesDiagnostics> {
+	const started = Date.now();
+	let latest: MessagesDiagnostics | undefined;
+	while (Date.now() - started < timeoutMs) {
+		latest = await vscode.commands.executeCommand<MessagesDiagnostics>('sundialEditor.internal.messagesDiagnostics');
+		if (latest.viewResolved && latest.viewVisible && predicate(latest.state)) {
+			return latest;
+		}
+
+		await new Promise(resolve => setTimeout(resolve, 100));
+	}
+
+	throw new Error(`Timed out waiting for agent state: ${JSON.stringify(latest)}`);
 }
 
 async function waitForMessagesViewReady(timeoutMs = 6000): Promise<void> {

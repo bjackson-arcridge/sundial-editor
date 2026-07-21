@@ -33,6 +33,25 @@ Annotated source lines carry an editor marker. Agent activity and annotations oc
 
 The pane split survives webview and VS Code restarts through the `sundialEditor.paneSplitPercent` user setting. Dragging the separator or resizing it with the keyboard updates that setting; values remain between 10% and 90% so both panes stay available.
 
+## Iterative diff and commit workflow
+
+Sundial can turn every open workspace source tab into a built-in VS Code diff against one shared baseline. The mode is global within the current workspace: enabling it replaces existing source tabs with managed diff tabs, newly opened workspace files join the same mode, and disabling it restores ordinary editors. Sundial preserves the split tree and proportions, relative tab order, each group's selected tab, the globally active group, preview/pinned state, cursor position, active diff side, and visible source area across those transitions. Non-workspace editors are left alone.
+
+Type these commands on their own source line and choose the completion. Sundial removes and saves the command line before running it:
+
+- `%dd` toggles the global diff view.
+- `%di` toggles VS Code's inline and side-by-side diff layout.
+- `%d+` moves the baseline one first-parent commit back; `%d-` moves it one commit toward `HEAD`.
+- `%d0` resets the baseline to `HEAD`; `%dp` selects the last permanent commit.
+- `%cf` creates a temporary checkpoint for the current file and its dirty annotation companion.
+- `%ca` creates a temporary checkpoint containing all dirty, staged, and non-ignored untracked files.
+- `%cm` asks for a message, then consolidates the temporary checkpoint suffix and any remaining dirty work into one permanent commit. A prior `%ca` is not required.
+- `%cr` repairs annotation companion paths for source moves and deletes reported by Git.
+
+Temporary checkpoints use the exact commit message `Sundial:temp`. They are local iteration state, not publishable history: Sundial refuses to alter or consolidate a temporary stack if any checkpoint is reachable from `origin`, leaving manual repair to the user. `%cm` removes the verified temporary suffix while retaining companion content and stable annotation identities.
+
+The annotation toolbar shows the current diff mode, layout, and abbreviated baseline. Its filter button can show only annotations assigned to the current permanent commit; the button has a tooltip and pressed state for keyboard and assistive-technology use. The filter changes markers, selection, pinning, linked-annotation opening, and previous/next navigation together. Moving the selected diff baseline or creating temporary checkpoints does not change annotation membership.
+
 ## Sundial Agents panel
 
 Sundial Editor contributes the **Sundial Agents** panel to VS Code's right-hand Secondary Side Bar, beside other collaboration surfaces such as Codex and Claude Code. The extension reveals it once on first activation after installation; afterwards VS Code remembers whether you close or move it.

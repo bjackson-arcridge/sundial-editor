@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, test } from 'node:test';
 import type { ProviderAdapter } from '../adapters/adapter';
+import { GitWorkflowConflictError } from '../gitWorkflow';
 import { main, type CliIo } from '../main';
 import type { AgentEvent } from '../protocol';
 
@@ -32,17 +33,65 @@ function adapter(events: readonly AgentEvent[] = []): ProviderAdapter {
 	};
 }
 
+const permanentBaseCommit = 'a'.repeat(40);
+
 describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.6.0\n');
+		assert.equal(version.stdout.join(''), '0.7.0\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
 		assert.match(help.stdout.join(''), /prompt \[--input request\.json\]/);
 		assert.match(help.stdout.join(''), /annotations append/);
 		assert.match(help.stdout.join(''), /annotations delete/);
+		assert.match(help.stdout.join(''), /workflow checkpoint-file/);
+		assert.match(help.stdout.join(''), /workflow consolidate/);
+	});
+
+	test('routes every workflow operation through the machine command surface', async () => {
+		const state = {
+			head: 'a'.repeat(40), baseline: 'b'.repeat(40), lastPermanentCommit: 'c'.repeat(40),
+			temporaryCommitCount: 2, untrackedPaths: [], affectedPaths: ['source.ts'],
+		};
+		const request = { workspace: { cwd: '/workspace' }, marker: 'request' };
+		const calls: string[] = [];
+		const services = {
+			adapters: {}, readFile: async () => '',
+			readGitWorkflowState: async (value: unknown) => { assert.deepEqual(value, request); calls.push('state'); return state; },
+			moveGitWorkflowBaseline: async (value: unknown) => { assert.deepEqual(value, request); calls.push('baseline'); return state; },
+			createTemporaryCommit: async (value: unknown, all: boolean) => {
+				assert.deepEqual(value, request); calls.push(all ? 'checkpoint-all' : 'checkpoint-file'); return state;
+			},
+			consolidateTemporaryCommits: async (value: unknown) => { assert.deepEqual(value, request); calls.push('consolidate'); return state; },
+			repairCompanions: async (value: unknown) => { assert.deepEqual(value, request); calls.push('repair'); return { actions: [], affectedPaths: [] }; },
+		};
+		for (const operation of ['state', 'baseline', 'checkpoint-file', 'checkpoint-all', 'consolidate'] as const) {
+			const run = harness(JSON.stringify(request));
+			assert.equal(await main(['workflow', operation], run.io, services), 0, run.stderr.join(''));
+			assert.deepEqual(JSON.parse(run.stdout.join('')), state);
+		}
+		const repair = harness(JSON.stringify(request));
+		assert.equal(await main(['workflow', 'repair'], repair.io, services), 0, repair.stderr.join(''));
+		assert.deepEqual(JSON.parse(repair.stdout.join('')), { actions: [], affectedPaths: [] });
+		assert.deepEqual(calls, ['state', 'baseline', 'checkpoint-file', 'checkpoint-all', 'consolidate', 'repair']);
+
+		const invalid = harness('{}');
+		assert.equal(await main(['workflow', 'unknown'], invalid.io, services), 1);
+		assert.match(invalid.stderr.join(''), /workflow requires/);
+	});
+
+	test('projects workflow state conflicts as typed machine failures', async () => {
+		const run = harness('{"workspace":{"cwd":"/workspace"}}');
+		assert.equal(await main(['workflow', 'checkpoint-all'], run.io, {
+			adapters: {}, readFile: async () => '',
+			createTemporaryCommit: async () => { throw new GitWorkflowConflictError('nothing_to_checkpoint', 'There are no dirty files to checkpoint.'); },
+		}), 1);
+		assert.deepEqual(JSON.parse(run.stdout.join('')), {
+			kind: 'conflict', code: 'nothing_to_checkpoint', message: 'There are no dirty files to checkpoint.',
+		});
+		assert.match(run.stderr.join(''), /no dirty files/);
 	});
 
 	test('routes annotation append, delete, and read operations as JSON', async () => {
@@ -53,7 +102,7 @@ describe('main', () => {
 				assert.deepEqual(value, { append: true });
 				return {
 					kind: 'user',
-					id: 'annotation-1', message: 'Fix it.', preset: '%F', scope: 'line',
+					id: 'annotation-1', permanentBaseCommit, message: 'Fix it.', preset: '%F', scope: 'line',
 					anchor: { line: 2, text: 'code', before: ['before'], after: ['after'] },
 					officialResponses: [],
 					agentAnnotations: [],
@@ -69,7 +118,7 @@ describe('main', () => {
 				assert.deepEqual(value, { annotation: { id: 'annotation-1' } });
 				return {
 					kind: 'user',
-					id: 'annotation-1', message: 'Fix it.', preset: '%F', scope: 'line',
+					id: 'annotation-1', permanentBaseCommit, message: 'Fix it.', preset: '%F', scope: 'line',
 					anchor: { line: 2, text: 'code', before: [], after: [] },
 					officialResponses: [],
 					agentAnnotations: [],
@@ -83,10 +132,10 @@ describe('main', () => {
 			adapters: {}, readFile: async () => '',
 			readUserAnnotations: async value => {
 				assert.deepEqual(value, { read: true });
-				return { version: 3, annotations: [] };
+				return { version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [] };
 			},
 		}), 0);
-		assert.deepEqual(JSON.parse(read.stdout[0]), { version: 3, annotations: [] });
+		assert.deepEqual(JSON.parse(read.stdout[0]), { version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [] });
 	});
 
 	test('reports health as machine-readable capabilities', async () => {
@@ -107,7 +156,7 @@ describe('main', () => {
 			providers: ['codex'],
 			commands: [
 				'annotations append', 'annotations read', 'annotations delete',
-				'workflow state', 'workflow baseline', 'workflow checkpoint-file', 'workflow checkpoint-all', 'workflow consolidate',
+				'workflow state', 'workflow baseline', 'workflow checkpoint-file', 'workflow checkpoint-all', 'workflow consolidate', 'workflow repair',
 				'agent list', 'agent show', 'agent rename', 'agent session ensure',
 				'agent work enqueue', 'agent work ready', 'agent work list', 'agent work show',
 				'agent work claim', 'agent work complete', 'agent work requeue',

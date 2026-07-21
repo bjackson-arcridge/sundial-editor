@@ -18,3 +18,13 @@ test('messages webview requests current state after its listener is ready', () =
 	);
 	assert.match(providerSource, /case 'ready': this\.postState\(\); this\.focusPendingComposer\(\); return;/);
 });
+
+test('messages sidebar loads agents from the workspace root before a file editor is active', () => {
+	const extensionSource = fs.readFileSync(path.resolve(__dirname, '../../src/extension.ts'), 'utf8');
+	const providerSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/messages/messagesWebviewProvider.ts'), 'utf8');
+
+	assert.match(extensionSource, /workspaceRootCwd: \(\) => vscode\.workspace\.workspaceFolders\?\.\[0\]\?\.uri\.fsPath/);
+	assert.match(providerSource, /this\.pendingPrompt\?\.cwd \?\? this\.activeLocation\?\.cwd \?\? this\.services\.workspaceRootCwd\?\.\(\)/);
+	assert.match(providerSource, /const cwd = this\.currentCwd\(\);\s*if \(cwd !== undefined\) \{ void this\.refreshAgentState\(cwd\); \}/);
+	assert.match(extensionSource, /event\.affectsConfiguration\('sundialEditor\.cliPath'\)[\s\S]*?void messagesProvider\.refreshAgentState\(\);/);
+});

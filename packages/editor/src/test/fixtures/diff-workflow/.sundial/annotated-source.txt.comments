@@ -1,0 +1,15 @@
+version: 4
+annotations:
+  - kind: user
+    id: annotated-source-comment
+    permanentBaseCommit: 0000000000000000000000000000000000000000
+    message: Annotated untracked source fixture.
+    preset: "%W"
+    scope: line
+    anchor:
+      line: 0
+      text: untracked annotated source
+      before: []
+      after: []
+    officialResponses: []
+    agentAnnotations: []

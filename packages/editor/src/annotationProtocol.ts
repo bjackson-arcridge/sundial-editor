@@ -24,6 +24,7 @@ export interface OfficialResponse {
 export interface UserAnnotation {
 	readonly kind: 'user';
 	readonly id: string;
+	readonly permanentBaseCommit: string;
 	readonly message: string;
 	readonly preset: PromptPreset;
 	readonly scope: PromptScope;
@@ -35,6 +36,7 @@ export interface UserAnnotation {
 export interface AgentFileAnnotation {
 	readonly kind: 'agent';
 	readonly id: string;
+	readonly permanentBaseCommit: string;
 	readonly agentId: string;
 	readonly agentSessionId: string;
 	readonly body: string;
@@ -46,8 +48,10 @@ export interface AgentFileAnnotation {
 export type Annotation = UserAnnotation | AgentFileAnnotation;
 
 export interface AnnotationCompanion {
-	readonly version: 3;
+	readonly version: 4;
 	readonly annotations: readonly Annotation[];
+	readonly currentPermanentCommit: string;
+	readonly currentPermanentAnnotationIds: readonly string[];
 }
 
 export interface AnnotationAppendRequest {
@@ -76,16 +80,21 @@ export function parseAnnotation(value: unknown): Annotation {
 }
 
 export function parseAnnotationCompanion(value: unknown): AnnotationCompanion {
-	if (!isRecord(value) || value.version !== 3 || !Array.isArray(value.annotations)
+	if (!isRecord(value) || value.version !== 4 || !Array.isArray(value.annotations)
 		|| !value.annotations.every(isAnnotation)
-		|| new Set(value.annotations.map(annotation => (annotation as Annotation).id)).size !== value.annotations.length) {
+		|| new Set(value.annotations.map(annotation => (annotation as Annotation).id)).size !== value.annotations.length
+		|| !isCommitHash(value.currentPermanentCommit) || !Array.isArray(value.currentPermanentAnnotationIds)
+		|| !value.currentPermanentAnnotationIds.every(isOpaqueId)
+		|| JSON.stringify(value.currentPermanentAnnotationIds) !== JSON.stringify((value.annotations as Annotation[])
+			.filter(annotation => annotation.permanentBaseCommit === value.currentPermanentCommit)
+			.map(annotation => annotation.id))) {
 		throw new Error('Sundial Editor CLI returned a malformed annotation companion.');
 	}
 	return value as unknown as AnnotationCompanion;
 }
 
 export function isAnnotation(value: unknown): value is Annotation {
-	if (!isRecord(value) || !isOpaqueId(value.id) || !isAnchor(value.anchor)) { return false; }
+	if (!isRecord(value) || !isOpaqueId(value.id) || !isCommitHash(value.permanentBaseCommit) || !isAnchor(value.anchor)) { return false; }
 	if (value.kind === 'user') {
 		return typeof value.message === 'string' && value.message.trim() !== ''
 			&& typeof value.preset === 'string' && (promptPresets as readonly string[]).includes(value.preset)
@@ -121,6 +130,7 @@ function isAnnotationLink(value: unknown): value is AnnotationLink {
 }
 
 function isOpaqueId(value: unknown): value is string { return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value); }
+function isCommitHash(value: unknown): value is string { return typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value); }
 function isCanonicalTimestamp(value: unknown): value is string { return typeof value === 'string' && value !== '' && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value; }
 function isAnchorContext(value: unknown): value is readonly string[] { return Array.isArray(value) && value.length <= 3 && value.every(line => typeof line === 'string' && line.trim() !== '' && !/[\r\n]/.test(line)); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }

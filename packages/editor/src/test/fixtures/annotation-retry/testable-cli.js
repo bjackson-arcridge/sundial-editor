@@ -119,7 +119,15 @@ function handleAgent(operation, action, request) {
 function handleAnnotations(operation, request) {
 	const companionPath = annotationCompanionPath(request);
 	if (operation === 'read') {
-		writeJson(readCompanion(companionPath));
+		const companion = readCompanion(companionPath);
+		const currentPermanentCommit = permanentCommit();
+		writeJson({
+			...companion,
+			currentPermanentCommit,
+			currentPermanentAnnotationIds: companion.annotations
+				.filter(annotation => annotation.permanentBaseCommit === currentPermanentCommit)
+				.map(annotation => annotation.id),
+		});
 		return;
 	}
 	if (operation === 'append') {
@@ -139,6 +147,7 @@ function handleAnnotations(operation, request) {
 		const annotation = {
 			kind: 'user',
 			id: request.annotation.id,
+			permanentBaseCommit: permanentCommit(),
 			message: request.annotation.message,
 			preset: request.annotation.preset,
 			scope: request.annotation.scope,
@@ -253,11 +262,15 @@ function annotationCompanionPath(request) {
 
 function readCompanion(companionPath) {
 	if (!fs.existsSync(companionPath)) {
-		return { version: 3, annotations: [] };
+		return { version: 4, annotations: [] };
 	}
 	const lines = fs.readFileSync(companionPath, 'utf8').trimEnd().split('\n');
 	const version = Number(lines[0].slice('version: '.length));
 	return { version, annotations: lines.slice(2).map(line => JSON.parse(line.slice(4))) };
+}
+
+function permanentCommit() {
+	return 'a'.repeat(40);
 }
 
 function renderCompanion(companion) {

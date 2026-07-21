@@ -4,8 +4,9 @@ import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/prom
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { deleteWork } from './agentStore.js';
+import { readGitWorkflowState } from './gitWorkflow.js';
 
-export const currentAnnotationCompanionVersion = 3;
+export const currentAnnotationCompanionVersion = 4;
 
 export interface AnnotationAnchor {
 	readonly line: number;
@@ -31,6 +32,7 @@ export interface OfficialResponse {
 export interface UserAnnotation {
 	readonly kind: 'user';
 	readonly id: string;
+	readonly permanentBaseCommit: string;
 	readonly message: string;
 	readonly preset: string;
 	readonly scope: 'line' | 'project';
@@ -42,6 +44,7 @@ export interface UserAnnotation {
 export interface AgentFileAnnotation {
 	readonly kind: 'agent';
 	readonly id: string;
+	readonly permanentBaseCommit: string;
 	readonly agentId: string;
 	readonly agentSessionId: string;
 	readonly body: string;
@@ -55,6 +58,11 @@ export type Annotation = UserAnnotation | AgentFileAnnotation;
 export interface AnnotationCompanion {
 	readonly version: typeof currentAnnotationCompanionVersion;
 	readonly annotations: readonly Annotation[];
+}
+
+export interface AnnotationReadResult extends AnnotationCompanion {
+	readonly currentPermanentCommit: string;
+	readonly currentPermanentAnnotationIds: readonly string[];
 }
 
 export interface AnnotationAppendRequest {
@@ -83,6 +91,7 @@ export interface AnnotationStoreServices {
 	readonly sleep: (milliseconds: number) => Promise<void>;
 	readonly lockTimeoutMs: number;
 	readonly staleLockMs: number;
+	readonly resolvePermanentCommit: (cwd: string) => Promise<string>;
 }
 
 const defaultServices: AnnotationStoreServices = {
@@ -91,6 +100,7 @@ const defaultServices: AnnotationStoreServices = {
 	sleep: milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
 	lockTimeoutMs: 5_000,
 	staleLockMs: 30_000,
+	resolvePermanentCommit: async cwd => (await readGitWorkflowState({ workspace: { cwd } })).lastPermanentCommit,
 };
 
 export async function appendUserAnnotation(
@@ -100,12 +110,14 @@ export async function appendUserAnnotation(
 	const services = { ...defaultServices, ...serviceOverrides };
 	const request = parseAnnotationAppendRequest(value);
 	return withAnnotationLock(request.workspace.cwd, services, async () => {
+		const permanentBaseCommit = await services.resolvePermanentCommit(request.workspace.cwd);
 		const companionPath = companionPathForSource(request.workspace.cwd, request.document.uri);
-		const existing = await readCompanionFile(companionPath);
+		const existing = await readCompanionFile(request.workspace.cwd, companionPath, permanentBaseCommit);
 		const source = await readStableUtf8(fileURLToPath(new URL(request.document.uri)), 'source');
 		const annotation: UserAnnotation = {
 			kind: 'user',
 			id: request.annotation.id ?? services.createId(),
+			permanentBaseCommit,
 			message: request.annotation.message,
 			preset: request.annotation.preset,
 			scope: request.annotation.scope,
@@ -121,21 +133,34 @@ export async function appendUserAnnotation(
 			}
 			return alreadyPersisted;
 		}
-		await writeCompanionFile(companionPath, { version: 3, annotations: [...existing.annotations, annotation] });
+		await writeCompanionFile(companionPath, { version: currentAnnotationCompanionVersion, annotations: [...existing.annotations, annotation] });
 		return annotation;
 	});
 }
 
-export async function readUserAnnotations(value: unknown): Promise<AnnotationCompanion> {
+export async function readUserAnnotations(value: unknown): Promise<AnnotationReadResult> {
 	const request = parseAnnotationReadRequest(value);
-	return readCompanionFile(companionPathForSource(request.workspace.cwd, request.document.uri));
+	const currentPermanentCommit = await defaultServices.resolvePermanentCommit(request.workspace.cwd);
+	const companion = await readCompanionFile(
+		request.workspace.cwd,
+		companionPathForSource(request.workspace.cwd, request.document.uri),
+		currentPermanentCommit,
+	);
+	return {
+		...companion,
+		currentPermanentCommit,
+		currentPermanentAnnotationIds: companion.annotations
+			.filter(annotation => annotation.permanentBaseCommit === currentPermanentCommit)
+			.map(annotation => annotation.id),
+	};
 }
 
 export async function deleteUserAnnotation(value: unknown): Promise<Annotation> {
 	const request = parseAnnotationDeleteRequest(value);
 	return withAnnotationLock(request.workspace.cwd, defaultServices, async () => {
+		const permanentBaseCommit = await defaultServices.resolvePermanentCommit(request.workspace.cwd);
 		const companionPath = companionPathForSource(request.workspace.cwd, request.document.uri);
-		const companion = await readCompanionFile(companionPath);
+		const companion = await readCompanionFile(request.workspace.cwd, companionPath, permanentBaseCommit);
 		const annotation = companion.annotations.find(candidate => candidate.id === request.annotation.id);
 		if (annotation === undefined) {
 			throw new Error(`Annotation not found: ${request.annotation.id}`);
@@ -190,11 +215,15 @@ export function sourceUriForFile(workspaceCwd: string, file: string): string {
 	return pathToFileURL(path.join(path.resolve(workspaceCwd), ...normalized.split('/'))).toString();
 }
 
-export function parseAnnotationCompanion(text: string): AnnotationCompanion {
+export function parseAnnotationCompanion(text: string, migrationCommit?: string): AnnotationCompanion {
 	const lines = text.replace(/\r\n?/g, '\n').split('\n');
 	if (lines.at(-1) === '') { lines.pop(); }
-	if (lines[0] !== 'version: 3' || lines[1] !== 'annotations:') {
-		throw new Error('Invalid annotation companion: expected version 3');
+	const version = lines[0] === 'version: 4' ? 4 : lines[0] === 'version: 3' ? 3 : undefined;
+	if (version === undefined || lines[1] !== 'annotations:') {
+		throw new Error('Invalid annotation companion: expected version 3 or 4');
+	}
+	if (version === 3 && !isCommitHash(migrationCommit)) {
+		throw new Error('Invalid annotation companion: version 3 migration requires a permanent commit');
 	}
 	const annotations = lines.slice(2).map((line, index) => {
 		if (!line.startsWith('  - ')) {
@@ -203,22 +232,25 @@ export function parseAnnotationCompanion(text: string): AnnotationCompanion {
 		let value: unknown;
 		try { value = JSON.parse(line.slice(4)); }
 		catch { throw new Error(`Invalid annotation companion: malformed annotation at index ${index}`); }
-		validateAnnotation(value);
-		return value;
+		validateAnnotation(value, version === 4);
+		if (version === 3) {
+			return { ...(value as Annotation), permanentBaseCommit: migrationCommit as string };
+		}
+		return value as Annotation;
 	});
 	if (new Set(annotations.map(annotation => annotation.id)).size !== annotations.length) {
 		throw new Error('Invalid annotation companion: annotation IDs must be unique');
 	}
-	return { version: 3, annotations };
+	return { version: currentAnnotationCompanionVersion, annotations };
 }
 
 export function renderAnnotationCompanion(companion: AnnotationCompanion): string {
-	if (companion.version !== 3) { throw new Error(`Unsupported annotation companion version: ${String(companion.version)}`); }
+	if (companion.version !== currentAnnotationCompanionVersion) { throw new Error(`Unsupported annotation companion version: ${String(companion.version)}`); }
 	for (const annotation of companion.annotations) { validateAnnotation(annotation); }
 	if (new Set(companion.annotations.map(annotation => annotation.id)).size !== companion.annotations.length) {
 		throw new Error('Invalid annotation companion: annotation IDs must be unique');
 	}
-	return ['version: 3', 'annotations:', ...companion.annotations.map(annotation => `  - ${JSON.stringify(annotation)}`), ''].join('\n');
+	return [`version: ${currentAnnotationCompanionVersion}`, 'annotations:', ...companion.annotations.map(annotation => `  - ${JSON.stringify(annotation)}`), ''].join('\n');
 }
 
 export function parseAnnotationAppendRequest(value: unknown): AnnotationAppendRequest {
@@ -254,8 +286,9 @@ export async function appendOfficialResponse(input: {
 }): Promise<{ readonly response: OfficialResponse; readonly appended: boolean }> {
 	validateOfficialResponse(input.response, input.response.userAnnotationId);
 	return withAnnotationLock(input.workspaceCwd, defaultServices, async () => {
+		const permanentBaseCommit = await defaultServices.resolvePermanentCommit(input.workspaceCwd);
 		const companionPath = companionPathForSource(input.workspaceCwd, input.sourceUri);
-		const existing = await readCompanionFile(companionPath);
+		const existing = await readCompanionFile(input.workspaceCwd, companionPath, permanentBaseCommit);
 		const annotationIndex = existing.annotations.findIndex(annotation => annotation.kind === 'user' && annotation.id === input.response.userAnnotationId);
 		if (annotationIndex < 0) { throw new Error(`Originating user annotation not found: ${input.response.userAnnotationId}`); }
 		const annotation = existing.annotations[annotationIndex] as UserAnnotation;
@@ -263,7 +296,7 @@ export async function appendOfficialResponse(input: {
 		if (duplicate !== undefined) { return { response: duplicate, appended: false }; }
 		const annotations = [...existing.annotations];
 		annotations[annotationIndex] = { ...annotation, officialResponses: [...annotation.officialResponses, input.response] };
-		await writeCompanionFile(companionPath, { version: 3, annotations });
+		await writeCompanionFile(companionPath, { version: currentAnnotationCompanionVersion, annotations });
 		return { response: input.response, appended: true };
 	});
 }
@@ -273,7 +306,8 @@ export async function containsOfficialResponse(input: {
 	readonly sourceUri: string;
 	readonly response: OfficialResponse;
 }): Promise<boolean> {
-	const companion = await readCompanionFile(companionPathForSource(input.workspaceCwd, input.sourceUri));
+	const permanentBaseCommit = await defaultServices.resolvePermanentCommit(input.workspaceCwd);
+	const companion = await readCompanionFile(input.workspaceCwd, companionPathForSource(input.workspaceCwd, input.sourceUri), permanentBaseCommit);
 	const annotation = companion.annotations.find(candidate => candidate.kind === 'user' && candidate.id === input.response.userAnnotationId);
 	return annotation?.kind === 'user' && annotation.officialResponses.some(response => sameOfficialResponse(response, input.response));
 }
@@ -291,12 +325,13 @@ export async function writeAgentAnnotationPair(input: {
 	readonly targetLine: number;
 }): Promise<readonly string[]> {
 	return withAnnotationLock(input.workspaceCwd, defaultServices, async () => {
+		const permanentBaseCommit = await defaultServices.resolvePermanentCommit(input.workspaceCwd);
 		const originFile = normalizeRelativeFile(input.originFile, 'origin file');
 		const targetFile = normalizeRelativeFile(input.targetFile, 'target file');
 		const originPath = companionPathForSource(input.workspaceCwd, sourceUriForFile(input.workspaceCwd, originFile));
 		const targetPath = companionPathForSource(input.workspaceCwd, sourceUriForFile(input.workspaceCwd, targetFile));
-		const origin = await readCompanionFile(originPath);
-		const target = originPath === targetPath ? origin : await readCompanionFile(targetPath);
+		const origin = await readCompanionFile(input.workspaceCwd, originPath, permanentBaseCommit);
+		const target = originPath === targetPath ? origin : await readCompanionFile(input.workspaceCwd, targetPath, permanentBaseCommit);
 		const originIndex = origin.annotations.findIndex(annotation => annotation.kind === 'user' && annotation.id === input.userAnnotationId);
 		if (originIndex < 0) { throw new Error(`Originating user annotation not found: ${input.userAnnotationId}`); }
 		const source = await readStableUtf8(path.join(path.resolve(input.workspaceCwd), ...targetFile.split('/')), 'source');
@@ -305,6 +340,7 @@ export async function writeAgentAnnotationPair(input: {
 		const childLink: AnnotationLink = { annotationId: input.agentAnnotationId, file: targetFile, line: anchor.line };
 		const child: AgentFileAnnotation = {
 			kind: 'agent', id: input.agentAnnotationId, agentId: input.agentId, agentSessionId: input.agentSessionId,
+			permanentBaseCommit,
 			body: input.body, createdAt: input.createdAt, anchor, userAnnotation: parent,
 		};
 		validateAnnotation(child);
@@ -321,13 +357,13 @@ export async function writeAgentAnnotationPair(input: {
 			let annotations = [...origin.annotations];
 			if (existingChild === undefined) { annotations.push(child); }
 			annotations[originIndex] = { ...user, agentAnnotations: existingLink === undefined ? [...user.agentAnnotations, childLink] : user.agentAnnotations };
-			await writeCompanionFile(originPath, { version: 3, annotations });
+			await writeCompanionFile(originPath, { version: currentAnnotationCompanionVersion, annotations });
 		} else {
-			if (existingChild === undefined) { await writeCompanionFile(targetPath, { version: 3, annotations: [...target.annotations, child] }); }
+			if (existingChild === undefined) { await writeCompanionFile(targetPath, { version: currentAnnotationCompanionVersion, annotations: [...target.annotations, child] }); }
 			if (existingLink === undefined) {
 				const annotations = [...origin.annotations];
 				annotations[originIndex] = { ...user, agentAnnotations: [...user.agentAnnotations, childLink] };
-				await writeCompanionFile(originPath, { version: 3, annotations });
+				await writeCompanionFile(originPath, { version: currentAnnotationCompanionVersion, annotations });
 			}
 		}
 		return originFile === targetFile ? [originFile] : [originFile, targetFile];
@@ -347,7 +383,7 @@ export function contentDigest(body: string): string {
 
 async function deleteAgentAnnotation(cwd: string, targetPath: string, target: AnnotationCompanion, child: AgentFileAnnotation): Promise<void> {
 	const originPath = companionPathForSource(cwd, sourceUriForFile(cwd, child.userAnnotation.file));
-	const origin = originPath === targetPath ? target : await readCompanionFile(originPath);
+	const origin = originPath === targetPath ? target : await readCompanionFile(cwd, originPath);
 	const userIndex = origin.annotations.findIndex(annotation => annotation.kind === 'user' && annotation.id === child.userAnnotation.annotationId);
 	if (userIndex < 0) { throw new Error('Agent annotation parent link does not resolve.'); }
 	const user = origin.annotations[userIndex] as UserAnnotation;
@@ -359,35 +395,39 @@ async function deleteAgentAnnotation(cwd: string, targetPath: string, target: An
 		const annotations = origin.annotations.filter(annotation => annotation.id !== child.id);
 		const nextUserIndex = annotations.findIndex(annotation => annotation.kind === 'user' && annotation.id === user.id);
 		annotations[nextUserIndex] = { ...user, agentAnnotations: user.agentAnnotations.filter(candidate => candidate.annotationId !== child.id) };
-		await writeCompanionFile(originPath, { version: 3, annotations });
+		await writeCompanionFile(originPath, { version: currentAnnotationCompanionVersion, annotations });
 	} else {
-		await writeCompanionFile(targetPath, { version: 3, annotations: target.annotations.filter(annotation => annotation.id !== child.id) });
+		await writeCompanionFile(targetPath, { version: currentAnnotationCompanionVersion, annotations: target.annotations.filter(annotation => annotation.id !== child.id) });
 		const annotations = [...origin.annotations];
 		annotations[userIndex] = { ...user, agentAnnotations: user.agentAnnotations.filter(candidate => candidate.annotationId !== child.id) };
-		await writeCompanionFile(originPath, { version: 3, annotations });
+		await writeCompanionFile(originPath, { version: currentAnnotationCompanionVersion, annotations });
 	}
 }
 
 async function deleteUserAnnotationCascade(cwd: string, originPath: string, origin: AnnotationCompanion, user: UserAnnotation): Promise<void> {
 	for (const link of user.agentAnnotations) {
 		const targetPath = companionPathForSource(cwd, sourceUriForFile(cwd, link.file));
-		const target = targetPath === originPath ? origin : await readCompanionFile(targetPath);
+		const target = targetPath === originPath ? origin : await readCompanionFile(cwd, targetPath);
 		const child = target.annotations.find(annotation => annotation.kind === 'agent' && annotation.id === link.annotationId);
 		if (child !== undefined && (child.kind !== 'agent' || child.userAnnotation.annotationId !== user.id
 			|| child.userAnnotation.file !== sourceFileForCompanion(cwd, originPath) || child.anchor.line !== link.line)) {
 			throw new Error('User annotation contains a mismatched child link.');
 		}
 		if (targetPath !== originPath && child !== undefined) {
-			await writeCompanionFile(targetPath, { version: 3, annotations: target.annotations.filter(annotation => annotation.id !== link.annotationId) });
+			await writeCompanionFile(targetPath, { version: currentAnnotationCompanionVersion, annotations: target.annotations.filter(annotation => annotation.id !== link.annotationId) });
 		}
 	}
 	const childIds = new Set(user.agentAnnotations.filter(link => companionPathForSource(cwd, sourceUriForFile(cwd, link.file)) === originPath).map(link => link.annotationId));
-	await writeCompanionFile(originPath, { version: 3, annotations: origin.annotations.filter(annotation => annotation.id !== user.id && !childIds.has(annotation.id)) });
+	await writeCompanionFile(originPath, { version: currentAnnotationCompanionVersion, annotations: origin.annotations.filter(annotation => annotation.id !== user.id && !childIds.has(annotation.id)) });
 }
 
-async function readCompanionFile(companionPath: string): Promise<AnnotationCompanion> {
-	try { return parseAnnotationCompanion(await readFile(companionPath, 'utf8')); }
-	catch (error) { if (nodeCode(error) === 'ENOENT') { return { version: 3, annotations: [] }; } throw error; }
+async function readCompanionFile(cwd: string, companionPath: string, migrationCommit?: string): Promise<AnnotationCompanion> {
+	const permanentBaseCommit = migrationCommit ?? await defaultServices.resolvePermanentCommit(cwd);
+	try { return parseAnnotationCompanion(await readFile(companionPath, 'utf8'), permanentBaseCommit); }
+	catch (error) {
+		if (nodeCode(error) === 'ENOENT') { return { version: currentAnnotationCompanionVersion, annotations: [] }; }
+		throw error;
+	}
 }
 
 async function writeCompanionFile(companionPath: string, companion: AnnotationCompanion): Promise<void> {
@@ -431,9 +471,12 @@ async function withAnnotationLock<T>(cwd: string, services: AnnotationStoreServi
 	finally { await rm(lock, { recursive: true, force: true }); }
 }
 
-function validateAnnotation(value: unknown): asserts value is Annotation {
+function validateAnnotation(value: unknown, requirePermanentBase = true): asserts value is Annotation {
 	if (!isRecord(value) || !isSafeOpaqueId(value.id) || !isAnchor(value.anchor)) {
 		throw new Error('Invalid annotation companion: malformed annotation');
+	}
+	if (requirePermanentBase ? !isCommitHash(value.permanentBaseCommit) : value.permanentBaseCommit !== undefined) {
+		throw new Error('Invalid annotation companion: malformed permanent base commit');
 	}
 	if (value.kind === 'user') {
 		if (!isNonEmptyString(value.message) || !isPromptPreset(value.preset) || (value.scope !== 'line' && value.scope !== 'project')
@@ -526,6 +569,7 @@ function isPromptPreset(value: unknown): value is string { return typeof value =
 function isAnchorContext(value: unknown): value is readonly string[] { return Array.isArray(value) && value.length <= 3 && value.every(line => typeof line === 'string' && line.trim() !== '' && !/[\r\n]/.test(line)); }
 function isSafeOpaqueId(value: unknown): value is string { return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value); }
 function isCanonicalTimestamp(value: unknown): value is string { return typeof value === 'string' && value !== '' && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value; }
+function isCommitHash(value: unknown): value is string { return typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value); }
 function isNonEmptyString(value: unknown): value is string { return typeof value === 'string' && value.trim() !== ''; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function nodeCode(error: unknown): string | undefined { return error instanceof Error && 'code' in error ? String(error.code) : undefined; }

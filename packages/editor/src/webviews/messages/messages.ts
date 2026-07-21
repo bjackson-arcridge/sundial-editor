@@ -22,9 +22,18 @@ interface MessagesStateBase {
 	readonly agents: AgentsViewState;
 	readonly work: readonly UserAnnotationWorkItem[];
 	readonly paneSplitPercent: number;
+	readonly workflow: WorkflowPresentation;
 	readonly busy?: boolean;
 	readonly notice?: HostNotice;
 	readonly annotationViewer?: AnnotationViewerState;
+}
+
+export interface WorkflowPresentation {
+	readonly diffEnabled: boolean;
+	readonly diffLayout: 'inline' | 'side-by-side';
+	readonly annotationFilterEnabled: boolean;
+	readonly baseline?: string;
+	readonly currentPermanentCommit?: string;
 }
 
 export type MessagesState = MessagesStateBase & (
@@ -84,6 +93,16 @@ export function annotationForLine(
 ): Annotation | undefined {
 	const onLine = annotations.filter(annotation => annotation.anchor.line === line);
 	return onLine.find(annotation => annotation.id === preferredId) ?? onLine[0];
+}
+
+export function annotationsForCurrentPermanentCommit(
+	annotations: readonly Annotation[],
+	currentPermanentAnnotationIds: readonly string[],
+	filterEnabled: boolean,
+): readonly Annotation[] {
+	if (!filterEnabled) { return annotations; }
+	const currentIds = new Set(currentPermanentAnnotationIds);
+	return annotations.filter(annotation => currentIds.has(annotation.id));
 }
 
 export function currentWorkForAgent(
@@ -180,6 +199,7 @@ export type WebviewToHost =
 	| { readonly kind: 'previousAnnotation' }
 	| { readonly kind: 'nextAnnotation' }
 	| { readonly kind: 'toggleAnnotationPin' }
+	| { readonly kind: 'toggleAnnotationFilter' }
 	| { readonly kind: 'deleteAnnotation' }
 	| { readonly kind: 'setPaneSplitPercent'; readonly percent: number };
 
@@ -232,6 +252,7 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 		case 'previousAnnotation':
 		case 'nextAnnotation':
 		case 'toggleAnnotationPin':
+		case 'toggleAnnotationFilter':
 		case 'deleteAnnotation':
 			return hasExactKeys(value, ['kind']);
 		default:
@@ -242,9 +263,9 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 function isMessagesState(value: unknown): value is MessagesState {
 	if (!isRecord(value)
 		|| !hasAllowedKeys(value, [
-			'agents', 'work', 'paneSplitPercent', 'prompt', 'draft', 'targetAgentId', 'busy', 'notice', 'annotationViewer',
+			'agents', 'work', 'paneSplitPercent', 'workflow', 'prompt', 'draft', 'targetAgentId', 'busy', 'notice', 'annotationViewer',
 		])
-		|| !hasRequiredKeys(value, ['agents', 'work', 'paneSplitPercent'])
+		|| !hasRequiredKeys(value, ['agents', 'work', 'paneSplitPercent', 'workflow'])
 		|| !isAgentsViewState(value.agents)
 		|| !Array.isArray(value.work)
 		|| !value.work.every(isUserAnnotationWorkItem)
@@ -253,6 +274,7 @@ function isMessagesState(value: unknown): value is MessagesState {
 		|| !Number.isFinite(value.paneSplitPercent)
 		|| value.paneSplitPercent < minimumPaneSplitPercent
 		|| value.paneSplitPercent > maximumPaneSplitPercent
+		|| !isWorkflowPresentation(value.workflow)
 		|| (value.busy !== undefined && typeof value.busy !== 'boolean')
 		|| (value.notice !== undefined && !isNotice(value.notice))
 		|| (value.annotationViewer !== undefined && !isAnnotationViewerState(value.annotationViewer))) {
@@ -275,6 +297,19 @@ function isMessagesState(value: unknown): value is MessagesState {
 	const agentIds = new Set<AgentId>(value.agents.agents.map(agent => agent.id));
 	return value.work.every(item => agentIds.has(item.agentId))
 		&& (value.prompt === undefined || (value.targetAgentId !== undefined && agentIds.has(value.targetAgentId)));
+}
+
+function isWorkflowPresentation(value: unknown): value is WorkflowPresentation {
+	return isRecord(value)
+		&& hasAllowedKeys(value, [
+			'diffEnabled', 'diffLayout', 'annotationFilterEnabled', 'baseline', 'currentPermanentCommit',
+		])
+		&& hasRequiredKeys(value, ['diffEnabled', 'diffLayout', 'annotationFilterEnabled'])
+		&& typeof value.diffEnabled === 'boolean'
+		&& (value.diffLayout === 'inline' || value.diffLayout === 'side-by-side')
+		&& typeof value.annotationFilterEnabled === 'boolean'
+		&& (value.baseline === undefined || isCommitHash(value.baseline))
+		&& (value.currentPermanentCommit === undefined || isCommitHash(value.currentPermanentCommit));
 }
 
 function isNotice(value: unknown): value is HostNotice {
@@ -303,12 +338,12 @@ function isAnnotationViewerState(value: unknown): value is AnnotationViewerState
 function isPresentedAnnotation(value: unknown): value is PresentedAnnotation {
 	if (!isRecord(value)) { return false; }
 	if (value.kind === 'agent') {
-		if (!hasExactKeys(value, ['kind', 'id', 'agentId', 'agentName', 'body', 'createdAt', 'anchor', 'userAnnotation'])) { return false; }
+		if (!hasExactKeys(value, ['kind', 'id', 'permanentBaseCommit', 'agentId', 'agentName', 'body', 'createdAt', 'anchor', 'userAnnotation'])) { return false; }
 		const persisted: Record<string, unknown> = { ...value, agentSessionId: 'redacted' };
 		delete persisted.agentName;
 		return isAnnotation(persisted) && isNonEmptyString(value.agentName);
 	}
-	if (!hasExactKeys(value, ['kind', 'id', 'message', 'preset', 'scope', 'anchor', 'officialResponses', 'agentAnnotations'])) { return false; }
+	if (!hasExactKeys(value, ['kind', 'id', 'permanentBaseCommit', 'message', 'preset', 'scope', 'anchor', 'officialResponses', 'agentAnnotations'])) { return false; }
 	const persisted = { ...value, officialResponses: [] };
 	return isAnnotation(persisted) && Array.isArray(value.officialResponses)
 		&& value.officialResponses.every(response => isRecord(response)
@@ -388,6 +423,10 @@ function hasUniqueWork(work: readonly UserAnnotationWorkItem[]): boolean {
 
 function isNonEmptyString(value: unknown): value is string {
 	return typeof value === 'string' && value.trim() !== '';
+}
+
+function isCommitHash(value: unknown): value is string {
+	return typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
 }
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {

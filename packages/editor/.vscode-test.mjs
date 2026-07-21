@@ -1,12 +1,9 @@
-import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { defineConfig } from '@vscode/test-cli';
 
-import { scenarios, workspacesRoot } from './src/test/scenarios.mjs';
+import { scenarios, userDataRoot, workspacesRoot } from './src/test/scenarios.mjs';
 import { vscodeTestExecutablePath, vscodeTestVersion } from '../../scripts/vscode-test-runtime.mjs';
-
-const userDataRoot = path.join(os.tmpdir(), 'se-it');
 
 export default defineConfig(scenarios.map(scenario => ({
 	label: scenario.label,

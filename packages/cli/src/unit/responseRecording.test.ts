@@ -1,4 +1,5 @@
 import * as assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -21,12 +22,22 @@ import { recordTaskResponse, requeueWorkWithResponseReconciliation } from '../re
 const directories: string[] = [];
 afterEach(async () => Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true }))));
 
+async function git(cwd: string, args: readonly string[]): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		const child = spawn('git', args, { cwd }); let stderr = '';
+		child.stderr.on('data', data => { stderr += String(data); });
+		child.once('close', code => code === 0 ? resolve() : reject(new Error(stderr)));
+	});
+}
+
 async function assigned() {
 	const cwd = await mkdtemp(path.join(os.tmpdir(), 'sundial-response-'));
 	directories.push(cwd);
 	const sourcePath = path.join(cwd, 'src', 'example.ts');
 	await mkdir(path.dirname(sourcePath), { recursive: true });
 	await writeFile(sourcePath, 'export const value = 1;\n');
+	await git(cwd, ['init']); await git(cwd, ['config', 'user.email', 'test@example.com']); await git(cwd, ['config', 'user.name', 'Test']);
+	await git(cwd, ['add', '.']); await git(cwd, ['commit', '-m', 'Initial']);
 	const sourceUri = pathToFileURL(sourcePath).toString();
 	await appendUserAnnotation({
 		workspace: { cwd }, document: { uri: sourceUri, line: 0, text: 'export const value = 1;', before: [], after: [] },
@@ -68,7 +79,7 @@ describe('official response recording', () => {
 		await assert.rejects(() => readFile(context.absoluteResponsePath), error => (error as NodeJS.ErrnoException).code === 'ENOENT');
 
 		const companion = await readUserAnnotations({ workspace: { cwd: context.cwd }, document: { uri: context.sourceUri } });
-		assert.equal(companion.version, 3);
+		assert.equal(companion.version, 4);
 		assert.equal(companion.annotations[0].id, 'query-1');
 		const user = await storedUser(context.cwd, context.sourceUri);
 		assert.equal(user.officialResponses.length, 1);

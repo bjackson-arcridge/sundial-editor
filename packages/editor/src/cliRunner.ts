@@ -77,6 +77,17 @@ export interface GitWorkflowState {
 	readonly baseline: string;
 	readonly lastPermanentCommit: string;
 	readonly temporaryCommitCount: number;
+	readonly untrackedPaths: readonly string[];
+	readonly affectedPaths: readonly string[];
+}
+
+export interface CompanionRepairResult {
+	readonly actions: readonly ({
+		readonly kind: 'move'; readonly source: string; readonly destination: string;
+		readonly companion: string; readonly destinationCompanion: string;
+	} | {
+		readonly kind: 'delete'; readonly source: string; readonly companion: string;
+	})[];
 	readonly affectedPaths: readonly string[];
 }
 
@@ -194,12 +205,29 @@ export async function runGitWorkflowViaCli(
 	services: CliProcessServices = defaultServices,
 ): Promise<GitWorkflowState> {
 	const value = await invokeJsonCommand(cliPath, cwd, ['workflow', operation], { workspace: { cwd }, ...request }, services);
-	if (!isRecord(value) || !['head', 'baseline', 'lastPermanentCommit'].every(key => typeof value[key] === 'string')
-		|| !Number.isSafeInteger(value.temporaryCommitCount) || !Array.isArray(value.affectedPaths)
-		|| !value.affectedPaths.every(candidate => typeof candidate === 'string')) {
+	if (!isRecord(value) || !['head', 'baseline', 'lastPermanentCommit'].every(key => isCommitHash(value[key]))
+		|| !Number.isSafeInteger(value.temporaryCommitCount) || (value.temporaryCommitCount as number) < 0
+		|| !Array.isArray(value.untrackedPaths)
+		|| !value.untrackedPaths.every(candidate => typeof candidate === 'string' && candidate.trim() !== '')
+		|| !Array.isArray(value.affectedPaths)
+		|| !value.affectedPaths.every(candidate => typeof candidate === 'string' && candidate.trim() !== '')) {
 		throw new Error('Sundial Editor CLI returned malformed Git workflow state.');
 	}
 	return value as unknown as GitWorkflowState;
+}
+
+export async function repairCompanionsViaCli(
+	cliPath: string,
+	cwd: string,
+	services: CliProcessServices = defaultServices,
+): Promise<CompanionRepairResult> {
+	const value = await invokeJsonCommand(cliPath, cwd, ['workflow', 'repair'], { workspace: { cwd } }, services);
+	if (!isRecord(value) || !Array.isArray(value.actions) || !value.actions.every(isCompanionRepairAction)
+		|| !Array.isArray(value.affectedPaths)
+		|| !value.affectedPaths.every(candidate => typeof candidate === 'string' && candidate.trim() !== '')) {
+		throw new Error('Sundial Editor CLI returned a malformed companion repair result.');
+	}
+	return value as unknown as CompanionRepairResult;
 }
 
 export async function listAgentsViaCli(
@@ -457,4 +485,18 @@ function errorMessageForStart(error: Error, cliPath: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
+}
+
+function isCommitHash(value: unknown): value is string {
+	return typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
+}
+
+function isCompanionRepairAction(value: unknown): boolean {
+	if (!isRecord(value) || (value.kind !== 'move' && value.kind !== 'delete')
+		|| !nonEmptyStrings(value, ['source', 'companion'])) { return false; }
+	return value.kind === 'delete' || nonEmptyStrings(value, ['destination', 'destinationCompanion']);
+}
+
+function nonEmptyStrings(value: Record<string, unknown>, fields: readonly string[]): boolean {
+	return fields.every(field => typeof value[field] === 'string' && (value[field] as string).trim() !== '');
 }

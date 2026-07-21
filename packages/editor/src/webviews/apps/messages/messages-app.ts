@@ -23,6 +23,7 @@ import {
 	type AnnotationViewerState,
 	type HostNotice,
 	type HostToWebview,
+	type WorkflowPresentation,
 	type WebviewToHost,
 	currentWorkForAgent,
 	displayedWorkForAgent,
@@ -51,6 +52,7 @@ const toolbarIconPaths = {
 	'screen-full': 'M3.75 3C3.33579 3 3 3.33579 3 3.75V5.5C3 5.77614 2.77614 6 2.5 6C2.22386 6 2 5.77614 2 5.5V3.75C2 2.7835 2.7835 2 3.75 2H5.5C5.77614 2 6 2.22386 6 2.5C6 2.77614 5.77614 3 5.5 3H3.75ZM10 2.5C10 2.22386 10.2239 2 10.5 2H12.25C13.2165 2 14 2.7835 14 3.75V5.5C14 5.77614 13.7761 6 13.5 6C13.2239 6 13 5.77614 13 5.5V3.75C13 3.33579 12.6642 3 12.25 3H10.5C10.2239 3 10 2.77614 10 2.5ZM2.5 10C2.77614 10 3 10.2239 3 10.5V12.25C3 12.6642 3.33579 13 3.75 13H5.5C5.77614 13 6 13.2239 6 13.5C6 13.7761 5.77614 14 5.5 14H3.75C2.7835 14 2 13.2165 2 12.25V10.5C2 10.2239 2.22386 10 2.5 10ZM13.5 10C13.7761 10 14 10.2239 14 10.5V12.25C14 13.2165 13.2165 14 12.25 14H10.5C10.2239 14 10 13.7761 10 13.5C10 13.2239 10.2239 13 10.5 13H12.25C12.6642 13 13 12.6642 13 12.25V10.5C13 10.2239 13.2239 10 13.5 10Z',
 	'screen-normal': 'M11 4C11 4.55228 11.4477 5 12 5H13.5C13.7761 5 14 5.22386 14 5.5C14 5.77614 13.7761 6 13.5 6H12C10.8954 6 10 5.10457 10 4V2.5C10 2.22386 10.2239 2 10.5 2C10.7761 2 11 2.22386 11 2.5V4ZM11 12C11 11.4477 11.4477 11 12 11H13.5C13.7761 11 14 10.7761 14 10.5C14 10.2239 13.7761 10 13.5 10H12C10.8954 10 10 10.8954 10 12V13.5C10 13.7761 10.2239 14 10.5 14C10.7761 14 11 13.7761 11 13.5V12ZM4 11C4.55228 11 5 11.4477 5 12V13.5C5 13.7761 5.22386 14 5.5 14C5.77614 14 6 13.7761 6 13.5V12C6 10.8954 5.10457 10 4 10H2.5C2.22386 10 2 10.2239 2 10.5C2 10.7761 2.22386 11 2.5 11H4ZM5 4C5 4.55228 4.55228 5 4 5H2.5C2.22386 5 2 5.22386 2 5.5C2 5.77614 2.22386 6 2.5 6H4C5.10457 6 6 5.10457 6 4V2.5C6 2.22386 5.77614 2 5.5 2C5.22386 2 5 2.22386 5 2.5V4Z',
 	trash: 'M14 2H10C10 0.897 9.103 0 8 0C6.897 0 6 0.897 6 2H2C1.724 2 1.5 2.224 1.5 2.5C1.5 2.776 1.724 3 2 3H2.54L3.349 12.708C3.456 13.994 4.55 15 5.84 15H10.159C11.449 15 12.543 13.993 12.65 12.708L13.459 3H13.999C14.275 3 14.499 2.776 14.499 2.5C14.499 2.224 14.275 2 13.999 2H14ZM8 1C8.551 1 9 1.449 9 2H7C7 1.449 7.449 1 8 1ZM11.655 12.625C11.591 13.396 10.934 14 10.16 14H5.841C5.067 14 4.41 13.396 4.346 12.625L3.544 3H12.458L11.656 12.625H11.655ZM7 5.5V11.5C7 11.776 6.776 12 6.5 12C6.224 12 6 11.776 6 11.5V5.5C6 5.224 6.224 5 6.5 5C6.776 5 7 5.224 7 5.5ZM10 5.5V11.5C10 11.776 9.776 12 9.5 12C9.224 12 9 11.776 9 11.5V5.5C9 5.224 9.224 5 9.5 5C9.776 5 10 5.224 10 5.5Z',
+	filter: 'M1.5 2H14.5C14.702 2 14.884 2.122 14.962 2.309C15.039 2.496 14.996 2.711 14.853 2.854L10 7.707V12.5C10 12.689 9.893 12.862 9.724 12.947L6.724 14.447C6.569 14.524 6.385 14.516 6.238 14.425C6.09 14.334 6 14.173 6 14V7.707L1.146 2.854C1.003 2.711 0.961 2.496 1.038 2.309C1.115 2.122 1.298 2 1.5 2ZM2.707 3L6.853 7.146C6.947 7.24 7 7.367 7 7.5V13.191L9 12.191V7.5C9 7.367 9.053 7.24 9.146 7.146L13.293 3H2.707Z',
 } as const;
 
 type ToolbarIcon = keyof typeof toolbarIconPaths;
@@ -589,6 +591,15 @@ export class MessagesApp extends LitElement {
 				white-space: nowrap;
 			}
 
+			.workflow-status {
+				max-width: 132px;
+				overflow: hidden;
+				color: var(--se-muted-fg);
+				font-size: 0.9em;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
 			button.icon {
 				display: inline-flex;
 				align-items: center;
@@ -714,6 +725,9 @@ export class MessagesApp extends LitElement {
 	@state() private editingAgentId: AgentId | undefined;
 	@state() private renameText = '';
 	@state() private annotationViewer: AnnotationViewerState | undefined;
+	@state() private workflow: WorkflowPresentation = {
+		diffEnabled: false, diffLayout: 'side-by-side', annotationFilterEnabled: false,
+	};
 	@state() private metadataExpanded = false;
 	@state() private takeoverExpanded = false;
 	@state() private agentPanePercent = defaultPaneSplitPercent;
@@ -1064,6 +1078,13 @@ export class MessagesApp extends LitElement {
 		const metadataTitle = this.metadataExpanded ? 'Collapse annotation metadata' : 'Expand annotation metadata';
 		const pinTitle = viewer?.pinned ? 'Unpin annotation' : 'Pin annotation';
 		const takeoverTitle = this.takeoverExpanded ? 'Restore annotation pane' : 'Expand annotation pane';
+		const filterTitle = this.workflow.annotationFilterEnabled
+			? 'Showing annotations for the current permanent commit; activate to show all annotations'
+			: 'Show only annotations for the current permanent commit';
+		const baselineLabel = this.workflow.baseline?.slice(0, 8) ?? 'unselected';
+		const workflowLabel = this.workflow.diffEnabled
+			? `Diff ${this.workflow.diffLayout} · ${baselineLabel}`
+			: `Diff off · ${baselineLabel}`;
 		return html`
 			<section class="annotation-pane ${this.takeoverExpanded ? 'takeover' : ''}" aria-label="Annotation viewer">
 				<div class="annotation-toolbar" role="toolbar" aria-label="Annotation actions" @keydown=${this.handleToolbarKeydown}>
@@ -1079,7 +1100,13 @@ export class MessagesApp extends LitElement {
 							${this.renderToolbarIcon('question')}
 						</button>
 					</div>
+					<span class="workflow-status" title=${`Selected diff baseline: ${this.workflow.baseline ?? 'none'}`}>${workflowLabel}</span>
 					${viewer === undefined ? nothing : html`<span class="annotation-position">${viewer.position}/${viewer.total}</span>`}
+					<button class="icon annotation-filter" type="button"
+						aria-label="Filter annotations to current permanent commit" title=${filterTitle}
+						aria-pressed=${this.workflow.annotationFilterEnabled} @click=${this.toggleAnnotationFilter}>
+						${this.renderToolbarIcon('filter')}
+					</button>
 					<button class="icon" type="button" ?disabled=${viewer?.canPrevious !== true} aria-label="Previous annotation" title="Previous annotation" @click=${this.previousAnnotation}>
 						${this.renderToolbarIcon('chevron-up')}
 					</button>
@@ -1184,6 +1211,7 @@ export class MessagesApp extends LitElement {
 				this.prompt = hostMessage.state.prompt;
 				this.busy = hostMessage.state.busy === true;
 				this.notice = hostMessage.state.notice;
+				this.workflow = hostMessage.state.workflow;
 				this.annotationViewer = hostMessage.state.annotationViewer;
 				this.hostTargetAgentId = hostMessage.state.targetAgentId;
 				const editingAgent = this.agents.kind === 'ready'
@@ -1382,6 +1410,10 @@ export class MessagesApp extends LitElement {
 
 	private toggleAnnotationPin = (): void => {
 		this.webviewHost.postMessage({ kind: 'toggleAnnotationPin' });
+	};
+
+	private toggleAnnotationFilter = (): void => {
+		this.webviewHost.postMessage({ kind: 'toggleAnnotationFilter' });
 	};
 
 	private deleteAnnotation = (): void => {

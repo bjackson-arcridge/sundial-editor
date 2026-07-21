@@ -4,8 +4,13 @@ import {
 	isPromptCommandMode,
 } from './promptCompletion';
 import { promptCommandPrefix, type SelectableAgent } from './promptCommand';
+import {
+	completionsForWorkflowCommandPrefix,
+	isWorkflowCommandMode,
+} from './workflowTextCommand';
 
 export const submitPromptCommandId = 'sundialEditor.submitPrompt';
+export const executeWorkflowTextCommandId = 'sundialEditor.executeWorkflowTextCommand';
 
 const promptDocumentSelector: vscode.DocumentSelector = [
 	{ scheme: 'file' },
@@ -29,14 +34,22 @@ export function registerPromptCommandMode(services?: PromptCommandModeServices):
 					if (token.isCancellationRequested) {
 						return undefined;
 					}
-					const completions = completionsForPromptCommandPrefix(linePrefix, targets);
-					if (completions.length === 0 && !isPromptCommandMode(linePrefix)) {
+					const promptCompletions = completionsForPromptCommandPrefix(linePrefix, targets);
+					const workflowCompletions = completionsForWorkflowCommandPrefix(linePrefix);
+					if (promptCompletions.length === 0 && workflowCompletions.length === 0
+						&& !isPromptCommandMode(linePrefix) && !isWorkflowCommandMode(linePrefix)) {
 						return undefined;
 					}
 
 					const replacement = new vscode.Range(position.line, 0, position.line, position.character);
 					const commandPrefix = linePrefix.trimStart();
 					const targeting = /^%(?:[QFWRCT])?(?:>|@)/i.test(commandPrefix);
+					const completions = [
+						...promptCompletions.map(completion => ({ ...completion, commandId: submitPromptCommandId, arguments: undefined })),
+						...workflowCompletions.map(completion => ({
+							...completion, commandId: executeWorkflowTextCommandId, arguments: [completion.commandId],
+						})),
+					];
 					const items = completions.map((completion, index) => {
 						const item = new vscode.CompletionItem(completion.insertText, vscode.CompletionItemKind.Keyword);
 						item.detail = completion.detail;
@@ -46,8 +59,9 @@ export function registerPromptCommandMode(services?: PromptCommandModeServices):
 						item.sortText = completion.sortText;
 						item.preselect = index === 0;
 						item.command = {
-							command: submitPromptCommandId,
-							title: 'Submit Sundial prompt',
+							command: completion.commandId,
+							title: completion.commandId === submitPromptCommandId ? 'Submit Sundial prompt' : 'Run Sundial workflow command',
+							...(completion.arguments === undefined ? {} : { arguments: completion.arguments }),
 						};
 						return item;
 					});
@@ -81,7 +95,7 @@ function refreshPromptCommandCompletions(document: vscode.TextDocument): void {
 
 	const position = editor.selection.active;
 	const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
-	if (isPromptCommandMode(linePrefix)) {
+	if (isPromptCommandMode(linePrefix) || isWorkflowCommandMode(linePrefix)) {
 		hideInlineSuggestionInCommandMode(editor);
 		void vscode.commands.executeCommand('editor.action.triggerSuggest');
 	}
@@ -94,7 +108,7 @@ function hideInlineSuggestionInCommandMode(editor = vscode.window.activeTextEdit
 
 	const position = editor.selection.active;
 	const linePrefix = editor.document.lineAt(position.line).text.slice(0, position.character);
-	if (isPromptCommandMode(linePrefix)) {
+	if (isPromptCommandMode(linePrefix) || isWorkflowCommandMode(linePrefix)) {
 		void vscode.commands.executeCommand('editor.action.inlineSuggest.hide');
 	}
 }

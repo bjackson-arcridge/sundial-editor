@@ -9,6 +9,7 @@ import {
 } from '../agentProtocol';
 import {
 	annotationForLine,
+	annotationsForCurrentPermanentCommit,
 	currentWorkForAgent,
 	displayedWorkForAgent,
 	isValidHostToWebviewMessage,
@@ -25,6 +26,7 @@ const amyId = parseAgentId('agent-amy');
 const bobSessionId = parseAgentSessionId('session-bob-1');
 const workId = parseUserAnnotationId('annotation-work-1');
 const enqueuedAt = '2026-07-20T14:00:00.000Z';
+const permanentBaseCommit = 'a'.repeat(40);
 
 const prompt = {
 	preset: '%W',
@@ -40,6 +42,13 @@ const prompt = {
 
 const draft = 'Please update the project.';
 const paneSplitPercent = 50;
+const workflow = {
+	diffEnabled: true,
+	diffLayout: 'side-by-side',
+	annotationFilterEnabled: false,
+	baseline: 'b'.repeat(40),
+	currentPermanentCommit: permanentBaseCommit,
+} as const;
 const enqueuedUpdate = {
 	at: enqueuedAt,
 	kind: 'enqueued',
@@ -98,13 +107,13 @@ const amy: NamedAgent = {
 const readyAgents = { kind: 'ready', agents: [bob, amy] } as const;
 const annotations = [{
 	kind: 'user',
-	id: 'annotation-1', message: 'Fix this.', preset: '%F', scope: 'line',
+	id: 'annotation-1', permanentBaseCommit, message: 'Fix this.', preset: '%F', scope: 'line',
 	anchor: { line: 3, text: 'const value = 1;', before: ['function calculate() {'], after: ['return value;', '}'] },
 	officialResponses: [],
 	agentAnnotations: [],
 }, {
 	kind: 'user',
-	id: 'annotation-2', message: 'Add coverage.', preset: '%T', scope: 'project',
+	id: 'annotation-2', permanentBaseCommit, message: 'Add coverage.', preset: '%T', scope: 'project',
 	anchor: { line: 3, text: 'const value = 1;', before: ['function calculate() {'], after: ['return value;', '}'] },
 	officialResponses: [],
 	agentAnnotations: [],
@@ -128,6 +137,7 @@ function readyState() {
 		agents: readyAgents,
 		work: [work],
 		paneSplitPercent,
+		workflow,
 		prompt,
 		draft,
 		targetAgentId: bobId,
@@ -140,14 +150,14 @@ function readyState() {
 describe('messages protocol guards', () => {
 	test('accepts loading, empty, error, and complete ready host states', () => {
 		assert.equal(isValidHostToWebviewMessage({
-			kind: 'state', state: { agents: { kind: 'loading' }, work: [], paneSplitPercent },
+			kind: 'state', state: { agents: { kind: 'loading' }, work: [], paneSplitPercent, workflow },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({
-			kind: 'state', state: { agents: { kind: 'empty' }, work: [], paneSplitPercent, prompt, draft },
+			kind: 'state', state: { agents: { kind: 'empty' }, work: [], paneSplitPercent, workflow, prompt, draft },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state',
-			state: { agents: { kind: 'error', message: 'CLI unavailable.', recoverable: true }, work: [], paneSplitPercent },
+			state: { agents: { kind: 'error', message: 'CLI unavailable.', recoverable: true }, work: [], paneSplitPercent, workflow },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: readyState() }), true);
 		assert.equal(isValidHostToWebviewMessage({
@@ -159,7 +169,7 @@ describe('messages protocol guards', () => {
 	test('rejects malformed or internally inconsistent host states', () => {
 		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: {} }), false);
 		assert.equal(isValidHostToWebviewMessage({
-			kind: 'state', state: { agents: { kind: 'loading' }, work: [], paneSplitPercent, extra: true },
+			kind: 'state', state: { agents: { kind: 'loading' }, work: [], paneSplitPercent, workflow, extra: true },
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { agents: readyAgents, work: [work], prompt, draft },
@@ -184,6 +194,15 @@ describe('messages protocol guards', () => {
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { ...readyState(), paneSplitPercent: Number.NaN },
+		}), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { ...readyState(), workflow: { ...workflow, baseline: 'main' } },
+		}), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { ...readyState(), workflow: { ...workflow, diffLayout: 'stacked' } },
+		}), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { ...readyState(), workflow: { ...workflow, extra: true } },
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { ...readyState(), transcript: { kind: 'empty', agentId: bobId, sessionId: bobSessionId } },
@@ -227,6 +246,7 @@ describe('messages protocol guards', () => {
 			{ kind: 'previousAnnotation' },
 			{ kind: 'nextAnnotation' },
 			{ kind: 'toggleAnnotationPin' },
+			{ kind: 'toggleAnnotationFilter' },
 			{ kind: 'deleteAnnotation' },
 			{ kind: 'setPaneSplitPercent', percent: 62 },
 		] as const;
@@ -256,11 +276,12 @@ describe('messages protocol guards', () => {
 		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: 91 }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: Number.NaN }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: 50, extra: true }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'toggleAnnotationFilter', extra: true }), false);
 	});
 
 	test('presents agent annotations without exposing the provider session identity', () => {
 		const presented = presentAnnotation({
-			kind: 'agent', id: 'agent-note-1', agentId: bobId, agentSessionId: bobSessionId,
+			kind: 'agent', id: 'agent-note-1', permanentBaseCommit, agentId: bobId, agentSessionId: bobSessionId,
 			body: '**Important.**', createdAt: '2026-07-20T14:05:00.000Z',
 			anchor: { line: 4, text: 'return value;', before: [], after: [] },
 			userAnnotation: { annotationId: 'annotation-1', file: 'src/example.ts', line: 3 },
@@ -448,5 +469,20 @@ describe('messages view projections', () => {
 		assert.equal(annotationForLine(annotations, 3)?.id, 'annotation-1');
 		assert.equal(annotationForLine(annotations, 3, 'annotation-2')?.id, 'annotation-2');
 		assert.equal(annotationForLine(annotations, 4), undefined);
+	});
+
+	test('filters annotations by the CLI-provided permanent-commit membership only', () => {
+		const sameHashButNotMember = { ...annotations[0], id: 'annotation-same-hash' };
+		const differentHashButMember = {
+			...annotations[1], id: 'annotation-member', permanentBaseCommit: 'c'.repeat(40),
+		};
+		const all = [sameHashButNotMember, differentHashButMember];
+
+		assert.deepEqual(annotationsForCurrentPermanentCommit(all, ['annotation-member'], false), all);
+		assert.deepEqual(
+			annotationsForCurrentPermanentCommit(all, ['annotation-member'], true).map(annotation => annotation.id),
+			['annotation-member'],
+			'the editor must not infer membership from permanentBaseCommit hashes',
+		);
 	});
 });

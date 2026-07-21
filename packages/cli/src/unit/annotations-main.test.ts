@@ -1,4 +1,5 @@
 import * as assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -11,6 +12,14 @@ function io() {
 	const stdout: string[] = [];
 	const stderr: string[] = [];
 	return { stdout, stderr, value: { stdout: { write: (chunk: string) => stdout.push(chunk) }, stderr: { write: (chunk: string) => stderr.push(chunk) } } };
+}
+
+async function git(cwd: string, args: readonly string[]): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		const child = spawn('git', args, { cwd }); let stderr = '';
+		child.stderr.on('data', data => { stderr += String(data); });
+		child.once('close', code => code === 0 ? resolve() : reject(new Error(stderr)));
+	});
 }
 
 describe('agent-facing annotations CLI', () => {
@@ -28,6 +37,8 @@ describe('agent-facing annotations CLI', () => {
 		try {
 			const source = path.join(cwd, 'src.ts');
 			await writeFile(source, 'first\nsecond\n');
+			await git(cwd, ['init']); await git(cwd, ['config', 'user.email', 'test@example.com']); await git(cwd, ['config', 'user.name', 'Test']);
+			await git(cwd, ['add', '.']); await git(cwd, ['commit', '-m', 'Initial']);
 			const sourceUri = pathToFileURL(source).toString();
 			await appendUserAnnotation({
 				workspace: { cwd }, document: { uri: sourceUri, line: 0 },

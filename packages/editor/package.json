@@ -2,7 +2,7 @@
   "name": "sundial-editor",
   "displayName": "Sundial Editor",
   "description": "A focused collaboration prompt surface for Sundial editing workflows.",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "publisher": "arcridge",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bjackson-arcridge/sundial-editor/tree/main/packages/editor#readme",
@@ -56,7 +56,8 @@
       { "command": "sundialEditor.diff.permanent", "title": "Sundial Editor: Diff Baseline Last Permanent Commit" },
       { "command": "sundialEditor.commit.file", "title": "Sundial Editor: Create Temporary Commit for Current File" },
       { "command": "sundialEditor.commit.all", "title": "Sundial Editor: Create Temporary Commit for All Changes" },
-      { "command": "sundialEditor.commit.message", "title": "Sundial Editor: Consolidate Temporary Commits" }
+      { "command": "sundialEditor.commit.message", "title": "Sundial Editor: Consolidate Temporary Commits" },
+      { "command": "sundialEditor.companions.repair", "title": "Sundial Editor: Repair Annotation Companions" }
     ],
     "viewsContainers": {
       "secondarySidebar": [

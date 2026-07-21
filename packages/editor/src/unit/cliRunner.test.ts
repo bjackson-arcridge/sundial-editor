@@ -18,9 +18,11 @@ import {
 	parseAgentRunEvent,
 	readAnnotationsViaCli,
 	renameAgentViaCli,
+	repairCompanionsViaCli,
 	requeueWorkViaCli,
 	resetAgentViaCli,
 	resolveCliInvocation,
+	runGitWorkflowViaCli,
 	startManagedAgentRun,
 	transcriptViaCli,
 	type CliProcessServices,
@@ -40,6 +42,7 @@ const sessionId = parseAgentSessionId('session-bob-1');
 const workId = parseUserAnnotationId('annotation-1');
 const enqueuedAt = '2026-07-20T14:00:00.000Z';
 const claimedAt = '2026-07-20T14:01:00.000Z';
+const permanentBaseCommit = 'a'.repeat(40);
 
 const waitingWork: UserAnnotationWorkItem = {
 	id: workId,
@@ -168,6 +171,7 @@ describe('CLI runner', () => {
 		finishJson(child, {
 			kind: 'user',
 			id: workId,
+			permanentBaseCommit,
 			message: waitingWork.prompt.text,
 			preset: '%W',
 			scope: 'project',
@@ -193,8 +197,21 @@ describe('CLI runner', () => {
 		}, servicesFor(readChild, invocation => {
 			assert.deepEqual(invocation.args, ['annotations', 'read']);
 		}));
-		finishJson(readChild, { version: 3, annotations: [] });
-		assert.deepEqual(await read, { version: 3, annotations: [] });
+		finishJson(readChild, {
+			version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [],
+		});
+		assert.deepEqual(await read, {
+			version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [],
+		});
+		const malformedReadChild = fakeChild();
+		const malformedRead = readAnnotationsViaCli('sundial-editor-cli', {
+			workspace: { cwd }, document: { uri: waitingWork.source.uri },
+		}, servicesFor(malformedReadChild));
+		finishJson(malformedReadChild, {
+			version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit,
+			currentPermanentAnnotationIds: ['annotation-not-in-current-commit'],
+		});
+		await assert.rejects(malformedRead, /malformed annotation companion/);
 
 		const deleteChild = fakeChild();
 		const remove = deleteAnnotationViaCli(cliPath, {
@@ -205,6 +222,7 @@ describe('CLI runner', () => {
 		finishJson(deleteChild, {
 			kind: 'user',
 			id: workId,
+			permanentBaseCommit,
 			message: waitingWork.prompt.text,
 			preset: '%W',
 			scope: 'project',
@@ -213,6 +231,59 @@ describe('CLI runner', () => {
 			agentAnnotations: [],
 		});
 		assert.equal((await remove).id, workId);
+	});
+
+	test('uses and validates the typed Git workflow machine protocol', async () => {
+		const child = fakeChild();
+		let invocation: ProcessInvocation | undefined;
+		const state = {
+			head: 'a'.repeat(40), baseline: 'b'.repeat(40), lastPermanentCommit: 'c'.repeat(40),
+		temporaryCommitCount: 2, untrackedPaths: [], affectedPaths: ['source.ts'],
+		};
+		const result = runGitWorkflowViaCli(cliPath, cwd, 'checkpoint-file', { file: '/workspace/source.ts' }, servicesFor(child, value => { invocation = value; }));
+		finishJson(child, state);
+		assert.deepEqual(await result, state);
+		assert.deepEqual(invocation, { command: '/node', args: [cliPath, 'workflow', 'checkpoint-file'], cwd });
+		assert.deepEqual(JSON.parse(child.stdinData()), { workspace: { cwd }, file: '/workspace/source.ts' });
+
+		const malformedChild = fakeChild();
+		const malformed = runGitWorkflowViaCli(cliPath, cwd, 'state', {}, servicesFor(malformedChild));
+		finishJson(malformedChild, { ...state, temporaryCommitCount: -1 });
+		await assert.rejects(malformed, /malformed Git workflow state/);
+
+		const missingUntrackedPathsChild = fakeChild();
+		const missingUntrackedPaths = runGitWorkflowViaCli(cliPath, cwd, 'state', {}, servicesFor(missingUntrackedPathsChild));
+		finishJson(missingUntrackedPathsChild, { ...state, untrackedPaths: undefined });
+		await assert.rejects(missingUntrackedPaths, /malformed Git workflow state/);
+
+		const conflictChild = fakeChild();
+		const conflict = runGitWorkflowViaCli(cliPath, cwd, 'consolidate', { message: 'Commit' }, servicesFor(conflictChild));
+		conflictChild.stdout.write(`${JSON.stringify({ kind: 'conflict', code: 'published_temporary_commit', message: 'Published temporary commit.' })}\n`);
+		conflictChild.emitter.emit('exit', 1);
+		await assert.rejects(conflict, error => error instanceof Error
+			&& error.name === 'CliConflictError'
+			&& 'code' in error && error.code === 'published_temporary_commit');
+	});
+
+	test('uses and validates the companion repair machine protocol', async () => {
+		const child = fakeChild();
+		let invocation: ProcessInvocation | undefined;
+		const result = repairCompanionsViaCli(cliPath, cwd, servicesFor(child, value => { invocation = value; }));
+		finishJson(child, {
+			actions: [{
+				kind: 'move', source: 'old.ts', destination: 'new.ts',
+				companion: '.sundial/old.ts.comments', destinationCompanion: '.sundial/new.ts.comments',
+			}],
+			affectedPaths: ['.sundial/old.ts.comments', '.sundial/new.ts.comments'],
+		});
+		assert.equal((await result).actions[0].kind, 'move');
+		assert.deepEqual(invocation, { command: '/node', args: [cliPath, 'workflow', 'repair'], cwd });
+		assert.deepEqual(JSON.parse(child.stdinData()), { workspace: { cwd } });
+
+		const malformedChild = fakeChild();
+		const malformed = repairCompanionsViaCli(cliPath, cwd, servicesFor(malformedChild));
+		finishJson(malformedChild, { actions: [{ kind: 'delete', source: 'old.ts' }], affectedPaths: [] });
+		await assert.rejects(malformed, /malformed companion repair result/);
 	});
 
 	test('unwraps agent and work collection results from the machine protocol', async () => {

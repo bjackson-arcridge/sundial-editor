@@ -43,11 +43,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.13.0 extension package', () => {
+	test('is an independent 0.14.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.13.0');
+		assert.equal(manifest.version, '0.14.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -113,11 +113,22 @@ describe('Sundial Editor manifest', () => {
 
 	test('registers percent-triggered command completions that submit after insertion', () => {
 		const source = fs.readFileSync(path.resolve(__dirname, '../../src/promptCompletionProvider.ts'), 'utf8');
+		const manifest = readManifest();
 
 		assert.match(source, /registerCompletionItemProvider/);
 		assert.match(source, /promptCommandPrefix/);
-		assert.match(source, /command: submitPromptCommandId/);
+		assert.match(source, /commandId: submitPromptCommandId/);
+		assert.match(source, /command: completion\.commandId/);
+		assert.match(source, /executeWorkflowTextCommandId/);
 		assert.match(source, /editor\.action\.inlineSuggest\.hide/);
+		assert.deepEqual(manifest.contributes?.commands?.flatMap(command => typeof command.command === 'string' ? [command.command] : []).filter(command =>
+			command.startsWith('sundialEditor.diff.') || command.startsWith('sundialEditor.commit.')
+				|| command === 'sundialEditor.companions.repair'), [
+			'sundialEditor.diff.toggle', 'sundialEditor.diff.inline', 'sundialEditor.diff.previous',
+			'sundialEditor.diff.next', 'sundialEditor.diff.head', 'sundialEditor.diff.permanent',
+			'sundialEditor.commit.file', 'sundialEditor.commit.all', 'sundialEditor.commit.message',
+			'sundialEditor.companions.repair',
+		]);
 	});
 
 	test('returns to the originating editor after a Messages submission', () => {
@@ -213,6 +224,26 @@ describe('Sundial Editor manifest', () => {
 		assert.doesNotMatch(messagesSource, /class="codicon/);
 		assert.match(sharedStyles, /--se-icon-fg: var\(--vscode-foreground\)/);
 		assert.match(sharedStyles, /--se-toolbar-bg: var\(--vscode-sideBarSectionHeader-background/);
+	});
+
+	test('renders and applies the permanent-commit annotation filter from typed workflow state', () => {
+		const extensionSource = fs.readFileSync(path.resolve(__dirname, '../../src/extension.ts'), 'utf8');
+		const messagesSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
+		const providerSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/messages/messagesWebviewProvider.ts'), 'utf8');
+
+		assert.match(messagesSource, /class="workflow-status"/);
+		assert.match(messagesSource, /color: var\(--se-muted-fg\)/);
+		assert.match(messagesSource, /aria-label="Filter annotations to current permanent commit"/);
+		assert.match(messagesSource, /aria-pressed=\$\{this\.workflow\.annotationFilterEnabled\}/);
+		assert.match(messagesSource, /title=\$\{filterTitle\}/);
+		assert.match(messagesSource, /postMessage\(\{ kind: 'toggleAnnotationFilter' \}\)/);
+		assert.match(providerSource, /companion\.currentPermanentAnnotationIds/);
+		assert.match(providerSource, /annotationsForCurrentPermanentCommit\([\s\S]*?loaded\.currentPermanentAnnotationIds/);
+		assert.match(providerSource, /annotationLines\(this\.visibleAnnotations\(\)\)/);
+		assert.match(providerSource, /orderedAnnotations\(this\.visibleAnnotations\(loaded\)\)/);
+		assert.match(extensionSource, /diffController\.activeSourceUri\(\)/);
+		assert.match(extensionSource, /messagesProvider\.setDiffPresentation/);
+		assert.match(extensionSource, /diffLayout: diagnostics\.renderSideBySide \? 'side-by-side' : 'inline'/);
 	});
 
 	test('uses the shared project-managed VS Code test runtime', () => {
