@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import {
 	type AgentId,
 	type NamedAgent,
+	type UserAnnotationId,
 	type UserAnnotationWorkItem,
 } from '../../agentProtocol.js';
 import type { UserAnnotation } from '../../annotationProtocol.js';
@@ -63,7 +64,7 @@ export interface MessagesServices {
 	readonly confirmDeleteAnnotation?: (annotation: UserAnnotation) => boolean | Promise<boolean>;
 	readonly openTerminal?: (name: string, command: string, args: readonly string[], cwd: string) => void;
 	readonly showAnnotationMarkers?: (sourceUri: string | undefined, lines: readonly number[]) => void;
-	readonly revealAnnotation?: (sourceUri: string, line: number) => void | Promise<void>;
+	readonly revealAnnotation?: (sourceUri: string, line: number, preserveFocus?: boolean) => void | Promise<void>;
 	readonly cliPath?: () => string;
 	readonly workspaceCwd?: (prompt: PromptContext) => string | undefined;
 }
@@ -136,6 +137,12 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	async resolveWebviewView(messagesView: vscode.WebviewView): Promise<void> {
 		this.activeMessagesView = messagesView;
 		messagesView.webview.options = { enableScripts: true, localResourceRoots: [this.extensionUri] };
+		const router = attachMessageRouter<WebviewToHost, HostToWebview>(
+			messagesView.webview,
+			isValidWebviewToHostMessage,
+			message => this.handleWebviewMessage(message),
+		);
+		this.messageRouters.add(router);
 		messagesView.webview.html = renderWebviewHtml({
 			title: 'Sundial Editor Messages',
 			bodyTagId: 'se-messages-app',
@@ -145,13 +152,6 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			initialState: this.hostStateMessage(),
 			fallbackText: 'Loading Messages...',
 		});
-
-		const router = attachMessageRouter<WebviewToHost, HostToWebview>(
-			messagesView.webview,
-			isValidWebviewToHostMessage,
-			message => this.handleWebviewMessage(message),
-		);
-		this.messageRouters.add(router);
 		messagesView.onDidChangeVisibility(() => this.focusPendingComposer());
 		messagesView.onDidDispose(() => {
 			router.dispose();
@@ -421,8 +421,15 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		} catch (error) { this.setError(`The annotation could not be deleted. ${errorMessage(error)}`); }
 	}
 
+	async revealWorkAnnotation(annotationId: UserAnnotationId): Promise<void> {
+		const currentWork = this.work.find(item => item.id === annotationId && item.status === 'working');
+		if (currentWork === undefined) { return; }
+		await this.services.revealAnnotation?.(currentWork.source.uri, currentWork.source.line, false);
+	}
+
 	private handleWebviewMessage(message: WebviewToHost): void {
 		switch (message.kind) {
+			case 'ready': this.postState(); this.focusPendingComposer(); return;
 			case 'submit': void this.startSubmission(message.message, message.targetAgentId); return;
 			case 'selectTarget':
 				if (this.pendingPrompt !== undefined) {
@@ -436,6 +443,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			case 'openAgent': void this.openAgent(message.agentId); return;
 			case 'interruptAgent': void this.interruptAgent(message.agentId); return;
 			case 'resetAgent': void this.resetAgent(message.agentId); return;
+			case 'revealAnnotation': void this.revealWorkAnnotation(message.annotationId); return;
 			case 'previousAnnotation': void this.selectAdjacentAnnotation(-1); return;
 			case 'nextAnnotation': void this.selectAdjacentAnnotation(1); return;
 			case 'toggleAnnotationPin': this.toggleAnnotationPin(); return;

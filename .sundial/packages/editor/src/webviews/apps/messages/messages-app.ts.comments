@@ -1,0 +1,57 @@
+version: 2
+annotations:
+  - id: "648cfb75-786b-4c37-923b-489fdb2abace"
+    message: "Let's turn the new message dialogue into a full takeover of the sundial agents sidebar."
+    preset: "%W"
+    scope: "line"
+    anchor:
+      line: 0
+      text: "import { LitElement, css, html, nothing } from 'lit';"
+      before: []
+      after: ["import { customElement, state } from 'lit/decorators.js';","import { repeat } from 'lit/directives/repeat.js';","import { unsafeHTML } from 'lit/directives/unsafe-html.js';"]
+    officialResponses:
+      - userAnnotationId: "648cfb75-786b-4c37-923b-489fdb2abace"
+        agentId: "79d20f8e-58af-43f7-a01e-74fc93193e45"
+        agentSessionId: "82829a20-86c9-41c9-a68b-2a0bd9a8073c"
+        body: "Implemented the new-message composer as a full takeover of the Sundial Agents sidebar.\n\n### Changes\n- `packages/editor/src/webviews/apps/messages/messages-app.ts`\n  - Gives an active prompt the highest rendering priority, replacing the agent list, annotation pane, and history takeover while composing.\n  - Wraps the composer in a full-height, scrollable, semantically labelled takeover.\n  - Preserves agent selection, keyboard controls, fresh-session warnings, busy state, and submission error/status notices.\n- `packages/editor/src/unit/packageManifest.test.ts`\n  - Adds coverage that the composer is the highest-priority sidebar surface and has an accessible takeover heading.\n- `packages/editor/package.json` and `package-lock.json`\n  - Bumps the extension patch version from `0.9.2` to `0.9.3` for this existing-behavior adjustment.\n\nThe implementation follows DR-0003, DR-0004, DR-0006, DR-0007, DR-0008, and DR-0015 for Lit webviews, file boundaries, accessibility, token-based styling, typed messaging, and webview compilation.\n\n### Validation\n- `npm run check-types` — passed.\n- `npm run lint` — passed.\n- `npm run test:unit` — passed (44 CLI and 79 editor tests).\n- `git diff --check` — passed.\n- `npm test` — the 11 CLI integration tests passed, and editor compilation succeeded; the VS Code integration scenarios could not start because the pinned runtime was absent and the sandbox could not resolve `update.code.visualstudio.com`. This also prevented visual verification in the supported VS Code runtime.\n"
+        createdAt: "2026-07-20T22:10:10.239Z"
+  - id: "99bd4a36-5ab1-493f-84ef-321d69aad1ce"
+    message: "When the new message window appears, the view does not always refresh, I am not certain of the exact race condition."
+    preset: "%F"
+    scope: "line"
+    anchor:
+      line: 0
+      text: "import { LitElement, css, html, nothing } from 'lit';"
+      before: []
+      after: ["import { customElement, state } from 'lit/decorators.js';","import { repeat } from 'lit/directives/repeat.js';","import { unsafeHTML } from 'lit/directives/unsafe-html.js';"]
+    officialResponses:
+      - userAnnotationId: "99bd4a36-5ab1-493f-84ef-321d69aad1ce"
+        agentId: "53dd07ec-d2a8-4a37-abec-c1cea215265c"
+        agentSessionId: "3711c814-d65b-45f5-8103-0e209d07aa6c"
+        body: "Fixed the intermittent new-message view refresh race.\n\n### Cause and correction\nThe webview could restore an older persisted state before its window message listener was active. The host also installed its inbound router only after assigning the webview HTML, so the initial state/focus messages could be missed and no later update was guaranteed.\n\n- `packages/editor/src/webviews/apps/messages/messages-app.ts` now sends a typed `ready` event only after installing its host-message listener.\n- `packages/editor/src/webviews/messages/messagesWebviewProvider.ts` installs the host router before loading the webview HTML, then responds to `ready` with authoritative state and a fresh composer-focus signal.\n- `packages/editor/src/webviews/messages/messages.ts` adds and strictly validates the new discriminated protocol message.\n- `packages/editor/src/unit/messages.test.ts` and `packages/editor/src/unit/messagesStartup.test.ts` cover the ready message, exact-key validation, listener ordering, state response, and focus recovery.\n\nThis follows DR-0004 and DR-0008 for the typed host/webview boundary and DR-0037 for host-owned persisted readiness. Existing concurrent working-tree changes were preserved, and the fix shares the existing uncommitted `0.9.3` patch release rather than stacking another version bump.\n\n### Validation\n- `npm run test:unit --workspace packages/editor` — 80 passed\n- Focused protocol/startup tests — 10 passed\n- `npm run check-types` — passed\n- `npm run lint` — passed\n- Touched-file `git diff --check` — passed\n\n`npm test` was not run because the pinned `.vscode-test` runtime is absent and this sandbox cannot download it. No implementation blockers remain.\n"
+        createdAt: "2026-07-21T01:07:10.648Z"
+  - id: "cf81787a-0f88-417c-a751-495763a207d9"
+    message: "When working on a user annotation, the agent card should have a single line link back to the annotation location; this can be a return icon ideally an icon like the return key icon.  Any existing takeover of the. card the occurs should go away with information on the task.  Instead we should se an animated ... if the agent hasn't yet give the first status update."
+    preset: "%W"
+    scope: "line"
+    anchor:
+      line: 0
+      text: "import { LitElement, css, html, nothing } from 'lit';"
+      before: []
+      after: ["import { customElement, state } from 'lit/decorators.js';","import { repeat } from 'lit/directives/repeat.js';","import { unsafeHTML } from 'lit/directives/unsafe-html.js';"]
+    officialResponses:
+      - userAnnotationId: "cf81787a-0f88-417c-a751-495763a207d9"
+        agentId: "79d20f8e-58af-43f7-a01e-74fc93193e45"
+        agentSessionId: "82829a20-86c9-41c9-a68b-2a0bd9a8073c"
+        body: "## Implemented\n\nWorking agent cards are now compact instead of being taken over by task details:\n\n- A single-line **User preset · Line number** link with a return-arrow icon navigates back to the active annotation and focuses its source editor.\n- The latest agent-authored status appears on the card once available.\n- Before the first status update, the card shows an animated `...` indicator with an accessible status label and a reduced-motion fallback.\n- The former prompt, metadata, lifecycle-update, and details/history block has been removed from the active card. Status history remains available through the existing history takeover.\n- Stale link actions safely do nothing if the referenced work is no longer active.\n\nThe implementation follows DR-0003, DR-0004, DR-0006, DR-0007, DR-0008, and DR-0015 for Lit webviews, host/client separation, accessibility, VS Code token styling, typed messages, and webview compilation.\n\n## Important files\n\n- `packages/editor/src/webviews/apps/messages/messages-app.ts` — compact card rendering, return icon/link, status indicator, animation, and reduced-motion styling.\n- `packages/editor/src/webviews/messages/messages.ts` — latest work-status projection plus the typed and runtime-validated reveal command.\n- `packages/editor/src/webviews/messages/messagesWebviewProvider.ts` — resolves the active work item and routes navigation to its stored source location.\n- `packages/editor/src/extension.ts` — supports focusing the source editor for return-link navigation while preserving existing annotation-toolbar behavior.\n- `packages/editor/src/unit/messages.test.ts` and `packages/editor/src/unit/packageManifest.test.ts` — status projection, protocol validation, compact UI, accessibility, and routing coverage.\n- `packages/editor/package.json` and `package-lock.json` — the combined uncommitted editor release is now `0.10.0`, a minor increment for new user-facing navigation.\n\n## Validation\n\n- `npm run check-types` — passed across workspaces.\n- `npm run lint` — passed.\n- `npm run test:unit --workspace packages/editor` — passed all 81 tests.\n- Scoped `git diff --check` for the editor changes — passed.\n- `npm test` — all 11 CLI integration tests passed and the editor compiled; VS Code scenarios could not launch because the pinned runtime was absent and the sandbox could not resolve `update.code.visualstudio.com` (`ENOTFOUND`). This also prevented supported-runtime visual theme verification.\n- Root `npm run test:unit` — the editor’s 81 tests passed, but 3 of 44 CLI tests failed against concurrent, unrelated edits to `packages/cli/src/prompts/shared.md`; that file was preserved unchanged by this work.\n"
+        createdAt: "2026-07-21T01:13:35.065Z"
+  - id: "3bc4e25c-6728-4137-b976-db10b7321e78"
+    message: "Let's change interrupt button to an icon (X) floating to the right.  Let's ensure the status update is wrapped in the window, and the window does not scroll horizontally (currently a single line can extend qutie a distance)."
+    preset: "%W"
+    scope: "line"
+    anchor:
+      line: 977
+      text: "\t\t\t\t\t\t\t<button class=\"secondary\" type=\"button\" ?disabled=${this.busy} @click=${() => this.interruptAgent(agent.id)}>Interrupt</button>"
+      before: ["\t\t\t\t${agent.controls.canInterrupt","\t\t\t\t\t? html`","\t\t\t\t\t\t<div class=\"agent-actions\">"]
+      after: ["\t\t\t\t\t\t</div>","\t\t\t\t\t`","\t\t\t\t\t: nothing}"]
+    officialResponses:

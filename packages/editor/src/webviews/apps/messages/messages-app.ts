@@ -1,5 +1,6 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+
 import { repeat } from 'lit/directives/repeat.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import type {
@@ -7,7 +8,6 @@ import type {
 	AgentsViewState,
 	NamedAgent,
 	UserAnnotationWorkItem,
-	WorkUpdateKind,
 } from '../../../agentProtocol.js';
 import { messageComposerKeyAction } from '../../../messageComposerKeyboard.js';
 import {
@@ -26,6 +26,7 @@ import {
 	currentWorkForAgent,
 	isValidHostToWebviewMessage,
 	latestSessionStatusForAgent,
+	latestStatusForWork,
 	sessionStatusHistoryGroupsForAgent,
 	waitingAgentForAnnotation,
 } from '../../messages/messages.js';
@@ -44,6 +45,7 @@ const toolbarIconPaths = {
 	edit: 'M14.236 1.76386C13.2123 0.740172 11.5525 0.740171 10.5289 1.76386L2.65722 9.63549C2.28304 10.0097 2.01623 10.4775 1.88467 10.99L1.01571 14.3755C0.971767 14.5467 1.02148 14.7284 1.14646 14.8534C1.27144 14.9783 1.45312 15.028 1.62432 14.9841L5.00978 14.1151C5.52234 13.9836 5.99015 13.7168 6.36433 13.3426L14.236 5.47097C15.2596 4.44728 15.2596 2.78755 14.236 1.76386ZM11.236 2.47097C11.8691 1.8378 12.8957 1.8378 13.5288 2.47097C14.162 3.10413 14.162 4.1307 13.5288 4.76386L12.75 5.54269L10.4571 3.24979L11.236 2.47097ZM9.75002 3.9569L12.0429 6.24979L5.65722 12.6355C5.40969 12.883 5.10023 13.0595 4.76117 13.1465L2.19447 13.8053L2.85327 11.2386C2.9403 10.8996 3.1168 10.5901 3.36433 10.3426L9.75002 3.9569Z',
 	history: 'M14.56 7.44049C14.28 7.16049 13.9 7.00049 13.5 7.00049H13V4.00049C13 2.90049 12.1 2.00049 11 2.00049H3C1.9 2.00049 1 2.90049 1 4.00049V9.00049C1 10.1005 1.9 11.0005 3 11.0005V12.0005C3 12.8205 3.93 13.2905 4.59 12.8105L7 11.0505V11.5005C7 11.9005 7.16 12.2805 7.44 12.5605C7.72 12.8405 8.1 13.0005 8.5 13.0005H10.29L12.15 14.8505C12.19 14.9005 12.25 14.9405 12.31 14.9605C12.37 14.9905 12.43 15.0005 12.5 15.0005C12.57 15.0005 12.63 14.9905 12.69 14.9605C12.78 14.9205 12.86 14.8605 12.92 14.7805C12.97 14.7005 13 14.6005 13 14.5005V13.0005H13.5C13.9 13.0005 14.28 12.8405 14.56 12.5605C14.84 12.2805 15 11.9005 15 11.5005V8.50049C15 8.10049 14.84 7.72049 14.56 7.44049ZM6.75 10.0005L4 12.0005V10.0005H3C2.45 10.0005 2 9.55049 2 9.00049V4.00049C2 3.45049 2.45 3.00049 3 3.00049H11C11.55 3.00049 12 3.45049 12 4.00049V7.00049H8.5C8.1 7.00049 7.72 7.16049 7.44 7.44049C7.16 7.72049 7 8.10049 7 8.50049V10.0005H6.75ZM14 11.5005C14 11.6305 13.95 11.7605 13.85 11.8505C13.76 11.9505 13.63 12.0005 13.5 12.0005H12.5C12.37 12.0005 12.24 12.0505 12.15 12.1505C12.05 12.2405 12 12.3705 12 12.5005V13.2905L10.85 12.1505C10.81 12.1005 10.75 12.0605 10.69 12.0405C10.63 12.0105 10.57 12.0005 10.5 12.0005H8.5C8.37 12.0005 8.24 11.9505 8.15 11.8505C8.05 11.7605 8 11.6305 8 11.5005V8.50049C8 8.37049 8.05 8.24049 8.15 8.15049C8.24 8.05049 8.37 8.00049 8.5 8.00049H13.5C13.63 8.00049 13.76 8.05049 13.85 8.15049C13.95 8.24049 14 8.37049 14 8.50049V11.5005Z',
 	pin: 'M13.5 3C13.303 3 13.109 3.038 12.923 3.114L8.481 4.967L5.659 4.026C5.505 3.976 5.339 4.001 5.209 4.095C5.078 4.189 5.001 4.339 5.001 4.5V7H1.257L0.5 7.5L1.257 8H5V10.5C5 10.661 5.077 10.812 5.208 10.905C5.338 11 5.504 11.023 5.658 10.974L8.48 10.033L12.925 11.887C13.109 11.962 13.302 12 13.499 12C14.326 12 14.999 11.327 14.999 10.5V4.5C14.999 3.673 14.326 3 13.499 3H13.5ZM14 10.5C14 10.843 13.615 11.09 13.308 10.962L8.693 9.038C8.631 9.013 8.566 9 8.501 9C8.447 9 8.395 9.009 8.343 9.025L6.001 9.806V5.193L8.343 5.974C8.457 6.011 8.581 6.007 8.694 5.961L13.306 4.038C13.629 3.902 14.001 4.156 14.001 4.499V10.499L14 10.5Z',
+	return: 'M6.854 3.146A.5.5 0 0 1 6.854 3.854L4.707 6H11.5A2.5 2.5 0 0 1 14 8.5V12.5A.5.5 0 0 1 13 12.5V8.5A1.5 1.5 0 0 0 11.5 7H4.707L6.854 9.146A.5.5 0 0 1 6.146 9.854L3.146 6.854A.5.5 0 0 1 3.146 6.146L6.146 3.146A.5.5 0 0 1 6.854 3.146Z',
 	'screen-full': 'M3.75 3C3.33579 3 3 3.33579 3 3.75V5.5C3 5.77614 2.77614 6 2.5 6C2.22386 6 2 5.77614 2 5.5V3.75C2 2.7835 2.7835 2 3.75 2H5.5C5.77614 2 6 2.22386 6 2.5C6 2.77614 5.77614 3 5.5 3H3.75ZM10 2.5C10 2.22386 10.2239 2 10.5 2H12.25C13.2165 2 14 2.7835 14 3.75V5.5C14 5.77614 13.7761 6 13.5 6C13.2239 6 13 5.77614 13 5.5V3.75C13 3.33579 12.6642 3 12.25 3H10.5C10.2239 3 10 2.77614 10 2.5ZM2.5 10C2.77614 10 3 10.2239 3 10.5V12.25C3 12.6642 3.33579 13 3.75 13H5.5C5.77614 13 6 13.2239 6 13.5C6 13.7761 5.77614 14 5.5 14H3.75C2.7835 14 2 13.2165 2 12.25V10.5C2 10.2239 2.22386 10 2.5 10ZM13.5 10C13.7761 10 14 10.2239 14 10.5V12.25C14 13.2165 13.2165 14 12.25 14H10.5C10.2239 14 10 13.7761 10 13.5C10 13.2239 10.2239 13 10.5 13H12.25C12.6642 13 13 12.6642 13 12.25V10.5C13 10.2239 13.2239 10 13.5 10Z',
 	'screen-normal': 'M11 4C11 4.55228 11.4477 5 12 5H13.5C13.7761 5 14 5.22386 14 5.5C14 5.77614 13.7761 6 13.5 6H12C10.8954 6 10 5.10457 10 4V2.5C10 2.22386 10.2239 2 10.5 2C10.7761 2 11 2.22386 11 2.5V4ZM11 12C11 11.4477 11.4477 11 12 11H13.5C13.7761 11 14 10.7761 14 10.5C14 10.2239 13.7761 10 13.5 10H12C10.8954 10 10 10.8954 10 12V13.5C10 13.7761 10.2239 14 10.5 14C10.7761 14 11 13.7761 11 13.5V12ZM4 11C4.55228 11 5 11.4477 5 12V13.5C5 13.7761 5.22386 14 5.5 14C5.77614 14 6 13.7761 6 13.5V12C6 10.8954 5.10457 10 4 10H2.5C2.22386 10 2 10.2239 2 10.5C2 10.7761 2.22386 11 2.5 11H4ZM5 4C5 4.55228 4.55228 5 4 5H2.5C2.22386 5 2 5.22386 2 5.5C2 5.77614 2.22386 6 2.5 6H4C5.10457 6 6 5.10457 6 4V2.5C6 2.22386 5.77614 2 5.5 2C5.22386 2 5 2.22386 5 2.5V4Z',
 	trash: 'M14 2H10C10 0.897 9.103 0 8 0C6.897 0 6 0.897 6 2H2C1.724 2 1.5 2.224 1.5 2.5C1.5 2.776 1.724 3 2 3H2.54L3.349 12.708C3.456 13.994 4.55 15 5.84 15H10.159C11.449 15 12.543 13.993 12.65 12.708L13.459 3H13.999C14.275 3 14.499 2.776 14.499 2.5C14.499 2.224 14.275 2 13.999 2H14ZM8 1C8.551 1 9 1.449 9 2H7C7 1.449 7.449 1 8 1ZM11.655 12.625C11.591 13.396 10.934 14 10.16 14H5.841C5.067 14 4.41 13.396 4.346 12.625L3.544 3H12.458L11.656 12.625H11.655ZM7 5.5V11.5C7 11.776 6.776 12 6.5 12C6.224 12 6 11.776 6 11.5V5.5C6 5.224 6.224 5 6.5 5C6.776 5 7 5.224 7 5.5ZM10 5.5V11.5C10 11.776 9.776 12 9.5 12C9.224 12 9 11.776 9 11.5V5.5C9 5.224 9.224 5 9.5 5C9.776 5 10 5.224 10 5.5Z',
@@ -107,7 +109,7 @@ export class MessagesApp extends LitElement {
 				background: var(--se-surface-bg);
 			}
 
-			.context h2 {
+			.context h1 {
 				margin-bottom: 8px;
 			}
 
@@ -148,6 +150,13 @@ export class MessagesApp extends LitElement {
 				gap: 8px;
 			}
 
+			.composer-takeover {
+				box-sizing: border-box;
+				height: 100%;
+				min-height: 0;
+				overflow: auto;
+			}
+
 			label {
 				font-weight: 600;
 			}
@@ -176,7 +185,6 @@ export class MessagesApp extends LitElement {
 			select:focus-visible,
 			textarea:focus-visible,
 			button:focus-visible,
-			summary:focus-visible,
 			.pane-separator:focus-visible {
 				outline: 1px solid var(--se-focus);
 				outline-offset: 2px;
@@ -238,10 +246,13 @@ export class MessagesApp extends LitElement {
 
 			.agent-list {
 				display: grid;
+				min-width: 0;
 				gap: 12px;
 			}
 
 			.agent-section {
+				box-sizing: border-box;
+				min-width: 0;
 				padding: 10px;
 				border: 1px solid var(--se-border);
 				border-radius: 3px;
@@ -260,6 +271,7 @@ export class MessagesApp extends LitElement {
 			.agent-title-row {
 				display: flex;
 				align-items: center;
+				min-width: 0;
 				gap: 4px;
 			}
 
@@ -283,14 +295,16 @@ export class MessagesApp extends LitElement {
 			.agent-title-actions {
 				display: flex;
 				align-items: center;
-				flex: none;
+				justify-content: flex-end;
+				min-width: 0;
+				flex: 0 1 auto;
+				flex-wrap: wrap;
 				gap: 2px;
 			}
 
 			.agent-slot,
 			.queue-counts,
 			.fresh-session-warning,
-			.work-meta,
 			time {
 				color: var(--se-muted-fg);
 			}
@@ -314,19 +328,77 @@ export class MessagesApp extends LitElement {
 			}
 
 			.agent-last-status {
-				overflow: hidden;
 				margin: 4px 0 0;
 				color: var(--se-muted-fg);
 				line-height: 1.4;
-				text-overflow: ellipsis;
-				white-space: nowrap;
+				overflow-wrap: anywhere;
+				white-space: pre-wrap;
 			}
 
-			.agent-actions {
+			.agent-pending-status {
+				margin: 4px 0 0;
+				color: var(--se-muted-fg);
+				font-weight: 600;
+				letter-spacing: 0.12em;
+				line-height: 1.4;
+			}
+
+			.status-dot {
+				display: inline-block;
+				animation: pending-status-dot 1.2s infinite ease-in-out;
+				opacity: 0.25;
+			}
+
+			.status-dot:nth-child(2) {
+				animation-delay: 0.15s;
+			}
+
+			.status-dot:nth-child(3) {
+				animation-delay: 0.3s;
+			}
+
+			@keyframes pending-status-dot {
+				0%, 60%, 100% { opacity: 0.25; }
+				30% { opacity: 1; }
+			}
+
+			@media (prefers-reduced-motion: reduce) {
+				.status-dot {
+					animation: none;
+					opacity: 1;
+				}
+			}
+
+			.work-annotation-link {
 				display: flex;
-				flex-wrap: wrap;
+				align-items: center;
+				width: 100%;
+				min-width: 0;
+				min-height: 0;
+				margin-top: 8px;
+				padding: 0;
 				gap: 6px;
-				margin-top: 10px;
+				border: 0;
+				background: transparent;
+				color: var(--vscode-textLink-foreground);
+				line-height: 1.4;
+				text-align: start;
+			}
+
+			.work-annotation-link:hover:not(:disabled) {
+				background: transparent;
+				color: var(--vscode-textLink-activeForeground);
+				text-decoration: underline;
+			}
+
+			.work-annotation-link .toolbar-icon {
+				flex: none;
+			}
+
+			.work-annotation-label {
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
 			}
 
 			.session-indicator {
@@ -343,12 +415,6 @@ export class MessagesApp extends LitElement {
 			.session-indicator.missing,
 			.session-indicator.uninitialized {
 				background: var(--vscode-editorWarning-foreground);
-			}
-
-			.work-list {
-				display: grid;
-				gap: 8px;
-				margin-top: 10px;
 			}
 
 			.history-groups,
@@ -383,70 +449,7 @@ export class MessagesApp extends LitElement {
 				padding-inline-start: 24px;
 			}
 
-			.work-card {
-				padding: 9px;
-				border: 1px solid var(--se-border);
-				border-radius: 3px;
-				background: var(--se-bg);
-			}
-
-			.work-card-header {
-				display: flex;
-				align-items: baseline;
-				justify-content: space-between;
-				gap: 8px;
-			}
-
-			.work-status {
-				padding: 1px 6px;
-				border-radius: 9px;
-				background: var(--vscode-badge-background);
-				color: var(--vscode-badge-foreground);
-				font-size: 0.9em;
-				white-space: nowrap;
-			}
-
-			.work-message,
-			.latest-update p,
 			.history-text {
-				white-space: pre-wrap;
-				overflow-wrap: anywhere;
-			}
-
-			.work-message {
-				margin: 8px 0;
-			}
-
-			.work-meta {
-				margin: 0 0 8px;
-			}
-
-			.latest-update {
-				padding: 8px;
-				border-inline-start: 2px solid var(--se-border);
-			}
-
-			.latest-update p {
-				margin: 4px 0;
-			}
-
-			details {
-				margin-top: 8px;
-			}
-
-			summary {
-				cursor: pointer;
-			}
-
-			.history {
-				display: grid;
-				gap: 8px;
-				margin-bottom: 0;
-				padding-inline-start: 24px;
-			}
-
-			.history p {
-				margin: 2px 0;
 				white-space: pre-wrap;
 				overflow-wrap: anywhere;
 			}
@@ -474,8 +477,10 @@ export class MessagesApp extends LitElement {
 			}
 
 			.agent-pane {
+				min-width: 0;
 				min-height: 0;
-				overflow: auto;
+				overflow-x: hidden;
+				overflow-y: auto;
 			}
 
 			.pane-separator {
@@ -717,6 +722,7 @@ export class MessagesApp extends LitElement {
 		}
 
 		window.addEventListener('message', this.handleHostMessageEvent);
+		this.webviewHost.postMessage({ kind: 'ready' });
 	}
 
 	disconnectedCallback(): void {
@@ -738,6 +744,9 @@ export class MessagesApp extends LitElement {
 	}
 
 	render() {
+		if (this.prompt !== undefined) {
+			return this.renderComposerTakeover(this.prompt);
+		}
 		const historyAgent = this.agents.kind === 'ready'
 			? this.agents.agents.find(agent => agent.id === this.openHistoryAgentId)
 			: undefined;
@@ -776,7 +785,6 @@ export class MessagesApp extends LitElement {
 	private renderNormalMessages() {
 		return html`
 			<h1>Messages</h1>
-			${this.prompt === undefined ? nothing : this.renderComposer(this.prompt)}
 			${this.notice === undefined
 				? nothing
 				: html`<p class="notice ${this.notice.tone}" role=${this.notice.tone === 'error' ? 'alert' : 'status'}>${this.notice.message}</p>`}
@@ -788,51 +796,56 @@ export class MessagesApp extends LitElement {
 		`;
 	}
 
-	private renderComposer(prompt: PromptContext) {
+	private renderComposerTakeover(prompt: PromptContext) {
 		const availableAgents = this.agents.kind === 'ready' ? this.agents.agents : [];
 		const selectedAgent = availableAgents.find(agent => agent.id === this.targetAgentId);
 		const canSubmit = !this.busy && this.messageText.trim() !== '' && selectedAgent !== undefined;
 		const createsFreshSession = selectedAgent !== undefined && selectedAgent.session.state !== 'available';
 		return html`
-			<section class="context" aria-label="Prompt context">
-				<h2>New message</h2>
-				<p class="status">Source: User ${prompt.preset}</p>
+			<section class="composer-takeover" aria-labelledby="new-message-heading">
+				<header class="context">
+					<h1 id="new-message-heading">New message</h1>
+					<p class="status">Source: User ${prompt.preset}</p>
+				</header>
+				<form class="composer" @submit=${this.submitComposer} @keydown=${this.handleComposerKeydown}>
+					<div class="composer-fields">
+						<label for="target-agent">Current agent</label>
+						<select
+							id="target-agent"
+							.value=${this.targetAgentId ?? ''}
+							?disabled=${this.busy || availableAgents.length === 0}
+							@change=${this.updateTargetAgent}
+							aria-describedby=${createsFreshSession ? 'fresh-session-warning' : nothing}
+							required
+						>
+							<option value="" disabled .selected=${this.targetAgentId === undefined}>Select a current agent</option>
+							${availableAgents.map(agent => html`
+								<option value=${agent.id} .selected=${agent.id === this.targetAgentId}>${`>${agent.slot} ${agent.name} — ${this.sessionLabel(agent)}`}</option>
+							`)}
+						</select>
+						${createsFreshSession
+							? html`<p id="fresh-session-warning" class="fresh-session-warning">No active session found; this operation will create a fresh session.</p>`
+							: nothing}
+						<label for="message">Message</label>
+						<textarea
+							id="message"
+							.value=${this.messageText}
+							?readonly=${this.busy}
+							@input=${this.updateMessageText}
+							aria-describedby=${createsFreshSession ? 'message-help fresh-session-warning' : 'message-help'}
+							required
+						></textarea>
+					</div>
+					<div id="message-help" class="status">Press Enter to send, Shift+Enter for a new line, or Escape to cancel.</div>
+					<div class="actions">
+						<button type="submit" ?disabled=${!canSubmit}>Send</button>
+						<button class="secondary" type="button" ?disabled=${this.busy} @click=${this.cancelComposer}>Cancel</button>
+					</div>
+				</form>
+				${this.notice === undefined
+					? nothing
+					: html`<p class="notice ${this.notice.tone}" role=${this.notice.tone === 'error' ? 'alert' : 'status'}>${this.notice.message}</p>`}
 			</section>
-			<form class="composer" @submit=${this.submitComposer} @keydown=${this.handleComposerKeydown}>
-				<div class="composer-fields">
-					<label for="target-agent">Current agent</label>
-					<select
-						id="target-agent"
-						.value=${this.targetAgentId ?? ''}
-						?disabled=${this.busy || availableAgents.length === 0}
-						@change=${this.updateTargetAgent}
-						aria-describedby=${createsFreshSession ? 'fresh-session-warning' : nothing}
-						required
-					>
-						<option value="" disabled .selected=${this.targetAgentId === undefined}>Select a current agent</option>
-						${availableAgents.map(agent => html`
-							<option value=${agent.id} .selected=${agent.id === this.targetAgentId}>${`>${agent.slot} ${agent.name} — ${this.sessionLabel(agent)}`}</option>
-						`)}
-					</select>
-					${createsFreshSession
-						? html`<p id="fresh-session-warning" class="fresh-session-warning">No active session found; this operation will create a fresh session.</p>`
-						: nothing}
-					<label for="message">Message</label>
-					<textarea
-						id="message"
-						.value=${this.messageText}
-						?readonly=${this.busy}
-						@input=${this.updateMessageText}
-						aria-describedby=${createsFreshSession ? 'message-help fresh-session-warning' : 'message-help'}
-						required
-					></textarea>
-				</div>
-				<div id="message-help" class="status">Press Enter to send, Shift+Enter for a new line, or Escape to cancel.</div>
-				<div class="actions">
-					<button type="submit" ?disabled=${!canSubmit}>Send</button>
-					<button class="secondary" type="button" ?disabled=${this.busy} @click=${this.cancelComposer}>Cancel</button>
-				</div>
-			</form>
 		`;
 	}
 
@@ -873,9 +886,9 @@ export class MessagesApp extends LitElement {
 
 	private renderAgent(agent: NamedAgent, agentIndex: number) {
 		const currentWork = currentWorkForAgent(this.work, agent);
-		const latestSessionStatus = currentWork === undefined
+		const latestStatus = currentWork === undefined
 			? latestSessionStatusForAgent(this.work, agent)
-			: undefined;
+			: latestStatusForWork(currentWork);
 		const isRenaming = agent.controls.canRename && this.editingAgentId === agent.id;
 		const isCurrentTarget = this.prompt !== undefined && this.targetAgentId === agent.id;
 		return html`
@@ -938,6 +951,13 @@ export class MessagesApp extends LitElement {
 										@click=${() => this.resetAgent(agent.id)}>${this.renderToolbarIcon('clear-agent')}</button>
 								`
 								: nothing}
+							${agent.controls.canInterrupt
+								? html`
+									<button class="icon interrupt-button" type="button" ?disabled=${this.busy}
+										aria-label="Interrupt ${agent.name}" title="Interrupt ${agent.name}"
+										@click=${() => this.interruptAgent(agent.id)}>${this.renderToolbarIcon('close')}</button>
+								`
+								: nothing}
 						</div>
 					</div>
 					${isCurrentTarget ? html`<p class="agent-slot">Current message target</p>` : nothing}
@@ -951,59 +971,30 @@ export class MessagesApp extends LitElement {
 						></span>
 					</div>
 				</header>
-				${latestSessionStatus === undefined
-					? nothing
-					: html`<p class="agent-last-status" title=${latestSessionStatus.message}>${latestSessionStatus.message}</p>`}
-				${agent.controls.canInterrupt
+				${currentWork !== undefined && latestStatus === undefined
 					? html`
-						<div class="agent-actions">
-							<button class="secondary" type="button" ?disabled=${this.busy} @click=${() => this.interruptAgent(agent.id)}>Interrupt</button>
-						</div>
+						<p class="agent-pending-status" role="status" aria-label="Waiting for the first status update from ${agent.name}">
+							<span class="status-dot" aria-hidden="true">.</span><span class="status-dot" aria-hidden="true">.</span><span class="status-dot" aria-hidden="true">.</span>
+						</p>
 					`
-					: nothing}
+					: latestStatus === undefined
+						? nothing
+						: html`<p class="agent-last-status" title=${latestStatus.message}>${latestStatus.message}</p>`}
 				${currentWork === undefined
 					? nothing
-					: html`<div class="work-list">${this.renderWorkCard(currentWork, agent, agentIndex, 0)}</div>`}
+					: html`
+						<button
+							class="work-annotation-link"
+							type="button"
+							aria-label="Return to User ${currentWork.prompt.preset} annotation at line ${currentWork.source.line + 1}"
+							title="Return to User ${currentWork.prompt.preset} annotation at line ${currentWork.source.line + 1}"
+							@click=${() => this.revealAnnotation(currentWork.id)}
+						>
+							${this.renderToolbarIcon('return')}
+							<span class="work-annotation-label">User ${currentWork.prompt.preset} · Line ${currentWork.source.line + 1}</span>
+						</button>
+					`}
 			</section>
-		`;
-	}
-
-	private renderWorkCard(item: UserAnnotationWorkItem, agent: NamedAgent, agentIndex: number, workIndex: number) {
-		const latest = item.latestUpdate;
-		return html`
-			<article class="work-card" aria-labelledby="agent-${agentIndex}-work-${workIndex}-heading">
-				<header class="work-card-header">
-					<h4 id="agent-${agentIndex}-work-${workIndex}-heading">User ${item.prompt.preset}</h4>
-					<span class="work-status">${item.status}</span>
-				</header>
-				<p class="work-message">${item.prompt.text}</p>
-				<p class="work-meta">Target: ${agent.name} · ${item.prompt.scope === 'project' ? 'Project' : 'Current line'} · Line ${item.source.line + 1}</p>
-				<div class="latest-update" aria-label="Latest update">
-					<strong>Latest update</strong>
-					${latest === undefined
-						? html`<p class="status">No updates yet.</p>`
-						: html`
-							<p>${latest.message}</p>
-							<time datetime=${latest.at}>${this.formatTimestamp(latest.at)}</time>
-						`}
-				</div>
-				<details @keydown=${this.handleDetailsKeydown}>
-					<summary>Details and update history (${item.updates.length})</summary>
-					${item.updates.length === 0
-						? html`<p class="status">No updates yet.</p>`
-						: html`
-							<ol class="history">
-								${item.updates.map(update => html`
-									<li>
-										<strong>${this.updateKindLabel(update.kind)}</strong>
-										<p>${update.message}</p>
-										<time datetime=${update.at}>${this.formatTimestamp(update.at)}</time>
-									</li>
-								`)}
-							</ol>
-						`}
-				</details>
-			</article>
 		`;
 	}
 
@@ -1359,6 +1350,10 @@ export class MessagesApp extends LitElement {
 		this.webviewHost.postMessage({ kind: 'nextAnnotation' });
 	};
 
+	private revealAnnotation(annotationId: UserAnnotationWorkItem['id']): void {
+		this.webviewHost.postMessage({ kind: 'revealAnnotation', annotationId });
+	}
+
 	private toggleAnnotationPin = (): void => {
 		this.webviewHost.postMessage({ kind: 'toggleAnnotationPin' });
 	};
@@ -1462,20 +1457,6 @@ export class MessagesApp extends LitElement {
 		buttons[next]?.focus();
 	};
 
-	private handleDetailsKeydown = (keyboardEvent: KeyboardEvent): void => {
-		if (keyboardEvent.key !== 'Escape') {
-			return;
-		}
-		const details = keyboardEvent.currentTarget as HTMLDetailsElement;
-		if (!details.open) {
-			return;
-		}
-		keyboardEvent.preventDefault();
-		keyboardEvent.stopPropagation();
-		details.open = false;
-		details.querySelector<HTMLElement>('summary')?.focus();
-	};
-
 	private handleToolbarKeydown = (keyboardEvent: KeyboardEvent): void => {
 		if (keyboardEvent.key === 'Escape') {
 			this.metadataExpanded = false;
@@ -1528,27 +1509,6 @@ export class MessagesApp extends LitElement {
 	private isValidAgentNameInput(value: string): boolean {
 		const name = value.trim();
 		return name !== '' && [...name].length <= 80 && !/[\r\n]/.test(name) && !/^\d+$/.test(name);
-	}
-
-	private updateKindLabel(kind: WorkUpdateKind): string {
-		switch (kind) {
-			case 'enqueued':
-				return 'Enqueued';
-			case 'ready':
-				return 'Ready';
-			case 'claimed':
-				return 'Claimed';
-			case 'status':
-				return 'Status';
-			case 'completed':
-				return 'Completed';
-			case 'requeued':
-				return 'Requeued';
-			default: {
-				const unhandledKind: never = kind;
-				throw new Error(`Unexpected work update kind: ${unhandledKind}`);
-			}
-		}
 	}
 
 	private formatTimestamp(timestamp: string): string {

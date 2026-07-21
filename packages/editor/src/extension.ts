@@ -88,8 +88,8 @@ export function activate(context: vscode.ExtensionContext): void {
 	}, 0);
 }
 
-async function revealAnnotation(sourceUri: string, sourceLine: number): Promise<void> {
-	const editor = await vscode.window.showTextDocument(vscode.Uri.parse(sourceUri), { preserveFocus: true });
+async function revealAnnotation(sourceUri: string, sourceLine: number, preserveFocus = true): Promise<void> {
+	const editor = await vscode.window.showTextDocument(vscode.Uri.parse(sourceUri), { preserveFocus });
 	const line = Math.min(sourceLine, Math.max(editor.document.lineCount - 1, 0));
 	const position = new vscode.Position(line, 0);
 	editor.selection = new vscode.Selection(position, position);

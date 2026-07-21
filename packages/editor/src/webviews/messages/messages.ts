@@ -102,6 +102,10 @@ export function latestSessionStatusForAgent(
 	return sessionStatusHistoryGroupsForAgent(work, agent).at(-1)?.updates.at(-1);
 }
 
+export function latestStatusForWork(work: UserAnnotationWorkItem): WorkUpdate | undefined {
+	return work.updates.filter(update => update.kind === 'status').at(-1);
+}
+
 export interface SessionStatusHistoryGroup {
 	readonly annotationId: UserAnnotationId;
 	readonly userMessage: string;
@@ -144,6 +148,7 @@ export type HostToWebview =
 	| { readonly kind: 'focusComposer' };
 
 export type WebviewToHost =
+	| { readonly kind: 'ready' }
 	| { readonly kind: 'submit'; readonly message: string; readonly targetAgentId: AgentId }
 	| { readonly kind: 'selectTarget'; readonly targetAgentId: AgentId }
 	| { readonly kind: 'cancel' }
@@ -152,6 +157,7 @@ export type WebviewToHost =
 	| { readonly kind: 'openAgent'; readonly agentId: AgentId }
 	| { readonly kind: 'interruptAgent'; readonly agentId: AgentId }
 	| { readonly kind: 'resetAgent'; readonly agentId: AgentId }
+	| { readonly kind: 'revealAnnotation'; readonly annotationId: UserAnnotationId }
 	| { readonly kind: 'previousAnnotation' }
 	| { readonly kind: 'nextAnnotation' }
 	| { readonly kind: 'toggleAnnotationPin' }
@@ -197,7 +203,10 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 		case 'interruptAgent':
 		case 'resetAgent':
 			return hasExactKeys(value, ['kind', 'agentId']) && isAgentId(value.agentId);
+		case 'revealAnnotation':
+			return hasExactKeys(value, ['kind', 'annotationId']) && isUserAnnotationId(value.annotationId);
 		case 'cancel':
+		case 'ready':
 		case 'refresh':
 		case 'previousAnnotation':
 		case 'nextAnnotation':

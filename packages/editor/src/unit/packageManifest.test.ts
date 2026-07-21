@@ -43,11 +43,11 @@ function readManifest(): PackageManifest {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.9.2 extension package', () => {
+	test('is an independent 0.10.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.9.2');
+		assert.equal(manifest.version, '0.10.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -136,14 +136,22 @@ describe('Sundial Editor manifest', () => {
 		assert.match(messagesSource, /<option value=\$\{agent\.id\} \.selected=\$\{agent\.id === this\.targetAgentId\}>/);
 	});
 
+	test('renders the new-message composer as the highest-priority sidebar takeover', () => {
+		const messagesSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
+
+		assert.match(messagesSource, /render\(\) \{\s*if \(this\.prompt !== undefined\) \{\s*return this\.renderComposerTakeover\(this\.prompt\);\s*\}/);
+		assert.match(messagesSource, /class="composer-takeover" aria-labelledby="new-message-heading"/);
+		assert.match(messagesSource, /<h1 id="new-message-heading">New message<\/h1>/);
+	});
+
 	test('renders icon agent controls, a status-history takeover, and independently scrolling split panes', () => {
 		const messagesSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
+		const providerSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/messages/messagesWebviewProvider.ts'), 'utf8');
 		const sharedStyles = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/shared/styles.ts'), 'utf8');
 
 		assert.match(messagesSource, /class="agent-pane" aria-label="Agents"/);
 		assert.match(messagesSource, /class="pane-separator/);
 		assert.match(messagesSource, /class="annotation-pane/);
-		assert.match(messagesSource, /\.agent-pane \{[\s\S]*?overflow: auto/);
 		assert.match(messagesSource, /\.annotation-content \{[\s\S]*?overflow: auto/);
 		assert.match(messagesSource, /title="Previous annotation"/);
 		assert.match(messagesSource, /title="Next annotation"/);
@@ -156,6 +164,8 @@ describe('Sundial Editor manifest', () => {
 		assert.match(messagesSource, /renderToolbarIcon\('history'\)/);
 		assert.match(messagesSource, /renderToolbarIcon\('open-external'\)/);
 		assert.match(messagesSource, /renderToolbarIcon\('clear-agent'\)/);
+		assert.match(messagesSource, /class="icon interrupt-button"[\s\S]*?aria-label="Interrupt \$\{agent\.name\}"[\s\S]*?renderToolbarIcon\('close'\)/);
+		assert.doesNotMatch(messagesSource, /class="agent-actions"/);
 		assert.match(messagesSource, /return this\.renderHistoryTakeover\(historyAgent\)/);
 		assert.match(messagesSource, /sessionStatusHistoryGroupsForAgent\(this\.work, agent\)/);
 		assert.match(messagesSource, /class="history-group"/);
@@ -172,6 +182,18 @@ describe('Sundial Editor manifest', () => {
 		assert.doesNotMatch(messagesSource, /class="rename-actions"/);
 		assert.match(messagesSource, /latestSessionStatusForAgent\(this\.work, agent\)/);
 		assert.match(messagesSource, /class="agent-last-status"/);
+		assert.match(messagesSource, /\.agent-last-status \{[^}]*overflow-wrap: anywhere;[^}]*white-space: pre-wrap;/);
+		assert.doesNotMatch(messagesSource, /\.agent-last-status \{[^}]*white-space: nowrap;/);
+		assert.match(messagesSource, /\.agent-pane \{[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
+		assert.match(messagesSource, /class="agent-pending-status" role="status"/);
+		assert.match(messagesSource, /@keyframes pending-status-dot/);
+		assert.match(messagesSource, /@media \(prefers-reduced-motion: reduce\)/);
+		assert.match(messagesSource, /class="work-annotation-link"/);
+		assert.match(messagesSource, /renderToolbarIcon\('return'\)/);
+		assert.match(messagesSource, /kind: 'revealAnnotation', annotationId/);
+		assert.doesNotMatch(messagesSource, /renderWorkCard|class="work-card"/);
+		assert.match(providerSource, /case 'revealAnnotation': void this\.revealWorkAnnotation\(message\.annotationId\)/);
+		assert.match(providerSource, /this\.services\.revealAnnotation\?\.\(currentWork\.source\.uri, currentWork\.source\.line, false\)/);
 		assert.match(messagesSource, /fill: currentColor/);
 		assert.doesNotMatch(messagesSource, /class="codicon/);
 		assert.match(sharedStyles, /--se-icon-fg: var\(--vscode-foreground\)/);

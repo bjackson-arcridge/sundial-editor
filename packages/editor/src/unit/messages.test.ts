@@ -13,6 +13,7 @@ import {
 	isValidHostToWebviewMessage,
 	isValidWebviewToHostMessage,
 	latestSessionStatusForAgent,
+	latestStatusForWork,
 	presentAnnotation,
 	sessionStatusHistoryGroupsForAgent,
 	waitingAgentForAnnotation,
@@ -207,6 +208,7 @@ describe('messages protocol guards', () => {
 
 	test('accepts every exact webview command shape', () => {
 		const commands = [
+			{ kind: 'ready' },
 			{ kind: 'submit', message: 'Please fix this.', targetAgentId: bobId },
 			{ kind: 'selectTarget', targetAgentId: amyId },
 			{ kind: 'cancel' },
@@ -215,6 +217,7 @@ describe('messages protocol guards', () => {
 			{ kind: 'openAgent', agentId: bobId },
 			{ kind: 'interruptAgent', agentId: bobId },
 			{ kind: 'resetAgent', agentId: bobId },
+			{ kind: 'revealAnnotation', annotationId: workId },
 			{ kind: 'previousAnnotation' },
 			{ kind: 'nextAnnotation' },
 			{ kind: 'toggleAnnotationPin' },
@@ -228,11 +231,15 @@ describe('messages protocol guards', () => {
 	});
 
 	test('rejects missing, obsolete, extra, and invalid webview command fields', () => {
+		assert.equal(isValidWebviewToHostMessage({ kind: 'ready', extra: true }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'submit', message: '', targetAgentId: bobId }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'submit', message: draft, agentId: bobId }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'selectTarget', targetAgentId: '' }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'renameAgent', agentId: bobId, name: '123' }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'renameAgent', agentId: bobId, name: ' Bob ' }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'revealAnnotation', annotationId: '' }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'revealAnnotation', agentId: bobId }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'revealAnnotation', annotationId: workId, extra: true }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'refresh', extra: true }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'refreshAgents' }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'showTranscript', agentId: bobId }), false);
@@ -292,6 +299,18 @@ describe('messages view projections', () => {
 
 		assert.equal(currentWorkForAgent([work, amyWork, current], workingBob)?.id, current.id);
 		assert.equal(currentWorkForAgent([work, amyWork, current], bob), undefined);
+	});
+
+	test('uses only agent-authored status updates for compact active-work feedback', () => {
+		const firstStatus = { at: '2026-07-20T14:02:00.000Z', kind: 'status', message: 'Reviewing the request.' } as const;
+		const latestStatus = { at: '2026-07-20T14:03:00.000Z', kind: 'status', message: 'Updating the card.' } as const;
+		const claimed = { at: '2026-07-20T14:01:00.000Z', kind: 'claimed', message: 'Bob started work.' } as const;
+
+		assert.equal(latestStatusForWork({ ...work, updates: [enqueuedUpdate, claimed] }), undefined);
+		assert.equal(
+			latestStatusForWork({ ...work, updates: [enqueuedUpdate, claimed, firstStatus, latestStatus] }),
+			latestStatus,
+		);
 	});
 
 	test('groups ordered current-session status history by annotation and user message', () => {
