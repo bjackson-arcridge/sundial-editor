@@ -36,7 +36,6 @@ export interface WorkSummary {
 	readonly latestUpdate?: WorkUpdate;
 	readonly assignment?: WorkAssignment;
 }
-
 export interface UserAnnotationWorkItem extends WorkSummary {
 	readonly source: {
 		readonly uri: string;
