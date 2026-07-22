@@ -1,12 +1,11 @@
 ---
 id: SPEC-0008
 title: An interactive editor.
-status: Backlog
+status: Done
 created: 2026-07-12
-updated: 2026-07-20
+updated: 2026-07-22
 created_by: bjackson
 ---
-
 # An interactive editor.
 
 ## Discovery

@@ -1,72 +1,71 @@
 ---
 id: SPEC-0017
 title: Shared awareness and agent coordination
-status: Backlog
+status: Todo
 created: 2026-07-13
-updated: 2026-07-21
+updated: 2026-07-22
 created_by: bjackson
-parent: SPEC-0008
 domain: editor
 slice: 9
 ---
-
 # Shared awareness and agent coordination
 
 ## Discovery
 
-This is functional slice 9 from SPEC-0008. SPEC-0018 supplies persistent `UserAnnotationId` queues targeted by stable agent slot or name, per-agent FIFO assignment, replaceable provider sessions, ordered work histories, transcript access, interruption, and reset; SPEC-0019 and SPEC-0020 add source feedback. This slice adds reassignment and priorities, agent-to-agent coordination, user awareness, shared task summaries, and stale multi-process repair. It extends rather than replaces SPEC-0018's work/agent/session files, targeted FIFO behavior, and lifecycle semantics.
+Currently, agents operate independently;  They might face some churn in changing files or tests.  In this case we will offer a tool for agents to inspect other agent state.
 
-SPEC-0014 defers automatic recovery-worktree creation and leaves worktree selection to the user. This slice therefore owns the lighter-weight response to transient instability when agents share a user-selected worktree: an agent may decide to pause for a randomly selected period from one through three minutes, then re-read shared state and retry a focused check. The pause begins as managed-agent prompt guidance, not a scheduler or worktree-lifecycle feature.
+This is a new tool in the sundial-annotations-cli, which we should rename to something more generic like sundial-agent-tools.
+
+The new tool will expose the existing status (working/waiting/blocked) and freeform status update from the agent.
+
+The instructions will let the agent know that if they are working on files that another agent is working on, they get priority if their agent ID is lower, otherwise they wait.
+
+If they are getting churn from user's work, they should watch for active edits against the files and wait until there are no edits in the past 30 seconds before continuing.  Once a file hasn't been touched for 30 seconds, they should look at the diff and determine if the user's work is compatible with their goals, and adapt accordinging or report a blocked status. They are welcome to extrapolate and finish the user's work as well if it is incomplete. 
+
+Pause specifics: pause for 30 seconds at a time.  After 10 minutes; change status to stopped and wait. The agent will use their built in wait tooling provided by their harness; we do not provide it.
 
 ## Applicable Decision Records
 
-- DR-0006 Webview UI meets baseline accessibility requirements.
-- DR-0008 Extension ↔ webview messages use typed discriminated unions.
-- DR-0009 Sidebar sections use WebviewView, not TreeView.
 - DR-0012 Sundial workflows live in the CLI-backed store.
 - DR-0016 CLI store operations avoid runtime dependencies and shell pipelines.
 - DR-0025 CLI surface changes require version review.
+- DR-0034 Agent runtime state uses per-session update histories.
 - DR-0036 User annotations are queued agent work items.
 - DR-0037 Queue readiness uses persisted session state.
 
 ## Applicable Research Notes
 
-- RES-0006 Provider harness auth and MCP surfaces.
-- RES-0007 Provider command surfaces for agent control.
+- None.
 
 ## Planned Approach
 
-1. Amend the managed-agent coordination instructions so an agent that has evidence of plausibly transient, concurrent instability may choose a randomized pause of one through three minutes. Do not require a pause for every failed test or use it for a reproducible product failure.
-2. Before pausing, publish a concise status update that identifies the unstable check and intended retry. The pause must remain interruptible by the existing agent controls and must not change the work item's `working` lifecycle state merely because time is passing.
-3. After the pause, re-read current shared/workspace state before rerunning the narrowest useful check; do not assume the pre-pause failure or file state is still current. If the problem is deterministic or persists beyond the bounded retry policy, surface it through the normal status/blocking path rather than silently looping.
-4. Keep the initial behavior prompt-only. Do not add persisted timers, scheduler state, automatic queue reordering, or a new CLI command until observed use demonstrates that advisory coordination is insufficient.
-5. Preserve the user's exclusive control of worktree topology. The backoff contract never authorizes an agent to create, select, reconcile, or remove a worktree.
+1. Rename the narrow managed-agent executable from `sundial-annotations-cli` to `sundial-agent-tools`, including its entry point, build output, manifest/bin, help, prompts, README, lockfile, and tests. Remove the old executable name.
+2. Add an ordered coordination history to each CLI-owned agent runtime record. Each update contains `working | waiting | blocked | stopped`, a concise freeform message, normalized workspace-relative file claims, and a timestamp; agent projections expose the latest update.
+3. Add agent-facing commands to inspect every agent's slot/name/current coordination update and to publish the caller's update using only managed invocation context. Keep `annotate` and `record-task-response` on this same narrow surface; do not expose editor lifecycle controls.
+4. Update the managed-agent contract: publish intended files before editing, inspect peers, and let the lower numeric agent slot win an overlapping claim. The loser publishes `waiting` and rechecks with its harness wait tool every 30 seconds.
+5. For user-edit churn, compare file activity at each interval. After a continuous 30 seconds without edits, re-read the diff and either adapt/finish compatible work or publish `blocked`; after 10 minutes, publish `stopped` and remain waiting. Sundial supplies no timer or scheduler.
+6. Update CLI/editor protocol projections, documentation, and package metadata. This is minor user-facing functionality for both the CLI and extension; apply one uncommitted minor increment per package during implementation.
 
 ## Rejected Alternatives
 
-- Pause automatically after every test failure: deterministic failures should be diagnosed immediately and do not benefit from coordination backoff.
-- Use a fixed delay: randomization reduces agents resuming simultaneously after colliding on shared state.
-- Pause without a visible status update: hidden inactivity undermines the shared-awareness goal of this slice.
-- Retry indefinitely: persistent instability must become visible to the user through the normal status/blocking path.
-- Escalate from a pause to an agent-created recovery worktree: SPEC-0014 explicitly leaves worktree decisions to the user.
+- Parse freeform messages to discover file overlap: file claims must be structured.
+- Use queue `WorkStatus` as coordination state: paused and stopped agents may still own active work.
+- Lock files or forcibly interrupt the lower-priority agent: coordination remains advisory and agents re-read shared changes.
+- Implement waiting in the CLI: the provider harness already owns interruptible waits.
 
 ## Test Plan
 
-- Snapshot-test the managed-agent prompt: the pause is discretionary, applies only to plausibly transient instability, chooses an inclusive one-to-three-minute delay, requires a status update, remains user-interruptible, and requires a fresh state/check afterward.
-- Assert the prompt distinguishes transient/concurrent instability from deterministic product or harness failures and never grants worktree lifecycle authority.
-- Unit-test any delay-selection helper only if implementation introduces one; inject time/randomness so tests do not actually wait and cover both one- and three-minute bounds.
-- Verify an advisory pause does not transition the work item out of `working`, reorder its queue, append synthetic completion, or suppress interrupt/reset controls.
-- Cover persistent failure behavior once the retry cap is resolved: no unbounded loop, and the existing status/blocking path remains visible.
+- Unit-test coordination validation, ordering, atomic persistence, projections, and automatic `working`/`waiting`/`blocked` transitions.
+- Unit-test agent-tool inspection/update authorization, path normalization, all four states, rename/help output, and continued annotation/response commands.
+- Snapshot-test the managed prompt for structured claims, lower-slot priority, 30-second polling, diff re-read/adaptation, and the 10-minute `stopped` limit without real sleeps.
+- Update manifest/build/README tests and run type checks, lint, CLI unit/integration tests, and the broad editor regression suites.
 
 ## Open Questions
 
-- What maximum number of pauses or total wait budget applies to one unchanged instability episode before the agent must surface a persistent failure?
-- Is prompt-level provider interruption sufficient during the wait, or does implementation need a host-owned cancellable timer after observed use?
+- None. “Lower agent ID” is implemented as the existing ordered numeric agent slot; opaque `AgentId` remains an identity only.
 
 ## Implementation Log
 
-- 2026-07-21: Added SPEC-0014's deferred-worktree replacement requirement: visible, discretionary, randomized one-to-three-minute coordination backoff with a fresh post-pause check and no agent worktree authority. Kept initial delivery prompt-only.
-
 ## Test Log
 
-- 2026-07-21: Planning-only update; no runtime tests were required.
+- 2026-07-22: Planning-only update; no runtime tests were required.
