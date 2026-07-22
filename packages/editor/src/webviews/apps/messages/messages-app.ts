@@ -591,6 +591,13 @@ export class MessagesApp extends LitElement {
 				white-space: nowrap;
 			}
 
+			.annotation-location {
+				border-radius: 0.4em;
+				color: var(--vscode-badge-foreground);
+				background: var(--vscode-badge-background);
+				padding: 0.05em 0.4em;
+			}
+
 			.workflow-status {
 				max-width: 132px;
 				overflow: hidden;
@@ -1101,6 +1108,7 @@ export class MessagesApp extends LitElement {
 						</button>
 					</div>
 					<span class="workflow-status" title=${`Selected diff baseline: ${this.workflow.baseline ?? 'none'}`}>${workflowLabel}</span>
+					${viewer?.annotation.anchor.line === null ? html`<span class="annotation-location" aria-label="File-scoped annotation">File</span>` : nothing}
 					${viewer === undefined ? nothing : html`<span class="annotation-position">${viewer.position}/${viewer.total}</span>`}
 					<button class="icon annotation-filter" type="button"
 						aria-label="Filter annotations to current permanent commit" title=${filterTitle}
@@ -1140,7 +1148,10 @@ export class MessagesApp extends LitElement {
 								${this.renderAnnotationLink(viewer.annotation.userAnnotation, 'Open user annotation')}
 							` : html`
 								<p class="annotation-message">${viewer.annotation.message}</p>
-								${viewer.annotation.agentAnnotations.map(link => this.renderAnnotationLink(link, `Open agent annotation in ${link.file} at line ${link.line + 1}`))}
+								${viewer.annotation.agentAnnotations.map(link => this.renderAnnotationLink(
+									link,
+									link.line === null ? `Open file annotation in ${link.file}` : `Open agent annotation in ${link.file} at line ${link.line + 1}`,
+								))}
 								${viewer.annotation.officialResponses.length === 0 ? nothing : html`
 									<section class="official-responses" aria-label="Official responses">
 										${viewer.annotation.officialResponses.map(response => html`
@@ -1176,7 +1187,7 @@ export class MessagesApp extends LitElement {
 				<dl>
 					<dt>Kind</dt><dd>${annotation.kind === 'user' ? 'User' : 'Agent'}</dd>
 					${annotation.kind === 'user' ? html`<dt>Scope</dt><dd>${annotation.scope === 'project' ? 'Project' : 'Current line'}</dd>` : nothing}
-					<dt>Line</dt><dd>${annotation.anchor.line + 1}</dd>
+					<dt>Location</dt><dd>${annotation.anchor.line === null ? 'File' : `Line ${annotation.anchor.line + 1}`}</dd>
 					<dt>Target</dt><dd><code>${annotation.anchor.text}</code></dd>
 					<dt>Before</dt><dd>${annotation.anchor.before.length === 0 ? 'None' : annotation.anchor.before.map(line => html`<div><code>${line}</code></div>`)}</dd>
 					<dt>After</dt><dd>${annotation.anchor.after.length === 0 ? 'None' : annotation.anchor.after.map(line => html`<div><code>${line}</code></div>`)}</dd>
@@ -1187,7 +1198,7 @@ export class MessagesApp extends LitElement {
 
 	private renderAnnotationLink(link: AnnotationLink, label: string) {
 		return html`<button class="work-annotation-link" type="button" aria-label=${label} title=${label}
-			@click=${() => this.openAnnotation(link)}>${this.renderToolbarIcon('return')}<span class="work-annotation-label">${link.file} · Line ${link.line + 1}</span></button>`;
+			@click=${() => this.openAnnotation(link)}>${this.renderToolbarIcon('return')}<span class="work-annotation-label">${link.file} · ${link.line === null ? 'File' : `Line ${link.line + 1}`}</span></button>`;
 	}
 
 	private handleHostMessageEvent = (messageEvent: MessageEvent<unknown>): void => {

@@ -21,6 +21,11 @@ export const scenarios = [
 		description: 'A failed companion append retries without delivering the agent prompt twice.',
 	},
 	{
+		label: 'annotation-reanchor',
+		description: 'Saved-source baselines adopt resilient line and file-scoped annotation locations.',
+		git: { commits: [], workingTree: {} },
+	},
+	{
 		label: 'diff-workflow',
 		description: 'Global diff mode replaces and restores workspace editors across baseline changes.',
 		settings: {

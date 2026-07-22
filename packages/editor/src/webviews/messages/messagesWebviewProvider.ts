@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
+import { companionPathForSource } from '@arcridge/sundial-editor-annotations/paths';
 import {
 	type AgentId,
 	type NamedAgent,
@@ -66,7 +67,7 @@ export interface MessagesServices {
 	readonly confirmDeleteAnnotation?: (annotation: Annotation) => boolean | Promise<boolean>;
 	readonly openTerminal?: (name: string, command: string, args: readonly string[], cwd: string) => void;
 	readonly showAnnotationMarkers?: (sourceUri: string | undefined, lines: readonly number[]) => void;
-	readonly revealAnnotation?: (sourceUri: string, line: number, preserveFocus?: boolean) => void | Promise<void>;
+	readonly revealAnnotation?: (sourceUri: string, line: number | null, preserveFocus?: boolean) => void | Promise<void>;
 	readonly cliPath?: () => string;
 	readonly workspaceRootCwd?: () => string | undefined;
 	readonly workspaceCwd?: (prompt: PromptContext) => string | undefined;
@@ -382,8 +383,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	async refreshAnnotationsForCompanion(companionPath: string): Promise<void> {
 		const location = this.activeLocation;
 		if (location === undefined) { return; }
-		const relativeSource = path.relative(location.cwd, vscode.Uri.parse(location.sourceUri).fsPath);
-		const expected = path.join(location.cwd, '.sundial', `${relativeSource}.comments`);
+		const expected = companionPathForSource(location.cwd, location.sourceUri);
 		if (path.normalize(companionPath) === path.normalize(expected)) {
 			await this.refreshActiveAnnotations();
 		}
@@ -478,7 +478,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		const companion = await (this.services.readAnnotations ?? readAnnotationsViaCli)(
 			this.cliPath(), { workspace: { cwd }, document: { uri: sourceUri } },
 		);
-		this.activeLocation = { sourceUri, line: link.line, cwd };
+		this.activeLocation = { sourceUri, line: link.line ?? 0, cwd };
 		this.loadedAnnotations = {
 			sourceUri, cwd, annotations: companion.annotations,
 			currentPermanentCommit: companion.currentPermanentCommit,
@@ -849,12 +849,17 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 
 function orderedAnnotations(annotations: readonly Annotation[]): readonly Annotation[] {
 	return annotations.map((annotation, index) => ({ annotation, index }))
-		.sort((left, right) => left.annotation.anchor.line - right.annotation.anchor.line || left.index - right.index)
+		.sort((left, right) => annotationOrder(left.annotation) - annotationOrder(right.annotation) || left.index - right.index)
 		.map(item => item.annotation);
 }
 
 function annotationLines(annotations: readonly Annotation[]): readonly number[] {
-	return [...new Set(annotations.map(annotation => annotation.anchor.line))].sort((left, right) => left - right);
+	return [...new Set(annotations.flatMap(annotation => annotation.anchor.line === null ? [] : [annotation.anchor.line]))]
+		.sort((left, right) => left - right);
+}
+
+function annotationOrder(annotation: Annotation): number {
+	return annotation.anchor.line ?? Number.MAX_SAFE_INTEGER;
 }
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }

@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, test } from 'node:test';
+import type { UserAnnotation } from '@arcridge/sundial-editor-annotations';
 import {
 	attachProviderSession,
 	claimNextWork,
@@ -16,7 +17,7 @@ import {
 	prepareResponseEvidence,
 	showWork,
 } from '../agentStore';
-import { appendOfficialResponse, appendUserAnnotation, readUserAnnotations, type UserAnnotation } from '../annotations';
+import { appendOfficialResponse, appendUserAnnotation, readUserAnnotations } from '../annotations';
 import { recordTaskResponse, requeueWorkWithResponseReconciliation } from '../responseRecording';
 
 const directories: string[] = [];
@@ -79,7 +80,7 @@ describe('official response recording', () => {
 		await assert.rejects(() => readFile(context.absoluteResponsePath), error => (error as NodeJS.ErrnoException).code === 'ENOENT');
 
 		const companion = await readUserAnnotations({ workspace: { cwd: context.cwd }, document: { uri: context.sourceUri } });
-		assert.equal(companion.version, 4);
+		assert.equal(companion.version, 5);
 		assert.equal(companion.annotations[0].id, 'query-1');
 		const user = await storedUser(context.cwd, context.sourceUri);
 		assert.equal(user.officialResponses.length, 1);

@@ -356,7 +356,7 @@ function isAnnotationLink(value: unknown): value is AnnotationLink {
 	return isRecord(value) && hasExactKeys(value, ['annotationId', 'file', 'line'])
 		&& typeof value.annotationId === 'string' && value.annotationId !== ''
 		&& typeof value.file === 'string' && value.file !== ''
-		&& Number.isSafeInteger(value.line) && (value.line as number) >= 0;
+		&& (value.line === null || (Number.isSafeInteger(value.line) && (value.line as number) >= 0));
 }
 
 function isPromptContext(value: unknown): value is PromptContext {

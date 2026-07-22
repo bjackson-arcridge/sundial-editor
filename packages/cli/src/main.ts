@@ -1,6 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CompanionRepairConflictError } from '@arcridge/sundial-editor-annotations/move';
+import { createAnnotationAnchor } from '@arcridge/sundial-editor-annotations/reanchor';
+import { repairFromDiff } from '@arcridge/sundial-editor-annotations/repair';
 import { createCodexAdapter } from './adapters/codex.js';
 import type { ProviderAdapter } from './adapters/adapter.js';
 import {
@@ -24,13 +27,13 @@ import {
 	type AgentSelector,
 	type WorkItem,
 } from './agentStore.js';
-import { appendUserAnnotation, createAnnotationAnchor, deleteUserAnnotation, readUserAnnotations } from './annotations.js';
-import { consolidateTemporaryCommits, createTemporaryCommit, GitWorkflowConflictError, moveGitWorkflowBaseline, readGitWorkflowState } from './gitWorkflow.js';
+import { appendUserAnnotation, deleteUserAnnotation, readUserAnnotations, reanchorAnnotations } from './annotations.js';
+import { consolidateTemporaryCommits, createTemporaryCommit, moveGitWorkflowBaseline, readGitWorkflowState } from './gitWorkflow.js';
+import { GitWorkflowConflictError } from './gitProcess.js';
 import { renderManagedAgentContract, renderManagedPrompt } from './managedPrompts.js';
 import { parsePromptRequest, renderEvent, type PromptRequest } from './protocol.js';
 import { requeueWorkWithResponseReconciliation } from './responseRecording.js';
 import { packageVersion } from './version.js';
-import { repairCompanions } from './companionRepair.js';
 
 export interface CliIo {
 	readonly stdin: NodeJS.ReadableStream;
@@ -44,11 +47,12 @@ export interface MainServices {
 	readonly appendUserAnnotation?: typeof appendUserAnnotation;
 	readonly deleteUserAnnotation?: typeof deleteUserAnnotation;
 	readonly readUserAnnotations?: typeof readUserAnnotations;
+	readonly reanchorAnnotations?: typeof reanchorAnnotations;
 	readonly readGitWorkflowState?: typeof readGitWorkflowState;
 	readonly moveGitWorkflowBaseline?: typeof moveGitWorkflowBaseline;
 	readonly createTemporaryCommit?: typeof createTemporaryCommit;
 	readonly consolidateTemporaryCommits?: typeof consolidateTemporaryCommits;
-	readonly repairCompanions?: typeof repairCompanions;
+	readonly repairFromDiff?: typeof repairFromDiff;
 }
 
 const defaultServices: MainServices = {
@@ -66,6 +70,7 @@ Usage:
   sundial-editor-cli annotations append [--input request.json]
   sundial-editor-cli annotations read [--input request.json]
   sundial-editor-cli annotations delete [--input request.json]
+	  sundial-editor-cli annotations reanchor [--input request.json]
 	  sundial-editor-cli workflow state [--input request.json]
 	  sundial-editor-cli workflow baseline [--input request.json]
 	  sundial-editor-cli workflow checkpoint-file [--input request.json]
@@ -119,7 +124,7 @@ async function health(args: readonly string[], io: CliIo, services: MainServices
 }
 
 const editorCommands = [
-	'annotations append', 'annotations read', 'annotations delete',
+	'annotations append', 'annotations read', 'annotations delete', 'annotations reanchor',
 	'workflow state', 'workflow baseline', 'workflow checkpoint-file', 'workflow checkpoint-all', 'workflow consolidate', 'workflow repair',
 	'agent list', 'agent show', 'agent rename', 'agent session ensure',
 	'agent work enqueue', 'agent work ready', 'agent work list', 'agent work show', 'agent work claim', 'agent work complete', 'agent work requeue',
@@ -138,7 +143,7 @@ async function workflow(args: readonly string[], io: CliIo, services: MainServic
 				: operation === 'checkpoint-file' ? await (services.createTemporaryCommit ?? createTemporaryCommit)(request, false)
 					: operation === 'checkpoint-all' ? await (services.createTemporaryCommit ?? createTemporaryCommit)(request, true)
 						: operation === 'consolidate' ? await (services.consolidateTemporaryCommits ?? consolidateTemporaryCommits)(request)
-							: await (services.repairCompanions ?? repairCompanions)(request);
+							: (await (services.repairFromDiff ?? repairFromDiff)(request)).companionRepair;
 		writeJson(io, result); return 0;
 	} catch (error) { return machineFailure(io, error); }
 }
@@ -146,11 +151,14 @@ async function workflow(args: readonly string[], io: CliIo, services: MainServic
 async function annotations(args: readonly string[], io: CliIo, services: MainServices): Promise<number> {
 	try {
 		const [operation, ...rest] = args;
-		if (operation !== 'append' && operation !== 'delete' && operation !== 'read') {throw new Error('annotations requires append, delete, or read');}
+		if (operation !== 'append' && operation !== 'delete' && operation !== 'read' && operation !== 'reanchor') {
+			throw new Error('annotations requires append, delete, read, or reanchor');
+		}
 		const request = await requestInput(rest, io, services, `annotations ${operation}`);
 		const result = operation === 'append' ? await (services.appendUserAnnotation ?? appendUserAnnotation)(request)
 			: operation === 'delete' ? await (services.deleteUserAnnotation ?? deleteUserAnnotation)(request)
-				: await (services.readUserAnnotations ?? readUserAnnotations)(request);
+				: operation === 'reanchor' ? await (services.reanchorAnnotations ?? reanchorAnnotations)(request)
+					: await (services.readUserAnnotations ?? readUserAnnotations)(request);
 		writeJson(io, result); return 0;
 	} catch (error) { return machineFailure(io, error); }
 }
@@ -226,6 +234,7 @@ async function enqueueCommand(cwd: string, request: Record<string, unknown>): Pr
 		uri,
 		path: workspaceRelativeSourcePath(cwd, uri, optionalString(source.path)),
 		...anchor,
+		line: anchor.line ?? line,
 	}, prompt: { preset: preset(promptValue.preset), scope: scope(promptValue.scope), text: stringField(promptValue, 'text') } });
 }
 
@@ -354,7 +363,8 @@ async function readStream(stream: NodeJS.ReadableStream): Promise<string> { let 
 function writeJson(io: CliIo, value: unknown): void { io.stdout.write(`${JSON.stringify(value)}\n`); }
 function machineFailure(io: CliIo, error: unknown): number {
 	const message = error instanceof SyntaxError ? `Invalid JSON: ${error.message}` : errorMessage(error);
-	if (error instanceof AgentStoreConflictError || error instanceof GitWorkflowConflictError) {
+	if (error instanceof AgentStoreConflictError || error instanceof GitWorkflowConflictError
+		|| error instanceof CompanionRepairConflictError) {
 		writeJson(io, {
 			kind: 'conflict', code: error.code, message,
 			...(!(error instanceof AgentStoreConflictError) || error.current === undefined

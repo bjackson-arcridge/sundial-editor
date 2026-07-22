@@ -6,9 +6,16 @@ import type { PromptContext } from './promptCommand';
 import { submitPrompt } from './promptSubmission';
 import { returnToVSCodeVimNormalMode } from './vimNormalMode';
 import { MessagesWebviewProvider } from './webviews/messages/messagesWebviewProvider';
-import { repairCompanionsViaCli, runGitWorkflowViaCli, type GitWorkflowState } from './cliRunner';
+import {
+	readAnnotationsViaCli,
+	reanchorAnnotationsViaCli,
+	repairCompanionsViaCli,
+	runGitWorkflowViaCli,
+	type GitWorkflowState,
+} from './cliRunner';
 import { DiffEditorController, type DiffBaselineAction } from './diffEditorController';
 import { executeWorkflowTextCommand, type WorkflowCommandId } from './workflowTextCommand';
+import { AnnotationReanchorController } from './annotationReanchorController';
 
 const messagesViewId = 'sundialEditor.messages';
 const agentsViewContainerId = 'sundialEditor';
@@ -43,6 +50,17 @@ export function activate(context: vscode.ExtensionContext): void {
 			}
 		},
 	});
+	const reanchorController = new AnnotationReanchorController({
+		readAnnotations: source => readAnnotationsViaCli(cliPath(), {
+			workspace: { cwd: source.cwd }, document: { uri: source.sourceUri },
+		}),
+		reanchor: (source, previousSource, expectedPreviousSourceDigest) => reanchorAnnotationsViaCli(cliPath(), {
+			workspace: { cwd: source.cwd }, document: { uri: source.sourceUri },
+			previousSource, expectedPreviousSourceDigest,
+		}),
+		onApplied: () => messagesProvider.refreshActiveAnnotations(),
+		reportError: message => console.error(`sundial-editor: annotation re-anchor failed: ${message}`),
+	});
 	const annotationWatcher = vscode.workspace.createFileSystemWatcher('**/.sundial/**/*.comments');
 	const updateActiveLocation = (editor: vscode.TextEditor | undefined, reload = false): void => {
 		const source = diffController.activeSourceUri();
@@ -55,6 +73,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	};
 	context.subscriptions.push(
 		diffController,
+		{ dispose: () => reanchorController.dispose() },
 		vscode.window.registerWebviewViewProvider(messagesViewId, messagesProvider),
 		vscode.workspace.onDidChangeConfiguration(event => {
 			if (event.affectsConfiguration(paneSplitPercentConfiguration)) {
@@ -105,7 +124,14 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('sundialEditor.commit.all', () => checkpoint(true)),
 		vscode.commands.registerCommand('sundialEditor.commit.message', () => consolidate()),
 		vscode.commands.registerCommand('sundialEditor.companions.repair', () => repairCompanions()),
-		vscode.window.onDidChangeActiveTextEditor(editor => updateActiveLocation(editor, true)),
+		vscode.window.onDidChangeActiveTextEditor(editor => {
+			updateActiveLocation(editor, true);
+			observeActiveSavedSource();
+		}),
+		vscode.workspace.onDidSaveTextDocument(document => {
+			const activeSource = diffController.activeSourceUri() ?? vscode.window.activeTextEditor?.document.uri;
+			if (activeSource?.toString() === document.uri.toString()) { observeSavedDocument(document); }
+		}),
 		vscode.window.onDidChangeTextEditorSelection(event => {
 			if (event.textEditor === vscode.window.activeTextEditor) {
 				updateActiveLocation(event.textEditor);
@@ -198,8 +224,21 @@ export function activate(context: vscode.ExtensionContext): void {
 		});
 	}
 	function cliPath(): string { return vscode.workspace.getConfiguration('sundialEditor').get<string>('cliPath', 'sundial-editor-cli'); }
+	function observeActiveSavedSource(): void {
+		const source = diffController.activeSourceUri() ?? vscode.window.activeTextEditor?.document.uri;
+		if (source === undefined) { return; }
+		const document = vscode.workspace.textDocuments.find(candidate => candidate.uri.toString() === source.toString());
+		if (document !== undefined && !document.isDirty) { observeSavedDocument(document); }
+	}
+	function observeSavedDocument(document: vscode.TextDocument): void {
+		const cwd = workspaceCwdForSource(document.uri);
+		if (cwd !== undefined && document.uri.scheme === 'file' && !document.isDirty) {
+			reanchorController.observeSaved({ cwd, sourceUri: document.uri.toString(), text: document.getText() });
+		}
+	}
 	syncDiffPresentation();
 	updateActiveLocation(vscode.window.activeTextEditor, true);
+	observeActiveSavedSource();
 
 	setTimeout(() => {
 		void revealAgentsViewOnFirstActivation({
@@ -211,8 +250,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
-async function revealAnnotation(sourceUri: string, sourceLine: number, preserveFocus = true): Promise<void> {
+async function revealAnnotation(sourceUri: string, sourceLine: number | null, preserveFocus = true): Promise<void> {
 	const editor = await vscode.window.showTextDocument(vscode.Uri.parse(sourceUri), { preserveFocus });
+	if (sourceLine === null) { return; }
 	const line = Math.min(sourceLine, Math.max(editor.document.lineCount - 1, 0));
 	const position = new vscode.Position(line, 0);
 	editor.selection = new vscode.Selection(position, position);

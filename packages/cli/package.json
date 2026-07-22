@@ -1,6 +1,6 @@
 {
   "name": "@arcridge/sundial-editor-cli",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Local provider bridge for Sundial Editor.",
   "license": "Apache-2.0",
   "repository": {
@@ -24,12 +24,18 @@
     "sundial-annotations-cli": "dist/annotations-main.js"
   },
   "scripts": {
+    "precheck-types": "npm run compile --workspace @arcridge/sundial-editor-annotations",
     "check-types": "tsc --noEmit",
     "compile": "npm run check-types && node esbuild.js",
     "prepack": "npm run compile",
+    "pretest:unit": "npm run compile --workspace @arcridge/sundial-editor-annotations",
     "test:unit": "tsc -p . --outDir out && node --test out/unit/*.test.js",
+    "pretest:integration": "npm run compile --workspace @arcridge/sundial-editor-annotations",
     "test:integration": "tsc -p . --outDir out && node --test out/integration/*.test.js",
     "test": "npm run test:integration",
     "cli": "npm run compile --silent && node dist/main.js"
+  },
+  "devDependencies": {
+    "@arcridge/sundial-editor-annotations": "0.1.0"
   }
 }

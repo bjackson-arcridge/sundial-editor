@@ -143,7 +143,7 @@ describe('git workflow', () => {
 			await git(cwd, ['add', '.']); await git(cwd, ['commit', '-m', 'Initial']);
 			await writeFile(path.join(cwd, 'source file.ts'), 'checkpoint\n');
 			await mkdir(path.join(cwd, '.sundial'));
-			await writeFile(path.join(cwd, '.sundial', 'source file.ts.comments'), 'version: 3\nannotations:\n');
+			await writeFile(path.join(cwd, '.sundial', 'source file.ts.comments'), `version: 5\nsourceDigest: ${'a'.repeat(64)}\nannotations:\n`);
 			await writeFile(path.join(cwd, 'staged.ts'), 'staged change\n'); await git(cwd, ['add', 'staged.ts']);
 			await writeFile(path.join(cwd, 'worktree.ts'), 'worktree change\n');
 			const state = await createTemporaryCommit({ workspace: { cwd }, file: 'source file.ts' }, false);
@@ -161,7 +161,8 @@ describe('git workflow', () => {
 			await git(cwd, ['init']); await git(cwd, ['config', 'user.email', 'test@example.com']); await git(cwd, ['config', 'user.name', 'Test']);
 			await mkdir(path.join(cwd, '.sundial'));
 			await writeFile(path.join(cwd, 'old.ts'), 'source\n');
-			await writeFile(path.join(cwd, '.sundial', 'old.ts.comments'), 'stable companion\n');
+			const companion = `version: 5\nsourceDigest: ${'a'.repeat(64)}\nannotations:\n`;
+			await writeFile(path.join(cwd, '.sundial', 'old.ts.comments'), companion);
 			await git(cwd, ['add', '.']); await git(cwd, ['commit', '-m', 'Initial']);
 			await git(cwd, ['mv', 'old.ts', 'new.ts']);
 			const state = await createTemporaryCommit({ workspace: { cwd }, file: 'new.ts' }, false);
@@ -170,8 +171,37 @@ describe('git workflow', () => {
 			]));
 			assert.equal(await git(cwd, ['ls-tree', '--name-only', 'HEAD', 'old.ts']), '');
 			assert.equal(await git(cwd, ['show', 'HEAD:new.ts']), 'source');
-			assert.equal(await git(cwd, ['show', 'HEAD:.sundial/new.ts.comments']), 'stable companion');
+			assert.equal(await git(cwd, ['show', 'HEAD:.sundial/new.ts.comments']), companion.trim());
 			await assert.rejects(() => git(cwd, ['show', 'HEAD:.sundial/old.ts.comments']));
+		} finally { await rm(cwd, { recursive: true, force: true }); }
+	});
+
+	test('checkpoints counterpart companions whose links are repaired for the selected move', async () => {
+		const cwd = await mkdtemp(path.join(os.tmpdir(), 'sundial-git-linked-move-'));
+		try {
+			await git(cwd, ['init']); await git(cwd, ['config', 'user.email', 'test@example.com']); await git(cwd, ['config', 'user.name', 'Test']);
+			await mkdir(path.join(cwd, '.sundial'));
+			await writeFile(path.join(cwd, 'old.ts'), 'source\n');
+			await writeFile(path.join(cwd, 'other.ts'), 'other\n');
+			const commit = 'a'.repeat(40); const digest = 'b'.repeat(64);
+			const user = {
+				kind: 'user', id: 'query-1', permanentBaseCommit: commit, message: 'Move.', preset: '%Q', scope: 'line',
+				anchor: { line: 0, text: 'source', before: [], after: [] }, officialResponses: [],
+				agentAnnotations: [{ annotationId: 'agent-note-1', file: 'other.ts', line: 0 }],
+			};
+			const agent = {
+				kind: 'agent', id: 'agent-note-1', permanentBaseCommit: commit, agentId: 'agent-1', agentSessionId: 'session-1',
+				body: 'Linked.', createdAt: '2026-07-21T12:00:00.000Z', anchor: { line: 0, text: 'other', before: [], after: [] },
+				userAnnotation: { annotationId: 'query-1', file: 'old.ts', line: 0 },
+			};
+			const render = (annotation: unknown) => `version: 5\nsourceDigest: ${digest}\nannotations:\n  - ${JSON.stringify(annotation)}\n`;
+			await writeFile(path.join(cwd, '.sundial', 'old.ts.comments'), render(user));
+			await writeFile(path.join(cwd, '.sundial', 'other.ts.comments'), render(agent));
+			await git(cwd, ['add', '.']); await git(cwd, ['commit', '-m', 'Initial']);
+			await git(cwd, ['mv', 'old.ts', 'new.ts']);
+			const state = await createTemporaryCommit({ workspace: { cwd }, file: 'new.ts' }, false);
+			assert.equal(state.affectedPaths.includes('.sundial/other.ts.comments'), true);
+			assert.match(await git(cwd, ['show', 'HEAD:.sundial/other.ts.comments']), /"file":"new\.ts"/);
 		} finally { await rm(cwd, { recursive: true, force: true }); }
 	});
 
@@ -202,7 +232,7 @@ describe('git workflow', () => {
 			await writeFile(path.join(cwd, 'source.ts'), 'initial\n'); await git(cwd, ['add', '.']); await git(cwd, ['commit', '-m', 'Initial']);
 			const permanentParent = await git(cwd, ['rev-parse', 'HEAD']);
 			await mkdir(path.join(cwd, '.sundial'));
-			const companion = 'version: 3\nannotations:\n  - {"kind":"user","id":"stable-id"}\n';
+			const companion = `version: 5\nsourceDigest: ${'a'.repeat(64)}\nannotations:\n`;
 			await writeFile(path.join(cwd, '.sundial', 'source.ts.comments'), companion);
 			await createTemporaryCommit({ workspace: { cwd } }, true);
 			await writeFile(path.join(cwd, 'second.ts'), 'second\n'); await createTemporaryCommit({ workspace: { cwd } }, true);

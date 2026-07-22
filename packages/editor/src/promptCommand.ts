@@ -1,5 +1,7 @@
+import { annotationPromptPresets } from '@arcridge/sundial-editor-annotations';
+
 export const promptCommandPrefix = '%';
-export const promptPresets = ['%Q', '%F', '%W', '%R', '%C', '%T'] as const;
+export const promptPresets = annotationPromptPresets;
 
 export type PromptPreset = typeof promptPresets[number];
 export type PromptScope = 'line' | 'project';
