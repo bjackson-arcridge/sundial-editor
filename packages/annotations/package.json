@@ -1,0 +1,50 @@
+{
+  "name": "@arcridge/sundial-editor-annotations",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared annotation contracts and companion storage primitives for Sundial Editor.",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./digest": {
+      "types": "./dist/digest.d.ts",
+      "default": "./dist/digest.js"
+    },
+    "./paths": {
+      "types": "./dist/paths.d.ts",
+      "default": "./dist/paths.js"
+    },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "default": "./dist/store.js"
+    },
+    "./reanchor": {
+      "types": "./dist/reanchor.d.ts",
+      "default": "./dist/reanchor.js"
+    },
+    "./move": {
+      "types": "./dist/move.d.ts",
+      "default": "./dist/move.js"
+    },
+    "./repair": {
+      "types": "./dist/repair.d.ts",
+      "default": "./dist/repair.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "compile": "tsc",
+    "test:unit": "tsc -p tsconfig.test.json && node --test out/unit/*.test.js"
+  },
+  "devDependencies": {
+    "diff": "9.0.0"
+  }
+}

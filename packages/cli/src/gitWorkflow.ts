@@ -1,9 +1,9 @@
 import { access } from 'node:fs/promises';
 import * as path from 'node:path';
-import { repairCompanions, type CompanionRepairResult } from './companionRepair.js';
+import type { CompanionRepairResult } from '@arcridge/sundial-editor-annotations';
+import { companionRelativePathForSourceFile } from '@arcridge/sundial-editor-annotations/paths';
+import { repairFromDiff } from '@arcridge/sundial-editor-annotations/repair';
 import { assertGitWorktreeReady, GitWorkflowConflictError, runGitCommand as git } from './gitProcess.js';
-
-export { GitWorkflowConflictError } from './gitProcess.js';
 
 export const temporaryCommitMessage = 'Sundial:temp';
 
@@ -52,7 +52,7 @@ export async function moveGitWorkflowBaseline(value: unknown): Promise<GitWorkfl
 export async function createTemporaryCommit(value: unknown, all: boolean): Promise<GitWorkflowState> {
 	const request = parseRequest(value);
 	await assertSafeMutation(request.workspace.cwd);
-	const repair = await repairCompanions(request);
+	const repair = (await repairFromDiff(request)).companionRepair;
 	const paths = all ? await dirtyPaths(request.workspace.cwd) : await commitPathsForFile(request.workspace.cwd, requiredFile(request), repair);
 	if (paths.length === 0) { throw new GitWorkflowConflictError('nothing_to_checkpoint', 'There are no dirty files to checkpoint.'); }
 	if (all) { await git(request.workspace.cwd, ['add', '-A']); }
@@ -65,7 +65,7 @@ export async function consolidateTemporaryCommits(value: unknown): Promise<GitWo
 	const request = parseRequest(value);
 	if (typeof request.message !== 'string' || request.message.trim() === '') { throw new Error('workflow consolidation requires a non-empty commit message'); }
 	await assertSafeMutation(request.workspace.cwd);
-	const repair = await repairCompanions(request);
+	const repair = (await repairFromDiff(request)).companionRepair;
 	const before = await stateFor(request.workspace.cwd, request.baseline);
 	const dirty = await dirtyPaths(request.workspace.cwd);
 	if (before.temporaryCommitCount === 0 && dirty.length === 0) {
@@ -123,10 +123,10 @@ async function assertSafeMutation(cwd: string): Promise<void> {
 
 async function commitPathsForFile(cwd: string, file: string, repair: CompanionRepairResult): Promise<string[]> {
 	const normalized = normalizePath(cwd, file);
-	const companion = `.sundial/${normalized}.comments`;
+	const companion = companionRelativePathForSourceFile(normalized);
 	const dirty = new Set(await dirtyPaths(cwd));
 	const repairedCompanions = repair.actions.flatMap(action => action.kind === 'move' && action.destination === normalized
-		? [action.source, action.destination, action.companion, action.destinationCompanion] : []);
+		? [action.source, action.destination, action.companion, action.destinationCompanion, ...(action.linkedCompanions ?? [])] : []);
 	return uniquePaths([normalized, companion, ...repairedCompanions]).filter(candidate => dirty.has(candidate));
 }
 

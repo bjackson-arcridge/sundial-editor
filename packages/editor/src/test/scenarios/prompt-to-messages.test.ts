@@ -125,7 +125,7 @@ suite('Scenario: prompt-to-messages', () => {
 
 		const companionPath = vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', 'prompt.txt.comments').fsPath;
 		const companionYaml = await readFile(companionPath, 'utf8');
-		assert.match(companionYaml, /^version: 4\nannotations:\n/);
+		assert.match(companionYaml, /^version: 5\nsourceDigest: [0-9a-f]{64}\nannotations:\n/);
 		assert.match(companionYaml, /"permanentBaseCommit":"[0-9a-f]{40}"/);
 		assert.match(companionYaml, /"message":"Fix this through the test provider\."/);
 		assert.match(companionYaml, /"text":"code before the command"/);

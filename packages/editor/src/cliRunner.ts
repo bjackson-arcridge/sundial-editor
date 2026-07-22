@@ -1,5 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import {
+	parseCompanionRepairResult as parseSharedCompanionRepairResult,
+	type CompanionRepairResult,
+} from '@arcridge/sundial-editor-annotations';
+import {
 	isNamedAgent,
 	isUserAnnotationWorkItem,
 	parseAgentTranscript,
@@ -16,10 +20,13 @@ import type { PromptContext } from './promptCommand';
 import {
 	parseAnnotationCompanion,
 	parseAnnotation,
+	parseAnnotationReanchorResult,
 	type AnnotationAppendRequest,
 	type AnnotationCompanion,
 	type AnnotationDeleteRequest,
 	type AnnotationReadRequest,
+	type AnnotationReanchorRequest,
+	type AnnotationReanchorResult,
 	type Annotation,
 	type UserAnnotation,
 } from './annotationProtocol';
@@ -81,15 +88,7 @@ export interface GitWorkflowState {
 	readonly affectedPaths: readonly string[];
 }
 
-export interface CompanionRepairResult {
-	readonly actions: readonly ({
-		readonly kind: 'move'; readonly source: string; readonly destination: string;
-		readonly companion: string; readonly destinationCompanion: string;
-	} | {
-		readonly kind: 'delete'; readonly source: string; readonly companion: string;
-	})[];
-	readonly affectedPaths: readonly string[];
-}
+export type { CompanionRepairResult };
 
 export class CliConflictError extends Error {
 	constructor(
@@ -197,6 +196,15 @@ export async function deleteAnnotationViaCli(
 	return parseAnnotation(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'delete'], request, services));
 }
 
+export async function reanchorAnnotationsViaCli(
+	cliPath: string,
+	request: AnnotationReanchorRequest,
+	services: CliProcessServices = defaultServices,
+): Promise<AnnotationReanchorResult> {
+	const value = await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'reanchor'], request, services);
+	return parseAnnotationReanchorResult(value);
+}
+
 export async function runGitWorkflowViaCli(
 	cliPath: string,
 	cwd: string,
@@ -222,12 +230,8 @@ export async function repairCompanionsViaCli(
 	services: CliProcessServices = defaultServices,
 ): Promise<CompanionRepairResult> {
 	const value = await invokeJsonCommand(cliPath, cwd, ['workflow', 'repair'], { workspace: { cwd } }, services);
-	if (!isRecord(value) || !Array.isArray(value.actions) || !value.actions.every(isCompanionRepairAction)
-		|| !Array.isArray(value.affectedPaths)
-		|| !value.affectedPaths.every(candidate => typeof candidate === 'string' && candidate.trim() !== '')) {
-		throw new Error('Sundial Editor CLI returned a malformed companion repair result.');
-	}
-	return value as unknown as CompanionRepairResult;
+	try { return parseSharedCompanionRepairResult(value); }
+	catch { throw new Error('Sundial Editor CLI returned a malformed companion repair result.'); }
 }
 
 export async function listAgentsViaCli(
@@ -489,14 +493,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isCommitHash(value: unknown): value is string {
 	return typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
-}
-
-function isCompanionRepairAction(value: unknown): boolean {
-	if (!isRecord(value) || (value.kind !== 'move' && value.kind !== 'delete')
-		|| !nonEmptyStrings(value, ['source', 'companion'])) { return false; }
-	return value.kind === 'delete' || nonEmptyStrings(value, ['destination', 'destinationCompanion']);
-}
-
-function nonEmptyStrings(value: Record<string, unknown>, fields: readonly string[]): boolean {
-	return fields.every(field => typeof value[field] === 'string' && (value[field] as string).trim() !== '');
 }

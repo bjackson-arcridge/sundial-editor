@@ -1,0 +1,5 @@
+version: 5
+sourceDigest: 0000000000000000000000000000000000000000000000000000000000000000
+annotations:
+  - {"kind":"user","id":"line-note","permanentBaseCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","message":"Line note.","preset":"%Q","scope":"line","anchor":{"line":1,"text":"stale second","before":["stale first"],"after":["stale third"]},"officialResponses":[],"agentAnnotations":[]}
+  - {"kind":"user","id":"file-note","permanentBaseCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","message":"File note.","preset":"%Q","scope":"line","anchor":{"line":99,"text":"missing","before":[],"after":[]},"officialResponses":[],"agentAnnotations":[]}

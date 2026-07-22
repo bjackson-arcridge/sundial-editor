@@ -31,6 +31,8 @@ When the assigned agent finishes, its official Markdown response appears beneath
 
 Annotated source lines carry an editor marker. Agent activity and annotations occupy independently scrolling halves of the Messages view; drag the separator to resize them. Moving onto a marked line selects its interaction below, and the last viewed interaction remains visible after moving away. The annotation toolbar navigates, deletes, pins, or expands the interaction; pinning prevents another marked line from replacing it. Metadata such as scope, line, and anchoring context remains collapsed by default. Toolbar state lasts for the current editor session; the interaction itself survives restarts through the companion file.
 
+After an active source is saved, Sundial automatically relocates its annotations across ordinary inserted, deleted, and replaced lines. Rapid saves are coalesced, and unsaved buffer contents are never used as an annotation baseline. If a location can no longer be represented by a source line, the interaction remains navigable with a **File** badge but has no editor marker or claimed cursor line. Cross-file links follow the relocated interaction by its stable identity.
+
 The pane split survives webview and VS Code restarts through the `sundialEditor.paneSplitPercent` user setting. Dragging the separator or resizing it with the keyboard updates that setting; values remain between 10% and 90% so both panes stay available.
 
 ## Iterative diff and commit workflow
@@ -46,7 +48,7 @@ Type these commands on their own source line and choose the completion. Sundial 
 - `%cf` creates a temporary checkpoint for the current file and its dirty annotation companion.
 - `%ca` creates a temporary checkpoint containing all dirty, staged, and non-ignored untracked files.
 - `%cm` asks for a message, then consolidates the temporary checkpoint suffix and any remaining dirty work into one permanent commit. A prior `%ca` is not required.
-- `%cr` repairs annotation companion paths for source moves and deletes reported by Git.
+- `%cr` repairs annotation companion paths for source moves and deletes reported by Git, including links between moved and related companions.
 
 Temporary checkpoints use the exact commit message `Sundial:temp`. They are local iteration state, not publishable history: Sundial refuses to alter or consolidate a temporary stack if any checkpoint is reachable from `origin`, leaving manual repair to the user. `%cm` removes the verified temporary suffix while retaining companion content and stable annotation identities.
 

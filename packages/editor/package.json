@@ -2,7 +2,7 @@
   "name": "sundial-editor",
   "displayName": "Sundial Editor",
   "description": "A focused collaboration prompt surface for Sundial editing workflows.",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "publisher": "arcridge",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bjackson-arcridge/sundial-editor/tree/main/packages/editor#readme",
@@ -111,16 +111,19 @@
   "scripts": {
     "prepack": "npm run package",
     "vscode:prepublish": "npm run package",
+    "precheck-types": "npm run compile --workspace @arcridge/sundial-editor-annotations",
     "check-types:host": "tsc --noEmit",
     "check-types:webview": "tsc --noEmit -p tsconfig.webview.json",
     "check-types": "npm run check-types:host && npm run check-types:webview",
     "compile": "npm run check-types && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
+    "watch:annotations": "npm run compile --workspace @arcridge/sundial-editor-annotations -- --watch",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "watch:tsc-webview": "tsc --noEmit --watch -p tsconfig.webview.json",
     "package": "npm run check-types && node esbuild.js --production",
     "package:vsix": "vsce package --no-dependencies",
+    "precompile-tests": "npm run compile --workspace @arcridge/sundial-editor-annotations",
     "compile-tests": "tsc -p . --outDir out",
     "test:unit": "npm run compile-tests && node --test out/unit/*.test.js",
     "watch-tests": "tsc -p . -w --outDir out",
@@ -128,6 +131,9 @@
     "prepare-test-runtime": "node ../../scripts/prepare-vscode-test-runtime.mjs",
     "pretest": "npm --prefix ../cli run compile && npm run compile-tests && npm run compile && npm run prepare-test-workspaces && npm run prepare-test-runtime",
     "test": "vscode-test --config .vscode-test.mjs"
+  },
+  "devDependencies": {
+    "@arcridge/sundial-editor-annotations": "0.1.0"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.6",

@@ -3,6 +3,7 @@ import { open, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { OfficialResponse } from '@arcridge/sundial-editor-annotations';
 import {
 	AgentStoreConflictError,
 	completeWork,
@@ -13,7 +14,7 @@ import {
 	type PendingResponseEvidence,
 	type UserAnnotationWorkItem,
 } from './agentStore.js';
-import { appendOfficialResponse, readUserAnnotations, type OfficialResponse } from './annotations.js';
+import { appendOfficialResponse, readUserAnnotations } from './annotations.js';
 
 export interface RecordTaskResponseInput {
 	readonly workspaceCwd: string;

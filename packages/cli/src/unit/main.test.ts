@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, test } from 'node:test';
 import type { ProviderAdapter } from '../adapters/adapter';
-import { GitWorkflowConflictError } from '../gitWorkflow';
+import { GitWorkflowConflictError } from '../gitProcess';
 import { main, type CliIo } from '../main';
 import type { AgentEvent } from '../protocol';
 
@@ -39,7 +39,7 @@ describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.7.0\n');
+		assert.equal(version.stdout.join(''), '0.8.0\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
@@ -65,7 +65,11 @@ describe('main', () => {
 				assert.deepEqual(value, request); calls.push(all ? 'checkpoint-all' : 'checkpoint-file'); return state;
 			},
 			consolidateTemporaryCommits: async (value: unknown) => { assert.deepEqual(value, request); calls.push('consolidate'); return state; },
-			repairCompanions: async (value: unknown) => { assert.deepEqual(value, request); calls.push('repair'); return { actions: [], affectedPaths: [] }; },
+			repairFromDiff: async (value: unknown) => {
+				assert.deepEqual(value, request);
+				calls.push('repair');
+				return { companionRepair: { actions: [], affectedPaths: [] }, affectedPaths: [] };
+			},
 		};
 		for (const operation of ['state', 'baseline', 'checkpoint-file', 'checkpoint-all', 'consolidate'] as const) {
 			const run = harness(JSON.stringify(request));
@@ -132,10 +136,23 @@ describe('main', () => {
 			adapters: {}, readFile: async () => '',
 			readUserAnnotations: async value => {
 				assert.deepEqual(value, { read: true });
-				return { version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [] };
+				return { version: 5, sourceDigest: 'd'.repeat(64), annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [] };
 			},
 		}), 0);
-		assert.deepEqual(JSON.parse(read.stdout[0]), { version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [] });
+		assert.deepEqual(JSON.parse(read.stdout[0]), { version: 5, sourceDigest: 'd'.repeat(64), annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [] });
+
+		const reanchor = harness('{"previousSource":"old"}');
+		assert.equal(await main(['annotations', 'reanchor'], reanchor.io, {
+			adapters: {}, readFile: async () => '',
+			reanchorAnnotations: async value => {
+				assert.deepEqual(value, { previousSource: 'old' });
+				return {
+					companion: { version: 5, sourceDigest: 'd'.repeat(64), annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [] },
+					changedAnnotationIds: [], fileScopedAnnotationIds: [], affectedPaths: [], alreadyApplied: true,
+				};
+			},
+		}), 0);
+		assert.equal(JSON.parse(reanchor.stdout[0]).alreadyApplied, true);
 	});
 
 	test('reports health as machine-readable capabilities', async () => {
@@ -155,7 +172,7 @@ describe('main', () => {
 			workStatuses: ['waiting', 'working', 'completed'],
 			providers: ['codex'],
 			commands: [
-				'annotations append', 'annotations read', 'annotations delete',
+				'annotations append', 'annotations read', 'annotations delete', 'annotations reanchor',
 				'workflow state', 'workflow baseline', 'workflow checkpoint-file', 'workflow checkpoint-all', 'workflow consolidate', 'workflow repair',
 				'agent list', 'agent show', 'agent rename', 'agent session ensure',
 				'agent work enqueue', 'agent work ready', 'agent work list', 'agent work show',

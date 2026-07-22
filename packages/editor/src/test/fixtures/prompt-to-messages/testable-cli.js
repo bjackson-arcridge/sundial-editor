@@ -1,6 +1,7 @@
 // Stateful test CLI for the editor's durable named-agent orchestration.
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { fileURLToPath } = require('node:url');
 
 let input = '';
@@ -133,7 +134,7 @@ function handleAgent(operation, action, request) {
 function handleAnnotations(operation, request) {
 	const companionPath = annotationCompanionPath(request);
 	if (operation === 'read') {
-		const companion = readCompanion(companionPath);
+		const companion = readCompanion(companionPath, request.document.uri);
 		const currentPermanentCommit = permanentCommit();
 		writeJson({
 			...companion,
@@ -144,8 +145,19 @@ function handleAnnotations(operation, request) {
 		});
 		return;
 	}
+	if (operation === 'reanchor') {
+		const companion = readCompanion(companionPath, request.document.uri);
+		writeJson({
+			companion: {
+				...companion, currentPermanentCommit: permanentCommit(),
+				currentPermanentAnnotationIds: companion.annotations.filter(annotation => annotation.permanentBaseCommit === permanentCommit()).map(annotation => annotation.id),
+			},
+			changedAnnotationIds: [], fileScopedAnnotationIds: [], affectedPaths: [], alreadyApplied: true,
+		});
+		return;
+	}
 	if (operation === 'append') {
-		const companion = readCompanion(companionPath);
+		const companion = readCompanion(companionPath, request.document.uri);
 		const existing = companion.annotations.find(annotation => annotation.id === request.annotation.id);
 		if (existing !== undefined) {
 			writeJson(existing);
@@ -294,13 +306,13 @@ function annotationCompanionPath(request) {
 	return path.join(request.workspace.cwd, '.sundial', `${relative}.comments`);
 }
 
-function readCompanion(companionPath) {
+function readCompanion(companionPath, sourceUri) {
 	if (!fs.existsSync(companionPath)) {
-		return { version: 4, annotations: [] };
+		return { version: 5, sourceDigest: digest(fs.readFileSync(fileURLToPath(sourceUri), 'utf8')), annotations: [] };
 	}
 	const lines = fs.readFileSync(companionPath, 'utf8').trimEnd().split('\n');
 	const version = Number(lines[0].slice('version: '.length));
-	return { version, annotations: lines.slice(2).map(line => JSON.parse(line.slice(4))) };
+	return { version, sourceDigest: lines[1].slice('sourceDigest: '.length), annotations: lines.slice(3).map(line => JSON.parse(line.slice(4))) };
 }
 
 function permanentCommit() {
@@ -310,10 +322,15 @@ function permanentCommit() {
 function renderCompanion(companion) {
 	return [
 		`version: ${companion.version}`,
+		`sourceDigest: ${companion.sourceDigest}`,
 		'annotations:',
 		...companion.annotations.map(annotation => `  - ${JSON.stringify(annotation)}`),
 		'',
 	].join('\n');
+}
+
+function digest(source) {
+	return createHash('sha256').update(source, 'utf8').digest('hex');
 }
 
 function anchorForRequest(request) {

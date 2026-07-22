@@ -1,7 +1,7 @@
 ---
 id: DR-0016
 title: CLI store operations avoid runtime dependencies and shell pipelines
-status: accepted
+status: retired
 domain: cli
 created: 2026-05-05
 references:

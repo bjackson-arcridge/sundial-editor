@@ -1,4 +1,5 @@
 import * as assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { describe, test } from 'node:test';
@@ -7,7 +8,7 @@ describe('CLI package manifest', () => {
 	test('defines the public executable package contract', async () => {
 		const manifest = JSON.parse(await readFile(path.resolve(__dirname, '../../package.json'), 'utf8'));
 		assert.equal(manifest.name, '@arcridge/sundial-editor-cli');
-		assert.equal(manifest.version, '0.7.0');
+		assert.equal(manifest.version, '0.8.0');
 		assert.equal(manifest.engines.node, '>=20');
 		assert.deepEqual(manifest.bin, {
 			'sundial-editor-cli': 'dist/main.js',
@@ -15,6 +16,8 @@ describe('CLI package manifest', () => {
 		});
 		assert.equal(manifest.publishConfig.access, 'public');
 		assert.deepEqual(manifest.files, ['dist', 'README.md', 'LICENSE']);
+		assert.equal(manifest.devDependencies['@arcridge/sundial-editor-annotations'], '0.1.0');
+		assert.equal(manifest.devDependencies.diff, undefined);
 		assert.equal(manifest.repository.directory, 'packages/cli');
 		assert.match(manifest.scripts.prepack, /compile/);
 		assert.match(manifest.scripts['test:integration'], /out\/integration/);
@@ -35,6 +38,13 @@ describe('CLI package manifest', () => {
 		assert.match(buildScript, /entryPoints: \['src\/annotations-main\.ts'\]/);
 		assert.match(buildScript, /fs\.cpSync\('src\/prompts', 'dist\/prompts'/);
 		assert.match(buildScript, /fs\.chmodSync\('dist\/annotations-main\.js', 0o755\)/);
+
+		const annotationsAdapter = await readFile(path.resolve(__dirname, '../../src/annotations.ts'), 'utf8');
+		const gitWorkflow = await readFile(path.resolve(__dirname, '../../src/gitWorkflow.ts'), 'utf8');
+		assert.equal(existsSync(path.resolve(__dirname, '../../src/companionRepair.ts')), false);
+		assert.equal(existsSync(path.resolve(__dirname, '../../src/lineDiff.ts')), false);
+		assert.match(gitWorkflow, /@arcridge\/sundial-editor-annotations\/repair/);
+		assert.doesNotMatch(annotationsAdapter, /diffArrays|survivingLineMap|translateLine/);
 
 		const promptAssets = [
 			'assignment.md',

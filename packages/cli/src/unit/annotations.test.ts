@@ -5,13 +5,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, test } from 'node:test';
+import { parseAnnotationCompanionText, renderAnnotationCompanion } from '@arcridge/sundial-editor-annotations';
+import { contentDigest } from '@arcridge/sundial-editor-annotations/digest';
+import { createAnnotationAnchor } from '@arcridge/sundial-editor-annotations/reanchor';
 import {
 	appendOfficialResponse,
 	appendUserAnnotation,
-	createAnnotationAnchor,
 	deleteUserAnnotation,
-	parseAnnotationCompanion,
 	readUserAnnotations,
+	reanchorAnnotations,
 	writeAgentAnnotationPair,
 } from '../annotations';
 import { createTemporaryCommit, moveGitWorkflowBaseline } from '../gitWorkflow';
@@ -38,7 +40,7 @@ async function workspace(): Promise<{ root: string; source: string; sourceUri: s
 	return { root, source, sourceUri: pathToFileURL(source).toString() };
 }
 
-describe('version 4 annotation companions', () => {
+describe('version 5 annotation companions', () => {
 	test('builds fixed anchors from saved LF or CRLF source', () => {
 		assert.deepEqual(createAnnotationAnchor('one\r\n\r\ntwo\r\nthree\r\nfour\r\nfive', 2), {
 			line: 2, text: 'two', before: ['one'], after: ['three', 'four', 'five'],
@@ -61,66 +63,25 @@ describe('version 4 annotation companions', () => {
 		assert.deepEqual((await readUserAnnotations({ workspace: { cwd: context.root }, document: { uri: context.sourceUri } })).annotations, [first]);
 	});
 
-	test('migrates version 3 in memory and rejects unsupported versions', () => {
+	test('parses only the current source-digest and nullable-line format', () => {
 		const permanentBaseCommit = 'a'.repeat(40);
-		const legacyAnnotation = {
+		const annotation = {
 			kind: 'user', id: 'query-1', message: 'Explain.', preset: '%Q', scope: 'line',
-			anchor: { line: 2, text: 'const value = 1;', before: ['before'], after: ['after'] },
+			permanentBaseCommit,
+			anchor: { line: null, text: 'const value = 1;', before: ['before'], after: ['after'] },
 			officialResponses: [{
 				userAnnotationId: 'query-1', agentId: 'agent-1', agentSessionId: 'session-1',
 				body: 'Done.', createdAt: '2026-07-21T12:00:00.000Z',
 			}],
-			agentAnnotations: [{ annotationId: 'agent-note-1', file: 'src/example.ts', line: 2 }],
+			agentAnnotations: [{ annotationId: 'agent-note-1', file: 'src/example.ts', line: null }],
 		};
-		const legacy = parseAnnotationCompanion(`version: 3\nannotations:\n  - ${JSON.stringify(legacyAnnotation)}\n`, permanentBaseCommit);
-		assert.deepEqual(legacy, {
-			version: 4, annotations: [{ ...legacyAnnotation, permanentBaseCommit }],
+		const current = parseAnnotationCompanionText(`version: 5\nsourceDigest: ${'b'.repeat(64)}\nannotations:\n  - ${JSON.stringify(annotation)}\n`);
+		assert.deepEqual(current, {
+			version: 5, sourceDigest: 'b'.repeat(64), annotations: [annotation],
 		});
-		assert.throws(() => parseAnnotationCompanion('version: 3\nannotations:\n'), /migration requires/);
-		for (const version of [1, 2, 5]) {
-			assert.throws(() => parseAnnotationCompanion(`version: ${version}\nannotations:\n`), /version 3 or 4/);
+		for (const version of [1, 2, 3, 4, 6]) {
+			assert.throws(() => parseAnnotationCompanionText(`version: ${version}\nannotations:\n`), /version 5/);
 		}
-	});
-
-	test('writes a migrated predecessor without changing annotation or response identities', async () => {
-		const context = await workspace();
-		const permanentBaseCommit = await git(context.root, ['rev-parse', 'HEAD']);
-		const companionPath = path.join(context.root, '.sundial', 'src', 'example.ts.comments');
-		const user = {
-			kind: 'user', id: 'query-1', message: 'Explain.', preset: '%Q', scope: 'line',
-			anchor: { line: 2, text: 'const value = 1;', before: ['before'], after: ['after'] },
-			officialResponses: [{
-				userAnnotationId: 'query-1', agentId: 'agent-1', agentSessionId: 'session-1',
-				body: 'Done.', createdAt: '2026-07-21T12:00:00.000Z',
-			}],
-			agentAnnotations: [{ annotationId: 'agent-note-1', file: 'src/example.ts', line: 2 }],
-		};
-		const agent = {
-			kind: 'agent', id: 'agent-note-1', agentId: 'agent-1', agentSessionId: 'session-1',
-			body: 'Related.', createdAt: '2026-07-21T12:01:00.000Z',
-			anchor: { line: 2, text: 'const value = 1;', before: ['before'], after: ['after'] },
-			userAnnotation: { annotationId: 'query-1', file: 'src/example.ts', line: 2 },
-		};
-		await mkdir(path.dirname(companionPath), { recursive: true });
-		await writeFile(companionPath, `version: 3\nannotations:\n  - ${JSON.stringify(user)}\n  - ${JSON.stringify(agent)}\n`);
-
-		await appendUserAnnotation({
-			workspace: { cwd: context.root }, document: { uri: context.sourceUri, line: 0 },
-			annotation: { id: 'query-2', message: 'Another.', preset: '%F', scope: 'line' },
-		});
-
-		const rendered = await readFile(companionPath, 'utf8');
-		assert.match(rendered, /^version: 4\nannotations:\n/);
-		const migrated = parseAnnotationCompanion(rendered);
-		assert.deepEqual(migrated.annotations.map(annotation => annotation.id), ['query-1', 'agent-note-1', 'query-2']);
-		assert.deepEqual(migrated.annotations.map(annotation => annotation.permanentBaseCommit), [
-			permanentBaseCommit, permanentBaseCommit, permanentBaseCommit,
-		]);
-		const migratedUser = migrated.annotations[0];
-		assert.equal(migratedUser.kind, 'user');
-		if (migratedUser.kind !== 'user') { assert.fail('expected user annotation'); }
-		assert.equal(migratedUser.officialResponses[0].userAnnotationId, 'query-1');
-		assert.equal(migratedUser.agentAnnotations[0].annotationId, 'agent-note-1');
 	});
 
 	test('returns membership for the current permanent commit independently of temporary commits and selected baseline', async () => {
@@ -160,11 +121,11 @@ describe('version 4 annotation companions', () => {
 		await assert.rejects(appendUserAnnotation({
 			workspace: { cwd: context.root }, document: { uri: context.sourceUri, line: 2 },
 			annotation: { id: 'query-1', message: 'Explain.', preset: '%Q', scope: 'line' },
-		}), /malformed annotation/);
+		}), /version 5/);
 		assert.equal(await readFile(companionPath, 'utf8'), malformed);
 	});
 
-	test('preserves official responses on the version 4 user record', async () => {
+	test('preserves official responses on the version 5 user record', async () => {
 		const context = await workspace();
 		await appendUserAnnotation({
 			workspace: { cwd: context.root }, document: { uri: context.sourceUri, line: 2 },
@@ -200,5 +161,84 @@ describe('version 4 annotation companions', () => {
 		const remaining = await readUserAnnotations({ workspace: { cwd: context.root }, document: { uri: context.sourceUri } });
 		assert.equal(remaining.annotations[0].kind, 'user');
 		if (remaining.annotations[0].kind === 'user') { assert.deepEqual(remaining.annotations[0].agentAnnotations, []); }
+	});
+
+	test('finishes a cross-file agent deletion after its reverse link was already removed', async () => {
+		const context = await workspace();
+		const target = path.join(context.root, 'src', 'other.ts');
+		await writeFile(target, 'target\n');
+		await appendUserAnnotation({
+			workspace: { cwd: context.root }, document: { uri: context.sourceUri, line: 2 },
+			annotation: { id: 'query-1', message: 'Explain.', preset: '%Q', scope: 'line' },
+		});
+		await writeAgentAnnotationPair({
+			workspaceCwd: context.root, originFile: 'src/example.ts', targetFile: 'src/other.ts', targetLine: 0,
+			userAnnotationId: 'query-1', agentAnnotationId: 'agent-note-1', agentId: 'agent-1', agentSessionId: 'session-1',
+			body: 'This location matters.', createdAt: '2026-07-21T12:00:00.000Z',
+		});
+		const originPath = path.join(context.root, '.sundial', 'src', 'example.ts.comments');
+		const origin = parseAnnotationCompanionText(await readFile(originPath, 'utf8'));
+		const parent = origin.annotations[0];
+		assert.equal(parent.kind, 'user');
+		if (parent.kind !== 'user') { assert.fail('expected user annotation'); }
+		await writeFile(originPath, renderAnnotationCompanion({
+			...origin,
+			annotations: [{ ...parent, agentAnnotations: [] }],
+		}));
+
+		await deleteUserAnnotation({
+			workspace: { cwd: context.root },
+			document: { uri: pathToFileURL(target).toString() },
+			annotation: { id: 'agent-note-1' },
+		});
+		assert.deepEqual((await readUserAnnotations({
+			workspace: { cwd: context.root }, document: { uri: pathToFileURL(target).toString() },
+		})).annotations, []);
+	});
+
+	test('re-anchors all annotations from one saved baseline and is idempotent', async () => {
+		const context = await workspace();
+		const previousSource = await readFile(context.source, 'utf8');
+		await appendUserAnnotation({
+			workspace: { cwd: context.root }, document: { uri: context.sourceUri, line: 2 },
+			annotation: { id: 'query-1', message: 'Explain.', preset: '%Q', scope: 'line' },
+		});
+		await writeFile(context.source, `inserted\n${previousSource}`);
+		const request = {
+			workspace: { cwd: context.root }, document: { uri: context.sourceUri }, previousSource,
+			expectedPreviousSourceDigest: contentDigest(previousSource),
+		};
+		const result = await reanchorAnnotations(request);
+		assert.deepEqual(result.changedAnnotationIds, ['query-1']);
+		assert.deepEqual(result.fileScopedAnnotationIds, []);
+		assert.equal(result.companion.annotations[0].anchor.line, 3);
+		assert.equal(result.companion.annotations[0].anchor.text, 'const value = 1;');
+		assert.deepEqual(result.affectedPaths, ['.sundial/src/example.ts.comments']);
+		assert.equal((await reanchorAnnotations(request)).alreadyApplied, true);
+	});
+
+	test('falls back to file scope and updates a reciprocal stable-id link', async () => {
+		const context = await workspace();
+		const target = path.join(context.root, 'src', 'other.ts');
+		await writeFile(target, 'target\n');
+		await appendUserAnnotation({
+			workspace: { cwd: context.root }, document: { uri: context.sourceUri, line: 2 },
+			annotation: { id: 'query-1', message: 'Explain.', preset: '%Q', scope: 'line' },
+		});
+		await writeAgentAnnotationPair({
+			workspaceCwd: context.root, originFile: 'src/example.ts', targetFile: 'src/other.ts', targetLine: 0,
+			userAnnotationId: 'query-1', agentAnnotationId: 'agent-note-1', agentId: 'agent-1', agentSessionId: 'session-1',
+			body: 'Related.', createdAt: '2026-07-21T12:00:00.000Z',
+		});
+		const previousSource = await readFile(target, 'utf8');
+		await writeFile(target, '');
+		const result = await reanchorAnnotations({
+			workspace: { cwd: context.root }, document: { uri: pathToFileURL(target).toString() }, previousSource,
+			expectedPreviousSourceDigest: contentDigest(previousSource),
+		});
+		assert.deepEqual(result.fileScopedAnnotationIds, ['agent-note-1']);
+		const origin = await readUserAnnotations({ workspace: { cwd: context.root }, document: { uri: context.sourceUri } });
+		assert.equal(origin.annotations[0].kind, 'user');
+		if (origin.annotations[0].kind === 'user') { assert.equal(origin.annotations[0].agentAnnotations[0].line, null); }
 	});
 });

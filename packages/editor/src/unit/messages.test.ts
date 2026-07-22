@@ -243,6 +243,7 @@ describe('messages protocol guards', () => {
 			{ kind: 'resetAgent', agentId: bobId },
 			{ kind: 'revealAnnotation', annotationId: workId },
 			{ kind: 'openAnnotation', link: { annotationId: 'agent-note-1', file: 'src/other.ts', line: 4 } },
+			{ kind: 'openAnnotation', link: { annotationId: 'agent-note-1', file: 'src/other.ts', line: null } },
 			{ kind: 'previousAnnotation' },
 			{ kind: 'nextAnnotation' },
 			{ kind: 'toggleAnnotationPin' },
@@ -469,6 +470,11 @@ describe('messages view projections', () => {
 		assert.equal(annotationForLine(annotations, 3)?.id, 'annotation-1');
 		assert.equal(annotationForLine(annotations, 3, 'annotation-2')?.id, 'annotation-2');
 		assert.equal(annotationForLine(annotations, 4), undefined);
+	});
+
+	test('keeps file-scoped annotations out of cursor-line selection', () => {
+		const fileScoped = { ...annotations[0], anchor: { ...annotations[0].anchor, line: null } };
+		assert.equal(annotationForLine([fileScoped], 0), undefined);
 	});
 
 	test('filters annotations by the CLI-provided permanent-commit membership only', () => {

@@ -17,6 +17,7 @@ interface PackageManifest {
 	readonly activationEvents?: readonly unknown[];
 	readonly scripts?: Record<string, unknown>;
 	readonly dependencies?: Record<string, unknown>;
+	readonly devDependencies?: Record<string, unknown>;
 	readonly contributes?: {
 		readonly commands?: readonly { readonly command?: unknown; readonly title?: unknown }[];
 		readonly viewsContainers?: {
@@ -42,17 +43,38 @@ function readManifest(): PackageManifest {
 	return JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8')) as PackageManifest;
 }
 
+function typeScriptSources(root: string): string[] {
+	return fs.readdirSync(root, { withFileTypes: true }).flatMap(entry => {
+		const candidate = path.join(root, entry.name);
+		if (entry.isDirectory()) { return entry.name === 'test' || entry.name === 'unit' ? [] : typeScriptSources(candidate); }
+		return entry.isFile() && entry.name.endsWith('.ts') ? [candidate] : [];
+	});
+}
+
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.14.0 extension package', () => {
+	test('is an independent 0.15.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.14.0');
+		assert.equal(manifest.version, '0.15.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
 		assert.equal(manifest.dependencies?.['markdown-it'], '^14.3.0');
+		assert.equal(manifest.devDependencies?.['@arcridge/sundial-editor-annotations'], '0.1.0');
 		assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-dependencies');
+		assert.equal(manifest.scripts?.['watch:annotations'], 'npm run compile --workspace @arcridge/sundial-editor-annotations -- --watch');
+	});
+
+	test('mediates annotation file operations through the CLI', () => {
+		const sources = typeScriptSources(path.resolve(__dirname, '../../src'));
+		for (const source of sources) {
+			assert.doesNotMatch(
+				fs.readFileSync(source, 'utf8'),
+				/@arcridge\/sundial-editor-annotations\/(?:store|move|repair|reanchor)/,
+				`${path.relative(path.resolve(__dirname, '../../src'), source)} must not invoke annotation repair or storage directly`,
+			);
+		}
 	});
 
 	test('contributes the autosave defaults, command, and Secondary Sidebar Messages webview', () => {

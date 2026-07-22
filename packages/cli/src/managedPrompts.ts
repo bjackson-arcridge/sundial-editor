@@ -22,7 +22,6 @@ const scopeTemplates: Readonly<Record<ManagedPromptScope, ManagedPromptTemplateN
 	local: 'scopes/local.md',
 	project: 'scopes/project.md',
 };
-
 const knownPlaceholders = new Set([
 	'agent_name',
 	'user_request',

@@ -17,6 +17,7 @@ import {
 	openAgentViaCli,
 	parseAgentRunEvent,
 	readAnnotationsViaCli,
+	reanchorAnnotationsViaCli,
 	renameAgentViaCli,
 	repairCompanionsViaCli,
 	requeueWorkViaCli,
@@ -198,20 +199,34 @@ describe('CLI runner', () => {
 			assert.deepEqual(invocation.args, ['annotations', 'read']);
 		}));
 		finishJson(readChild, {
-			version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [],
+			version: 5, sourceDigest: 'd'.repeat(64), annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [],
 		});
 		assert.deepEqual(await read, {
-			version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [],
+			version: 5, sourceDigest: 'd'.repeat(64), annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [],
 		});
 		const malformedReadChild = fakeChild();
 		const malformedRead = readAnnotationsViaCli('sundial-editor-cli', {
 			workspace: { cwd }, document: { uri: waitingWork.source.uri },
 		}, servicesFor(malformedReadChild));
 		finishJson(malformedReadChild, {
-			version: 4, annotations: [], currentPermanentCommit: permanentBaseCommit,
+			version: 5, sourceDigest: 'd'.repeat(64), annotations: [], currentPermanentCommit: permanentBaseCommit,
 			currentPermanentAnnotationIds: ['annotation-not-in-current-commit'],
 		});
 		await assert.rejects(malformedRead, /malformed annotation companion/);
+
+		const reanchorChild = fakeChild();
+		const reanchor = reanchorAnnotationsViaCli(cliPath, {
+			workspace: { cwd }, document: { uri: waitingWork.source.uri }, previousSource: 'old\n',
+			expectedPreviousSourceDigest: 'd'.repeat(64),
+		}, servicesFor(reanchorChild, invocation => assert.deepEqual(invocation.args, [cliPath, 'annotations', 'reanchor'])));
+		finishJson(reanchorChild, {
+			companion: {
+				version: 5, sourceDigest: 'd'.repeat(64), annotations: [], currentPermanentCommit: permanentBaseCommit,
+				currentPermanentAnnotationIds: [],
+			},
+			changedAnnotationIds: [], fileScopedAnnotationIds: [], affectedPaths: [], alreadyApplied: true,
+		});
+		assert.equal((await reanchor).alreadyApplied, true);
 
 		const deleteChild = fakeChild();
 		const remove = deleteAnnotationViaCli(cliPath, {
