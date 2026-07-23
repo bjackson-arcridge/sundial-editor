@@ -1,12 +1,11 @@
 ---
 id: SPEC-0022
 title: Expose creating agent tasks via VS Code commands
-status: Active
+status: Done
 created: 2026-07-23
 updated: 2026-07-23
 created_by: bjackson
 ---
-
 # Expose creating agent tasks via VS Code commands
 
 ## Discovery
