@@ -16,6 +16,7 @@ import {
 import { DiffEditorController, type DiffBaselineAction } from './diffEditorController';
 import { executeWorkflowTextCommand, type WorkflowCommandId } from './workflowTextCommand';
 import { AnnotationReanchorController } from './annotationReanchorController';
+import { agentTaskCommands, createAgentTask } from './agentTaskCommand';
 
 const messagesViewId = 'sundialEditor.messages';
 const agentsViewContainerId = 'sundialEditor';
@@ -97,6 +98,13 @@ export function activate(context: vscode.ExtensionContext): void {
 				new vscode.Position(range.end.line, range.end.character),
 			),
 		})),
+		...agentTaskCommands.map(command => vscode.commands.registerCommand(command.id, () => createAgentTask(command, {
+			activeTextEditor: () => vscode.window.activeTextEditor,
+			reportValidationFailure: message => vscode.window.showWarningMessage(message),
+			openComposer: prompt => messagesProvider.openPrompt(prompt),
+			workspaceCwd: sourceUri => workspaceCwdForSource(vscode.Uri.parse(sourceUri)),
+			validatePrompt: (prompt, cwd) => messagesProvider.validatePromptTarget(prompt, cwd),
+		}))),
 		vscode.commands.registerCommand(executeWorkflowTextCommandId, (commandId: WorkflowCommandId) => executeWorkflowTextCommand(commandId, {
 			activeTextEditor: () => vscode.window.activeTextEditor,
 			createDeletionRange: range => new vscode.Range(

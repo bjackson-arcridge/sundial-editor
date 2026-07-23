@@ -23,6 +23,21 @@ Place a command immediately after the source line it concerns. The resulting int
 
 Enter sends the message and Shift+Enter inserts a newline. Sending and Escape cancellation return focus to the source location for a keyboard-only loop. When VSCodeVim is enabled, Sundial also returns it to Normal mode so the restored cursor is ready for navigation.
 
+## VS Code task commands
+
+Sundial also contributes no-argument VS Code commands that open the same composer without inserting or deleting a `%` line. The active source line becomes the interaction anchor, and the document is saved before the composer opens. These commands are available from the Command Palette, keybindings, and VSCodeVim's `:vsc[ode] <command-id>` bridge.
+
+| Task | Current line | Project |
+| --- | --- | --- |
+| Question | `sundialEditor.task.question` | `sundialEditor.task.questionProject` |
+| Fix | `sundialEditor.task.fix` | `sundialEditor.task.fixProject` |
+| Write | `sundialEditor.task.write` | `sundialEditor.task.writeProject` |
+| Refactor | `sundialEditor.task.refactor` | `sundialEditor.task.refactorProject` |
+| Cleanup | `sundialEditor.task.cleanup` | `sundialEditor.task.cleanupProject` |
+| Test | `sundialEditor.task.test` | `sundialEditor.task.testProject` |
+
+For example, `:vsc sundialEditor.task.fix` opens a line-scoped Fix composer on the line under the cursor. Choose the target agent and send the message normally.
+
 ## Source-anchored interactions
 
 When a user sends a message, Sundial records the interaction beside its source file independently of the agent's eventual result. For example, an interaction anchored in `src/example.ts` is stored in the checked-in YAML companion `.sundial/src/example.ts.comments`. Each anchor retains up to three non-empty source lines before and after its target as context for later re-anchoring. Opening or cancelling the composer before Send creates nothing, and malformed existing companions are left untouched.

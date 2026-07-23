@@ -2,6 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, test } from 'node:test';
+import { agentTaskCommands } from '../agentTaskCommand';
 
 interface ViewContribution {
 	readonly id?: unknown;
@@ -64,6 +65,22 @@ describe('Sundial Editor manifest', () => {
 		assert.equal(manifest.devDependencies?.['@arcridge/sundial-editor-annotations'], '0.1.0');
 		assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-dependencies');
 		assert.equal(manifest.scripts?.['watch:annotations'], 'npm run compile --workspace @arcridge/sundial-editor-annotations -- --watch');
+	});
+
+	test('contributes every public agent task command to activation and the Command Palette', () => {
+		const manifest = readManifest();
+		const contributed = manifest.contributes?.commands ?? [];
+		const palette = manifest.contributes?.menus?.commandPalette ?? [];
+
+		for (const command of agentTaskCommands) {
+			assert.equal(
+				contributed.some(candidate => candidate.command === command.id && candidate.title === command.title),
+				true,
+				`${command.id} must be contributed with its catalog title`,
+			);
+			assert.equal(manifest.activationEvents?.includes(`onCommand:${command.id}`), true);
+			assert.equal(palette.some(item => item.command === command.id), true);
+		}
 	});
 
 	test('mediates annotation file operations through the CLI', () => {

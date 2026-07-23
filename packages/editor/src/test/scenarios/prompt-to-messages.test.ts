@@ -167,6 +167,24 @@ suite('Scenario: prompt-to-messages', () => {
 			'Expected an editor keyboard command to move the restored source cursor',
 		);
 
+		returnedEditor.selection = new vscode.Selection(1, 2, 1, 2);
+		const sourceBeforeTaskCommand = returnedEditor.document.getText();
+		await vscode.commands.executeCommand('sundialEditor.task.testProject');
+		const commandPrompt = await waitForMessagesState();
+		assert.deepEqual(commandPrompt.state.prompt, {
+			preset: '%T',
+			scope: 'project',
+			sourceUri: uri.toString(),
+			sourceLine: 1,
+			sourceText: '%T@G',
+			anchorText: 'keep this line',
+			anchorBefore: ['code before the command'],
+			anchorAfter: ['and this second line'],
+		});
+		assert.equal(commandPrompt.state.targetAgentId, 'agent-bob');
+		await vscode.commands.executeCommand('sundialEditor.internal.cancelPendingMessage');
+		assert.equal(returnedEditor.document.getText(), sourceBeforeTaskCommand);
+
 		const viewed = await waitForAnnotationState(state => state.annotationViewer?.annotation.message === 'Fix this through the test provider.');
 		assert.equal(viewed.state.annotationViewer?.annotation.anchor.text, 'code before the command');
 		assert.deepEqual(viewed.state.annotationViewer?.annotation.anchor.before, []);

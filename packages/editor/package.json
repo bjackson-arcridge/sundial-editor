@@ -38,6 +38,18 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:sundialEditor.submitPrompt",
+    "onCommand:sundialEditor.task.question",
+    "onCommand:sundialEditor.task.questionProject",
+    "onCommand:sundialEditor.task.fix",
+    "onCommand:sundialEditor.task.fixProject",
+    "onCommand:sundialEditor.task.write",
+    "onCommand:sundialEditor.task.writeProject",
+    "onCommand:sundialEditor.task.refactor",
+    "onCommand:sundialEditor.task.refactorProject",
+    "onCommand:sundialEditor.task.cleanup",
+    "onCommand:sundialEditor.task.cleanupProject",
+    "onCommand:sundialEditor.task.test",
+    "onCommand:sundialEditor.task.testProject",
     "onView:sundialEditor.messages"
   ],
   "main": "./dist/extension.js",
@@ -48,6 +60,18 @@
         "title": "Sundial Editor: Submit Prompt",
         "icon": "$(send)"
       },
+      { "command": "sundialEditor.task.question", "title": "Sundial Editor: Create Question Task for Current Line" },
+      { "command": "sundialEditor.task.questionProject", "title": "Sundial Editor: Create Project Question Task" },
+      { "command": "sundialEditor.task.fix", "title": "Sundial Editor: Create Fix Task for Current Line" },
+      { "command": "sundialEditor.task.fixProject", "title": "Sundial Editor: Create Project Fix Task" },
+      { "command": "sundialEditor.task.write", "title": "Sundial Editor: Create Write Task for Current Line" },
+      { "command": "sundialEditor.task.writeProject", "title": "Sundial Editor: Create Project Write Task" },
+      { "command": "sundialEditor.task.refactor", "title": "Sundial Editor: Create Refactor Task for Current Line" },
+      { "command": "sundialEditor.task.refactorProject", "title": "Sundial Editor: Create Project Refactor Task" },
+      { "command": "sundialEditor.task.cleanup", "title": "Sundial Editor: Create Cleanup Task for Current Line" },
+      { "command": "sundialEditor.task.cleanupProject", "title": "Sundial Editor: Create Project Cleanup Task" },
+      { "command": "sundialEditor.task.test", "title": "Sundial Editor: Create Test Task for Current Line" },
+      { "command": "sundialEditor.task.testProject", "title": "Sundial Editor: Create Project Test Task" },
       { "command": "sundialEditor.diff.toggle", "title": "Sundial Editor: Toggle Diff View" },
       { "command": "sundialEditor.diff.inline", "title": "Sundial Editor: Toggle Inline Diff" },
       { "command": "sundialEditor.diff.previous", "title": "Sundial Editor: Diff Baseline Previous Commit" },
@@ -104,6 +128,42 @@
       "commandPalette": [
         {
           "command": "sundialEditor.submitPrompt"
+        },
+        {
+          "command": "sundialEditor.task.question"
+        },
+        {
+          "command": "sundialEditor.task.questionProject"
+        },
+        {
+          "command": "sundialEditor.task.fix"
+        },
+        {
+          "command": "sundialEditor.task.fixProject"
+        },
+        {
+          "command": "sundialEditor.task.write"
+        },
+        {
+          "command": "sundialEditor.task.writeProject"
+        },
+        {
+          "command": "sundialEditor.task.refactor"
+        },
+        {
+          "command": "sundialEditor.task.refactorProject"
+        },
+        {
+          "command": "sundialEditor.task.cleanup"
+        },
+        {
+          "command": "sundialEditor.task.cleanupProject"
+        },
+        {
+          "command": "sundialEditor.task.test"
+        },
+        {
+          "command": "sundialEditor.task.testProject"
         }
       ]
     }
