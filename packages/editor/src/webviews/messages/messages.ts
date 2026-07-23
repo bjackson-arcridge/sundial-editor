@@ -154,6 +154,33 @@ export function displayedWorkForAgent(
 		.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
 }
 
+export function projectEnqueuedWork(
+	agents: AgentsViewState,
+	work: readonly UserAnnotationWorkItem[],
+	enqueued: UserAnnotationWorkItem,
+): { readonly agents: AgentsViewState; readonly work: readonly UserAnnotationWorkItem[] } {
+	const alreadyProjected = work.some(item => item.id === enqueued.id);
+	const projectedWork = alreadyProjected
+		? work.map(item => item.id === enqueued.id ? enqueued : item)
+		: [...work, enqueued];
+	if (agents.kind !== 'ready') {
+		return { agents, work: projectedWork };
+	}
+	const projectedAgents = agents.agents.map(agent => {
+		if (agent.id !== enqueued.agentId) { return agent; }
+		return {
+			...agent,
+			queue: {
+				...agent.queue,
+				...(!alreadyProjected && enqueued.status === 'waiting' ? { waiting: agent.queue.waiting + 1 } : {}),
+				...(!alreadyProjected && enqueued.status === 'working' ? { working: agent.queue.working + 1 } : {}),
+				...(!alreadyProjected && enqueued.status === 'completed' ? { completed: agent.queue.completed + 1 } : {}),
+			},
+		};
+	});
+	return { agents: { kind: 'ready', agents: projectedAgents }, work: projectedWork };
+}
+
 export function latestSessionStatusForAgent(
 	work: readonly UserAnnotationWorkItem[],
 	agent: NamedAgent,
@@ -212,7 +239,8 @@ export function waitingAgentForAnnotation(
 
 export type HostToWebview =
 	| { readonly kind: 'state'; readonly state: MessagesState }
-	| { readonly kind: 'focusComposer' };
+	| { readonly kind: 'focusComposer' }
+	| { readonly kind: 'showAgents' };
 
 export type WebviewToHost =
 	| { readonly kind: 'ready' }
@@ -243,6 +271,7 @@ export function isValidHostToWebviewMessage(value: unknown): value is HostToWebv
 		case 'state':
 			return hasExactKeys(value, ['kind', 'state']) && isMessagesState(value.state);
 		case 'focusComposer':
+		case 'showAgents':
 			return hasExactKeys(value, ['kind']);
 		default:
 			return false;

@@ -51,6 +51,10 @@ describe('agent task command catalog', () => {
 			);
 		}
 		assert.ok(agentTaskCommands.every(command => command.id.startsWith('sundialEditor.task.')));
+		assert.deepEqual(
+			agentTaskCommands.filter(command => command.preset === '%D').map(command => command.id),
+			['sundialEditor.task.deepResearch', 'sundialEditor.task.deepResearchProject'],
+		);
 	});
 });
 

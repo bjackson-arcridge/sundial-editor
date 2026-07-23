@@ -1,0 +1,4 @@
+version: 5
+sourceDigest: e5dfa9dcdb5ca48263f1086921bd0c828a8d559b81c1557301eb93c884d6798b
+annotations:
+  - {"kind":"user","id":"12d47c31-8e42-42ab-b402-321f0d5f04d4","permanentBaseCommit":"a848ff98e2dfdd3ead6bc4a1752f1443e070ff48","message":"I've noticed that after submitting a new task to an agent (\"send\") there is no immediate feedback in the UX, it is working and eventually succeeds, but there is no indicator, it should immediately go back to the agents view with a 1 in the backlog at least, so it is clear it succeeds.  Also lets figure out why it takes so long to respond anywhat.","preset":"%F","scope":"line","anchor":{"line":109,"text":"}","before":["\treadonly work: UserAnnotationWorkItem;","\treadonly run: AgentRun;","\tcancelReason?: string;"],"after":["interface LoadedAnnotations {","\treadonly sourceUri: string;","\treadonly cwd: string;"]},"officialResponses":[],"agentAnnotations":[]}

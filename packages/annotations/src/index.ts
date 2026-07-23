@@ -1,5 +1,5 @@
 export const currentAnnotationCompanionVersion = 5;
-export const annotationPromptPresets = ['%Q', '%F', '%W', '%R', '%C', '%T'] as const;
+export const annotationPromptPresets = ['%Q', '%D', '%F', '%W', '%R', '%C', '%T'] as const;
 
 export type AnnotationPromptPreset = typeof annotationPromptPresets[number];
 export type AnnotationPromptScope = 'line' | 'project';

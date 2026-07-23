@@ -1,0 +1,4 @@
+version: 5
+sourceDigest: f599de2dfc806b866afc69739c9d154f40d54a87b44a6f86c9488b9893179c32
+annotations:
+  - {"kind":"user","id":"112119cc-e86e-41f7-8a56-6ebbcb181a18","permanentBaseCommit":"a848ff98e2dfdd3ead6bc4a1752f1443e070ff48","message":"Let's add a command %D which is deep research, which is like question but expects official references or primary sources to be cited.","preset":"%W","scope":"line","anchor":{"line":13,"text":"- `%W` — write guidance","before":["- `%Q` — question / no-code guidance","- `%D` — deep research with official references or primary-source citations","- `%F` — fix guidance"],"after":["- `%R` — refactor guidance","- `%C` — cleanup guidance","- `%T` — test guidance"]},"officialResponses":[],"agentAnnotations":[]}

@@ -18,6 +18,7 @@ import {
 	latestSessionStatusForAgent,
 	latestStatusForWork,
 	presentAnnotation,
+	projectEnqueuedWork,
 	sessionStatusHistoryGroupsForAgent,
 	waitingAgentForAnnotation,
 } from '../webviews/messages/messages';
@@ -32,7 +33,7 @@ const permanentBaseCommit = 'a'.repeat(40);
 const prompt = {
 	preset: '%W',
 	scope: 'project',
-	targetSelector: { kind: 'name', name: 'Bob' },
+	targetSelector: { kind: 'name', name: 'Cloe' },
 	sourceUri: 'file:///workspace/src/example.ts',
 	sourceLine: 3,
 	sourceText: '%W>Bob@G',
@@ -78,7 +79,7 @@ const work: UserAnnotationWorkItem = {
 const bob: NamedAgent = {
 	id: bobId,
 	slot: 1,
-	name: 'Bob',
+	name: 'Cloe',
 	session: { state: 'available', id: bobSessionId, provider: 'codex' },
 	queue: { waiting: 1, working: 0, completed: 0 },
 	controls: {
@@ -124,7 +125,7 @@ const annotationViewer = {
 	sourceUri: prompt.sourceUri,
 	annotation: {
 		...annotations[0],
-		officialResponses: [{ body: '**Fixed.**', createdAt: '2026-07-20T14:05:00.000Z', agentName: 'Bob' }],
+		officialResponses: [{ body: '**Fixed.**', createdAt: '2026-07-20T14:05:00.000Z', agentName: 'Cloe' }],
 	},
 	position: 1,
 	total: 2,
@@ -188,6 +189,7 @@ describe('messages protocol guards', () => {
 			state: { ...readyState(), targetAgentId: undefined, response: { continuity: 'agent-selection-required' } },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'focusComposer' }), true);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'showAgents' }), true);
 	});
 
 	test('rejects malformed or internally inconsistent host states', () => {
@@ -244,6 +246,7 @@ describe('messages protocol guards', () => {
 			kind: 'state', state: { ...readyState(), annotationViewer: { ...annotationViewer, position: 3 } },
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'focusComposer', extra: true }), false);
+		assert.equal(isValidHostToWebviewMessage({ kind: 'showAgents', extra: true }), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state',
 			state: {
@@ -332,6 +335,29 @@ describe('messages protocol guards', () => {
 });
 
 describe('messages view projections', () => {
+	test('immediately projects newly enqueued work into the target agent backlog', () => {
+		const initialAgents = {
+			kind: 'ready',
+			agents: [{ ...bob, queue: { waiting: 2, working: 0, completed: 0 } }, amy],
+		} as const;
+		const projected = projectEnqueuedWork(initialAgents, [], { ...work, ready: false });
+
+		assert.deepEqual(projected.work, [{ ...work, ready: false }]);
+		assert.deepEqual(projected.agents.kind === 'ready' && projected.agents.agents[0].queue, {
+			waiting: 3,
+			working: 0,
+			completed: 0,
+		});
+
+		const refreshed = projectEnqueuedWork(projected.agents, projected.work, work);
+		assert.equal(refreshed.work.length, 1, 'replacing the ready projection must not duplicate the work item');
+		assert.deepEqual(refreshed.agents.kind === 'ready' && refreshed.agents.agents[0].queue, {
+			waiting: 3,
+			working: 0,
+			completed: 0,
+		});
+	});
+
 	test('maps response authors to current names without projecting identity metadata', () => {
 		const presented = presentAnnotation({
 			...annotations[0],
@@ -498,7 +524,7 @@ describe('messages view projections', () => {
 	});
 
 	test('projects a waiting work item onto its annotation target', () => {
-		assert.equal(waitingAgentForAnnotation([work], [bob, amy], work.id)?.name, 'Bob');
+		assert.equal(waitingAgentForAnnotation([work], [bob, amy], work.id)?.name, 'Cloe');
 		assert.equal(waitingAgentForAnnotation([{ ...work, status: 'completed' }], [bob, amy], work.id), undefined);
 		assert.equal(waitingAgentForAnnotation([work], [bob, amy], 'annotation-other'), undefined);
 	});

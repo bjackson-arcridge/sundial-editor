@@ -23,11 +23,14 @@ describe('prompt command parser', () => {
 		assert.deepEqual(parsePromptCommand('%Q>1'), {
 			preset: '%Q', scope: 'line', targetSelector: { kind: 'slot', slot: 1 },
 		});
+		assert.deepEqual(parsePromptCommand('%D>Research Amy@G'), {
+			preset: '%D', scope: 'project', targetSelector: { kind: 'name', name: 'Research Amy' },
+		});
 		assert.deepEqual(parsePromptCommand('   %W>27@G'), {
 			preset: '%W', scope: 'project', targetSelector: { kind: 'slot', slot: 27 },
 		});
 		assert.deepEqual(parsePromptCommand('%R>Bob'), {
-			preset: '%R', scope: 'line', targetSelector: { kind: 'name', name: 'Bob' },
+			preset: '%R', scope: 'line', targetSelector: { kind: 'name', name: 'Cloe' },
 		});
 		assert.deepEqual(parsePromptCommand('\t%C>build-agent_2@G  '), {
 			preset: '%C', scope: 'project', targetSelector: { kind: 'name', name: 'build-agent_2' },
@@ -39,7 +42,7 @@ describe('prompt command parser', () => {
 			preset: '%F', scope: 'line', targetSelector: { kind: 'name', name: '123Bob' },
 		});
 		assert.deepEqual(parsePromptCommand('%F>Bob@G'), {
-			preset: '%F', scope: 'project', targetSelector: { kind: 'name', name: 'Bob' },
+			preset: '%F', scope: 'project', targetSelector: { kind: 'name', name: 'Cloe' },
 		});
 	});
 

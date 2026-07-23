@@ -1432,6 +1432,10 @@ export class MessagesApp extends LitElement {
 			case 'focusComposer':
 				void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLTextAreaElement>('#message')?.focus());
 				return;
+			case 'showAgents':
+				this.selectedPrimaryTab = 'agents';
+				this.openHistoryAgentId = undefined;
+				return;
 			default: {
 				const unhandledMessage: never = hostMessage;
 				throw new Error(`Unexpected host message: ${JSON.stringify(unhandledMessage)}`);

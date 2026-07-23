@@ -2,7 +2,7 @@
   "name": "sundial-editor",
   "displayName": "Sundial Editor",
   "description": "A focused collaboration prompt surface for Sundial editing workflows.",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "publisher": "arcridge",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bjackson-arcridge/sundial-editor/tree/main/packages/editor#readme",
@@ -40,6 +40,8 @@
     "onCommand:sundialEditor.submitPrompt",
     "onCommand:sundialEditor.task.question",
     "onCommand:sundialEditor.task.questionProject",
+    "onCommand:sundialEditor.task.deepResearch",
+    "onCommand:sundialEditor.task.deepResearchProject",
     "onCommand:sundialEditor.task.fix",
     "onCommand:sundialEditor.task.fixProject",
     "onCommand:sundialEditor.task.write",
@@ -62,6 +64,8 @@
       },
       { "command": "sundialEditor.task.question", "title": "Sundial Editor: Create Question Task for Current Line" },
       { "command": "sundialEditor.task.questionProject", "title": "Sundial Editor: Create Project Question Task" },
+      { "command": "sundialEditor.task.deepResearch", "title": "Sundial Editor: Create Deep Research Task for Current Line" },
+      { "command": "sundialEditor.task.deepResearchProject", "title": "Sundial Editor: Create Project Deep Research Task" },
       { "command": "sundialEditor.task.fix", "title": "Sundial Editor: Create Fix Task for Current Line" },
       { "command": "sundialEditor.task.fixProject", "title": "Sundial Editor: Create Project Fix Task" },
       { "command": "sundialEditor.task.write", "title": "Sundial Editor: Create Write Task for Current Line" },
@@ -134,6 +138,12 @@
         },
         {
           "command": "sundialEditor.task.questionProject"
+        },
+        {
+          "command": "sundialEditor.task.deepResearch"
+        },
+        {
+          "command": "sundialEditor.task.deepResearchProject"
         },
         {
           "command": "sundialEditor.task.fix"

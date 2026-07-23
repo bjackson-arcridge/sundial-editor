@@ -17,7 +17,7 @@ export const coordinationStates = ['working', 'waiting', 'blocked', 'paused'] as
 export type CoordinationState = typeof coordinationStates[number];
 
 export const agentStoreVersion = 1;
-export const defaultAgentNames = ['Bob', 'Amy', 'Sam', 'Mike', 'Ty'] as const;
+export const defaultAgentNames = ['Cloe', 'Piper', 'Stew', 'Cricket', 'Ty'] as const;
 
 export interface NamedAgent {
 	readonly version: typeof agentStoreVersion;
@@ -69,7 +69,7 @@ export interface WorkSource {
 }
 
 export interface WorkPrompt {
-	readonly preset: '%Q' | '%F' | '%W' | '%R' | '%C' | '%T';
+	readonly preset: '%Q' | '%D' | '%F' | '%W' | '%R' | '%C' | '%T';
 	readonly scope: 'line' | 'project';
 	readonly text: string;
 }

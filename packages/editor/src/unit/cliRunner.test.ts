@@ -81,7 +81,7 @@ const workingWork: UserAnnotationWorkItem = {
 const bob: NamedAgent = {
 	id: agentId,
 	slot: 1,
-	name: 'Bob',
+	name: 'Cloe',
 	session: { state: 'available', id: sessionId, provider: 'codex' },
 	queue: { waiting: 1, working: 0, completed: 2 },
 	controls: {

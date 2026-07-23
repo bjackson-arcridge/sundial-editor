@@ -49,6 +49,7 @@ import {
 	type WebviewToHost,
 	isValidWebviewToHostMessage,
 	presentAnnotation,
+	projectEnqueuedWork,
 } from './messages.js';
 
 export interface MessagesServices {
@@ -107,6 +108,7 @@ interface ActiveRun {
 	readonly run: AgentRun;
 	cancelReason?: string;
 }
+
 
 interface LoadedAnnotations {
 	readonly sourceUri: string;
@@ -708,6 +710,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		this.notice = { tone: 'info', message: pending.reservedWork === undefined ? 'Reserving queued work…' : 'Retrying durable annotation persistence…' };
 		this.pendingPrompt = { ...pending, draft, targetAgentId: agentId };
 		this.postState();
+		let reservedWork = pending.reservedWork;
 		try {
 			if (agent.session.state !== 'available') {
 				const confirmed = this.services.confirmFreshSession === undefined
@@ -719,7 +722,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 				if (!confirmed) { this.notice = undefined; return; }
 				await (this.services.ensureAgentSession ?? ensureAgentSessionViaCli)(this.cliPath(), pending.cwd, agentId);
 			}
-			const work = pending.reservedWork ?? await (this.services.enqueueWork ?? enqueueWorkViaCli)(
+			reservedWork ??= await (this.services.enqueueWork ?? enqueueWorkViaCli)(
 				this.cliPath(), pending.cwd, agentId, {
 					source: {
 						uri: pending.prompt.sourceUri,
@@ -728,22 +731,32 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 					prompt: { preset: pending.prompt.preset, scope: pending.prompt.scope, text: draft },
 				},
 			);
-			this.pendingPrompt = { ...pending, draft, targetAgentId: agentId, reservedWork: work };
+			this.pendingPrompt = undefined;
+			({ agents: this.agentsState, work: this.work } = projectEnqueuedWork(this.agentsState, this.work, reservedWork));
+			this.notice = { tone: 'info', message: `Queued for ${agent.name}. Saving its annotation…` };
+			this.postToMessagesWebviews({ kind: 'showAgents' });
+			this.postState();
 			const annotation = await (this.services.appendAnnotation ?? appendAnnotationViaCli)(this.cliPath(), {
 				workspace: { cwd: pending.cwd },
 				document: {
 					uri: pending.prompt.sourceUri,
 					line: pending.prompt.sourceLine,
 				},
-				annotation: { id: work.id, message: draft, preset: pending.prompt.preset, scope: pending.prompt.scope },
+				annotation: { id: reservedWork.id, message: draft, preset: pending.prompt.preset, scope: pending.prompt.scope },
 			});
-			this.acceptSavedAnnotation(annotation, pending.cwd);
-			await (this.services.markWorkReady ?? markWorkReadyViaCli)(this.cliPath(), pending.cwd, work.id, agentId);
-			this.pendingPrompt = undefined;
+			this.acceptSavedAnnotation(annotation, pending.cwd, pending.prompt);
+			const readyWork = await (this.services.markWorkReady ?? markWorkReadyViaCli)(
+				this.cliPath(), pending.cwd, reservedWork.id, agentId,
+			);
+			({ agents: this.agentsState, work: this.work } = projectEnqueuedWork(this.agentsState, this.work, readyWork));
 			this.notice = { tone: 'info', message: `Queued for ${agent.name}.` };
-			await this.refreshAgentState(pending.cwd);
+			this.postState();
+			void this.processQueue(pending.cwd, agentId);
 			await this.services.returnToSource(pending.prompt);
 		} catch (error) {
+			if (reservedWork !== undefined) {
+				this.pendingPrompt = { ...pending, draft, targetAgentId: agentId, reservedWork };
+			}
 			await this.refreshAgentState(pending.cwd);
 			this.setError(`The queued message could not be made ready. Retry preserves its identity. ${errorMessage(error)}`);
 		} finally {
@@ -876,20 +889,19 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		return agents;
 	}
 
-	private acceptSavedAnnotation(annotation: Annotation, cwd: string): void {
-		const pending = this.pendingPrompt;
+	private acceptSavedAnnotation(annotation: Annotation, cwd: string, prompt: PromptContext): void {
 		const loaded = this.loadedAnnotations;
-		if (pending !== undefined && loaded?.sourceUri === pending.prompt.sourceUri) {
+		if (loaded?.sourceUri === prompt.sourceUri) {
 			const annotations = loaded.annotations.some(existing => existing.id === annotation.id) ? loaded.annotations : [...loaded.annotations, annotation];
 			const currentPermanentAnnotationIds = annotation.permanentBaseCommit === loaded.currentPermanentCommit
 				&& !loaded.currentPermanentAnnotationIds.includes(annotation.id)
 				? [...loaded.currentPermanentAnnotationIds, annotation.id]
 				: loaded.currentPermanentAnnotationIds;
 			this.loadedAnnotations = { ...loaded, annotations, currentPermanentAnnotationIds };
-			this.services.showAnnotationMarkers?.(pending.prompt.sourceUri, annotationLines(this.visibleAnnotations()));
+			this.services.showAnnotationMarkers?.(prompt.sourceUri, annotationLines(this.visibleAnnotations()));
 		}
-		if (!this.annotationPinned && pending !== undefined) {
-			this.viewedAnnotation = { sourceUri: pending.prompt.sourceUri, cwd, annotation };
+		if (!this.annotationPinned) {
+			this.viewedAnnotation = { sourceUri: prompt.sourceUri, cwd, annotation };
 		}
 		this.postState();
 		void this.refreshAnnotationIndex(cwd);

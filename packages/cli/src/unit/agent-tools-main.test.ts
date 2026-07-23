@@ -111,13 +111,13 @@ describe('agent-facing tools CLI', () => {
 			async () => ({ file: 'unused' }),
 			async cwd => {
 				assert.equal(cwd, '/workspace');
-				return [{ slot: 1, name: 'Bob', update: {
+				return [{ slot: 1, name: 'Cloe', update: {
 					at: '2026-07-23T12:00:00.000Z', state: 'working', message: 'Editing.', files: ['src/a.ts'],
 				} }];
 			},
 		), 0);
 		assert.deepEqual(JSON.parse(listed.stdout.join('')), {
-			agents: [{ slot: 1, name: 'Bob', update: {
+			agents: [{ slot: 1, name: 'Cloe', update: {
 				at: '2026-07-23T12:00:00.000Z', state: 'working', message: 'Editing.', files: ['src/a.ts'],
 			} }],
 		});

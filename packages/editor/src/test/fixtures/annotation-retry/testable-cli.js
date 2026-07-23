@@ -209,7 +209,7 @@ function agentProjection(state) {
 	return {
 		id: 'agent-bob',
 		slot: 1,
-		name: 'Bob',
+		name: 'Cloe',
 		session: { state: 'available', id: 'session-bob', provider: 'codex' },
 		queue: { waiting, working, completed },
 		...(currentWork === undefined ? {} : { currentWork: workSummary(currentWork) }),

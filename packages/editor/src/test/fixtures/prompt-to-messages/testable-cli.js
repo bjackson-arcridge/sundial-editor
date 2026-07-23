@@ -35,13 +35,13 @@ process.stdin.on('end', () => {
 function handleAgent(operation, action, request) {
 	const state = readState();
 	if (operation === 'list') {
-		writeJson({ agents: [agentProjection(state, 'agent-bob', 1, 'Bob'), agentProjection(state, 'agent-amy', 2, 'Amy')] });
+		writeJson({ agents: [agentProjection(state, 'agent-bob', 1, 'Cloe'), agentProjection(state, 'agent-amy', 2, 'Amy')] });
 		return;
 	}
 	if (operation === 'session' && action === 'ensure') {
 		const details = request.agent.id === 'agent-amy'
 			? { id: 'agent-amy', slot: 2, name: 'Amy' }
-			: { id: 'agent-bob', slot: 1, name: 'Bob' };
+			: { id: 'agent-bob', slot: 1, name: 'Cloe' };
 		writeJson({
 			agent: agentProjection(state, details.id, details.slot, details.name),
 			session: { id: `session-${details.name.toLowerCase()}` },
@@ -94,7 +94,7 @@ function handleAgent(operation, action, request) {
 		}
 		const at = now();
 		const sequence = ++state.assignmentSequence;
-		const agentName = request.agent.id === 'agent-amy' ? 'Amy' : 'Bob';
+		const agentName = request.agent.id === 'agent-amy' ? 'Amy' : 'Cloe';
 		const sessionId = `session-${agentName.toLowerCase()}`;
 		const update = { at, kind: 'claimed', message: `Assigned to ${agentName}.` };
 		work.status = 'working';

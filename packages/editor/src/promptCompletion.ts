@@ -18,6 +18,7 @@ export interface PromptCommandCompletion {
 
 const presetDescriptions: Readonly<Record<PromptPreset, string>> = {
 	'%Q': 'Ask a question',
+	'%D': 'Deep research',
 	'%F': 'Fix code',
 	'%W': 'Write code',
 	'%R': 'Refactor code',
@@ -88,7 +89,7 @@ function completionsForTargetedPromptCommand(
 	commandPrefix: string,
 	targets: readonly SelectableAgent[],
 ): readonly PromptCommandCompletion[] | undefined {
-	const match = /^(%[QFWRCT])>(.*)$/i.exec(commandPrefix.trimEnd());
+	const match = /^(%[QDFWRCT])>(.*)$/i.exec(commandPrefix.trimEnd());
 	if (match === null) {
 		return undefined;
 	}
@@ -149,5 +150,5 @@ function completionForParsedCommand(insertText: string, parsed: ParsedPromptComm
 }
 
 export function isPromptCommandMode(linePrefix: string): boolean {
-	return /^[ \t]*%(?:[QFWRCT])?(?:>[^\r\n@]*)?(?:@G?)?[ \t]*$/i.test(linePrefix);
+	return /^[ \t]*%(?:[QDFWRCT])?(?:>[^\r\n@]*)?(?:@G?)?[ \t]*$/i.test(linePrefix);
 }

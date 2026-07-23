@@ -16,6 +16,8 @@ export interface AgentTaskCommand {
 export const agentTaskCommands: readonly AgentTaskCommand[] = [
 	{ id: 'sundialEditor.task.question', title: 'Sundial Editor: Create Question Task for Current Line', preset: '%Q', scope: 'line' },
 	{ id: 'sundialEditor.task.questionProject', title: 'Sundial Editor: Create Project Question Task', preset: '%Q', scope: 'project' },
+	{ id: 'sundialEditor.task.deepResearch', title: 'Sundial Editor: Create Deep Research Task for Current Line', preset: '%D', scope: 'line' },
+	{ id: 'sundialEditor.task.deepResearchProject', title: 'Sundial Editor: Create Project Deep Research Task', preset: '%D', scope: 'project' },
 	{ id: 'sundialEditor.task.fix', title: 'Sundial Editor: Create Fix Task for Current Line', preset: '%F', scope: 'line' },
 	{ id: 'sundialEditor.task.fixProject', title: 'Sundial Editor: Create Project Fix Task', preset: '%F', scope: 'project' },
 	{ id: 'sundialEditor.task.write', title: 'Sundial Editor: Create Write Task for Current Line', preset: '%W', scope: 'line' },

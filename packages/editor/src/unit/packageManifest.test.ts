@@ -53,11 +53,11 @@ function typeScriptSources(root: string): string[] {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.17.0 extension package', () => {
+	test('is an independent 0.18.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.17.0');
+		assert.equal(manifest.version, '0.18.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -135,6 +135,7 @@ describe('Sundial Editor manifest', () => {
 		assert.match(readme, /Secondary Side Bar/);
 		assert.match(readme, /Sundial Agents/);
 		assert.match(readme, /`%F`/);
+		assert.match(readme, /`%D`.*deep research/);
 		assert.match(readme, /Codex/);
 		assert.equal(rootManifest.workspaces?.some(workspace => workspace === 'packages/editor' || workspace === 'packages/*'), true);
 		assert.equal(rootManifest.scripts?.test, 'npm run test --workspaces --if-present');

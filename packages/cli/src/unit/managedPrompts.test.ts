@@ -18,7 +18,7 @@ const sourceTemplateLoader: ManagedPromptTemplateLoader = template =>
 	readFileSync(resolve(__dirname, '../../src/prompts', template), 'utf8');
 
 const baseInput: ManagedPromptInput = {
-	agentName: 'Bob', userAnnotationId: 'annotation-1', preset: '%F', scope: 'local',
+	agentName: 'Cloe', userAnnotationId: 'annotation-1', preset: '%F', scope: 'local',
 	userRequest: 'Fix the result.', sourcePath: 'src/example.ts',
 	anchor: { line: 3, text: 'return false;', before: ['const before = true;'], after: ['const after = true;'] },
 };
@@ -33,7 +33,7 @@ function overridingLoader(overrides: Partial<Record<ManagedPromptTemplateName, s
 
 describe('managed prompt rendering', () => {
 	test('renders the current shared contract for provider session creation', () => {
-		const contract = renderManagedAgentContract('Bob', { loadTemplate: sourceTemplateLoader });
+		const contract = renderManagedAgentContract('Cloe', { loadTemplate: sourceTemplateLoader });
 		assert.match(contract, /You are Bob/);
 		assert.match(contract, /provide-status-update/);
 		assert.match(contract, /record-task-response/);
@@ -50,6 +50,14 @@ describe('managed prompt rendering', () => {
 				assert.match(output, /<sundial_assignment>/);
 			}
 		}
+	});
+
+	test('requires deep research to cite official references or primary sources without editing', () => {
+		const output = render({ ...baseInput, preset: '%D' });
+		assert.match(output, /without modifying files/i);
+		assert.match(output, /Cite official references or primary sources/);
+		assert.match(output, /first-party\s+documentation, standards, original research, source code, or authoritative\s+records/);
+		assert.match(output, /distinguish sourced facts from\s+inference/);
 	});
 
 	test('announces optional agent-selected code annotations and the exact handoff path', () => {

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
 
-export const managedPromptPresets = ['%Q', '%F', '%W', '%R', '%C', '%T'] as const;
+export const managedPromptPresets = ['%Q', '%D', '%F', '%W', '%R', '%C', '%T'] as const;
 export type ManagedPromptPreset = typeof managedPromptPresets[number];
 
 export const managedPromptScopes = ['local', 'project'] as const;
@@ -11,6 +11,7 @@ export const maxAnchorContextLinesPerSide = 3;
 
 const presetTemplates: Readonly<Record<ManagedPromptPreset, ManagedPromptTemplateName>> = {
 	'%Q': 'presets/question.md',
+	'%D': 'presets/deep-research.md',
 	'%F': 'presets/fix.md',
 	'%W': 'presets/write.md',
 	'%R': 'presets/refactor.md',
@@ -36,6 +37,7 @@ export type ManagedPromptTemplateName =
 	| 'shared.md'
 	| 'assignment.md'
 	| 'presets/question.md'
+	| 'presets/deep-research.md'
 	| 'presets/fix.md'
 	| 'presets/write.md'
 	| 'presets/refactor.md'

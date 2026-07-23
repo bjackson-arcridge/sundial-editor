@@ -43,7 +43,7 @@ export function registerPromptCommandMode(services?: PromptCommandModeServices):
 
 					const replacement = new vscode.Range(position.line, 0, position.line, position.character);
 					const commandPrefix = linePrefix.trimStart();
-					const targeting = /^%(?:[QFWRCT])?(?:>|@)/i.test(commandPrefix);
+					const targeting = /^%(?:[QDFWRCT])?(?:>|@)/i.test(commandPrefix);
 					const completions = [
 						...promptCompletions.map(completion => ({ ...completion, commandId: submitPromptCommandId, arguments: undefined })),
 						...workflowCompletions.map(completion => ({
@@ -84,7 +84,7 @@ export function registerPromptCommandMode(services?: PromptCommandModeServices):
 }
 
 function needsPromptTargets(linePrefix: string): boolean {
-	return /^%(?:[QFWRCT](?:>|$)|>)/i.test(linePrefix.trim());
+	return /^%(?:[QDFWRCT](?:>|$)|>)/i.test(linePrefix.trim());
 }
 
 function refreshPromptCommandCompletions(document: vscode.TextDocument): void {

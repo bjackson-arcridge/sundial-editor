@@ -8,16 +8,17 @@ import {
 
 describe('prompt command completions', () => {
 	const targets = [
-		{ slot: 1, name: 'Bob' },
+		{ slot: 1, name: 'Cloe' },
 		{ slot: 2, name: 'Build Amy' },
 	] as const;
 
-	test('offers line and project variants for all six presets', () => {
-		assert.equal(promptCommandCompletions.length, 12);
+	test('offers line and project variants for all seven presets', () => {
+		assert.equal(promptCommandCompletions.length, 14);
 		assert.deepEqual(
 			promptCommandCompletions.map(completion => completion.insertText),
 			[
 				'%Q', '%Q@G',
+				'%D', '%D@G',
 				'%F', '%F@G',
 				'%W', '%W@G',
 				'%R', '%R@G',
@@ -34,6 +35,7 @@ describe('prompt command completions', () => {
 				.map(completion => completion.detail),
 			[
 				'Ask a question — current line',
+				'Deep research — current line',
 				'Fix code — current line',
 				'Write code — current line',
 				'Refactor code — current line',
@@ -46,6 +48,7 @@ describe('prompt command completions', () => {
 	test('enters command mode for viable commands after optional indentation and while targeting', () => {
 		assert.equal(isPromptCommandMode('%'), true);
 		assert.equal(isPromptCommandMode('%F'), true);
+		assert.equal(isPromptCommandMode('%D>Research Bob@'), true);
 		assert.equal(isPromptCommandMode('%F@'), true);
 		assert.equal(isPromptCommandMode(' \t%F'), true);
 		assert.equal(isPromptCommandMode('%Q>1'), true);
@@ -66,6 +69,10 @@ describe('prompt command completions', () => {
 	});
 
 	test('preserves typed slot and name selectors in submit completions', () => {
+		assert.deepEqual(
+			completionsForPromptCommandPrefix('%D>Research Amy').map(completion => completion.insertText),
+			['%D>Research Amy', '%D>Research Amy@G'],
+		);
 		assert.deepEqual(
 			completionsForPromptCommandPrefix('%Q>1').map(completion => completion.insertText),
 			['%Q>1', '%Q>1@G'],

@@ -9,6 +9,7 @@ Marketplace id: `arcridge.sundial-editor`.
 Type `%` on its own source line, with optional leading whitespace. Sundial takes over the triggered completion list while the prefix remains a valid command. Choosing a completion inserts and immediately submits it:
 
 - `%Q` — question / no-code guidance
+- `%D` — deep research with official references or primary-source citations
 - `%F` — fix guidance
 - `%W` — write guidance
 - `%R` — refactor guidance

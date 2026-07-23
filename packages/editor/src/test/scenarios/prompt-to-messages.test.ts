@@ -97,7 +97,7 @@ suite('Scenario: prompt-to-messages', () => {
 		assert.equal(diagnostics.viewResolved, true);
 		assert.equal(diagnostics.viewVisible, true);
 		assert.equal(diagnostics.state.agents.kind, 'ready');
-		assert.deepEqual(diagnostics.state.agents.agents?.map(agent => agent.name), ['Bob', 'Amy']);
+		assert.deepEqual(diagnostics.state.agents.agents?.map(agent => agent.name), ['Cloe', 'Amy']);
 		assert.deepEqual(diagnostics.state.work, []);
 		assert.deepEqual(diagnostics.state.prompt, {
 			preset: '%F',
@@ -121,7 +121,7 @@ suite('Scenario: prompt-to-messages', () => {
 		assert.equal(completed.state.work[0].status, 'completed');
 		assert.equal(completed.state.work[0].latestUpdate?.message, 'Official response recorded.');
 		const responded = await waitForAnnotationState(state => state.annotationViewer?.annotation.officialResponses.length === 1);
-		assert.equal(responded.state.annotationViewer?.annotation.officialResponses[0].agentName, 'Bob');
+		assert.equal(responded.state.annotationViewer?.annotation.officialResponses[0].agentName, 'Cloe');
 		assert.match(responded.state.annotationViewer?.annotation.officialResponses[0].body ?? '', /Applied the requested test patch/);
 
 		const companionPath = vscode.Uri.joinPath(workspaceFolder.uri, '.sundial', 'prompt.txt.comments').fsPath;
@@ -170,14 +170,14 @@ suite('Scenario: prompt-to-messages', () => {
 
 		returnedEditor.selection = new vscode.Selection(1, 2, 1, 2);
 		const sourceBeforeTaskCommand = returnedEditor.document.getText();
-		await vscode.commands.executeCommand('sundialEditor.task.testProject');
+		await vscode.commands.executeCommand('sundialEditor.task.deepResearchProject');
 		const commandPrompt = await waitForMessagesState();
 		assert.deepEqual(commandPrompt.state.prompt, {
-			preset: '%T',
+			preset: '%D',
 			scope: 'project',
 			sourceUri: uri.toString(),
 			sourceLine: 1,
-			sourceText: '%T@G',
+			sourceText: '%D@G',
 			anchorText: 'keep this line',
 			anchorBefore: ['code before the command'],
 			anchorAfter: ['and this second line'],

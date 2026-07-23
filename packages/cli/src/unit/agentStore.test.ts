@@ -35,9 +35,9 @@ describe('persistent agent store', () => {
 	test('creates stable named slots and enforces case-insensitive rename uniqueness', async () => {
 		const cwd = await workspace();
 		const first = await listAgents(cwd); const second = await listAgents(cwd);
-		assert.deepEqual(first.map(agent => [agent.slot, agent.name]), [[1, 'Bob'], [2, 'Amy'], [3, 'Sam'], [4, 'Mike'], [5, 'Ty']]);
+		assert.deepEqual(first.map(agent => [agent.slot, agent.name]), [[1, 'Cloe'], [2, 'Amy'], [3, 'Sam'], [4, 'Mike'], [5, 'Ty']]);
 		assert.deepEqual(second.map(agent => agent.id), first.map(agent => agent.id));
-		await assert.rejects(() => renameAgent({ workspaceCwd: cwd, selector: 2, name: 'bOB' }), /already in use/);
+		await assert.rejects(() => renameAgent({ workspaceCwd: cwd, selector: 2, name: 'Cloe' }), /already in use/);
 		assert.equal((await renameAgent({ workspaceCwd: cwd, selector: 1, name: 'Builder' })).name, 'Builder');
 	});
 

@@ -62,7 +62,7 @@ const work: UserAnnotationWorkItem = {
 const bob: NamedAgent = {
 	id: agentId,
 	slot: 4,
-	name: 'Bob',
+	name: 'Cloe',
 	session: { state: 'available', id: sessionId, provider: 'codex' },
 	coordination: {
 		at: workingAt,
@@ -230,7 +230,7 @@ describe('loading, empty, ready, and error view states', () => {
 		assert.equal(isAgentsViewState({ kind: 'ready', agents: [] }), false);
 		assert.equal(isAgentsViewState({
 			kind: 'ready',
-			agents: [bob, { ...bob, id: parseAgentId('agent-other'), slot: 5, name: 'bOB' }],
+			agents: [bob, { ...bob, id: parseAgentId('agent-other'), slot: 5, name: 'Cloe' }],
 		}), false);
 	});
 
