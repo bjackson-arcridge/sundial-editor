@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, test } from 'node:test';
-import { annotationsMain } from '../annotations-main';
+import { agentToolsMain } from '../agent-tools-main';
 import { appendUserAnnotation, readUserAnnotations } from '../annotations';
 
 function io() {
@@ -22,14 +22,18 @@ async function git(cwd: string, args: readonly string[]): Promise<void> {
 	});
 }
 
-describe('agent-facing annotations CLI', () => {
-	test('advertises only the three managed-agent operations', async () => {
+describe('agent-facing tools CLI', () => {
+	test('advertises only the managed-agent operations under the renamed executable', async () => {
 		const run = io();
-		assert.equal(await annotationsMain(['help'], run.value), 0);
+		assert.equal(await agentToolsMain(['help'], run.value), 0);
+		assert.match(run.stdout.join(''), /Sundial Agent Tools/);
+		assert.match(run.stdout.join(''), /sundial-agent-tools coordination list/);
+		assert.match(run.stdout.join(''), /coordination update/);
 		assert.match(run.stdout.join(''), /provide-status-update/);
 		assert.match(run.stdout.join(''), /record-task-response/);
 		assert.match(run.stdout.join(''), /annotate --file/);
-		assert.doesNotMatch(run.stdout.join(''), /enqueue|claim|reset|transcript/);
+		assert.doesNotMatch(run.stdout.join(''), /\benqueue\b|\breset\b|\btranscript\b/);
+		assert.doesNotMatch(run.stdout.join(''), /sundial-annotations-cli/);
 	});
 
 	test('creates an annotation from turn context without consulting assignment lifecycle state', async () => {
@@ -46,7 +50,7 @@ describe('agent-facing annotations CLI', () => {
 			});
 			await writeFile(path.join(cwd, '.sundial', 'work-1newAnnotation.md'), 'Agent note.');
 			const run = io();
-			assert.equal(await annotationsMain([
+			assert.equal(await agentToolsMain([
 				'annotate', '--file', 'src.ts', '--line', '2', '--content', '.sundial/work-1newAnnotation.md',
 			], run.value, {
 				SUNDIAL_WORKSPACE_CWD: cwd, SUNDIAL_AGENT_ID: 'agent-1', SUNDIAL_AGENT_SESSION_ID: 'session-1',
@@ -63,7 +67,7 @@ describe('agent-facing annotations CLI', () => {
 	test('records a response using only hidden assignment context and one path', async () => {
 		const run = io();
 		let received: unknown;
-		assert.equal(await annotationsMain(['record-task-response', '.sundial/work-1response.md'], run.value, {
+		assert.equal(await agentToolsMain(['record-task-response', '.sundial/work-1response.md'], run.value, {
 			SUNDIAL_WORKSPACE_CWD: '/workspace', SUNDIAL_AGENT_ID: 'agent-1',
 			SUNDIAL_AGENT_SESSION_ID: 'session-1', SUNDIAL_USER_ANNOTATION_ID: 'work-1',
 			SUNDIAL_ASSIGNMENT_SEQUENCE: '4',
@@ -81,7 +85,7 @@ describe('agent-facing annotations CLI', () => {
 	test('resolves hidden assignment evidence from the invocation environment', async () => {
 		const run = io();
 		let received: unknown;
-		assert.equal(await annotationsMain(['provide-status-update', ' Running focused tests '], run.value, {
+		assert.equal(await agentToolsMain(['provide-status-update', ' Running focused tests '], run.value, {
 			SUNDIAL_WORKSPACE_CWD: '/workspace',
 			SUNDIAL_AGENT_SESSION_ID: 'session-1',
 			SUNDIAL_USER_ANNOTATION_ID: 'work-1',
@@ -97,13 +101,65 @@ describe('agent-facing annotations CLI', () => {
 		assert.equal(run.stdout.join(''), 'Status update published.\n');
 	});
 
+	test('inspects peer projections and publishes all coordination states from hidden session context', async () => {
+		const listed = io();
+		assert.equal(await agentToolsMain(
+			['coordination', 'list'],
+			listed.value,
+			{ SUNDIAL_WORKSPACE_CWD: '/workspace' },
+			async () => ({ appended: false, work: {} as never }),
+			async () => ({ file: 'unused' }),
+			async cwd => {
+				assert.equal(cwd, '/workspace');
+				return [{ slot: 1, name: 'Bob', update: {
+					at: '2026-07-23T12:00:00.000Z', state: 'working', message: 'Editing.', files: ['src/a.ts'],
+				} }];
+			},
+		), 0);
+		assert.deepEqual(JSON.parse(listed.stdout.join('')), {
+			agents: [{ slot: 1, name: 'Bob', update: {
+				at: '2026-07-23T12:00:00.000Z', state: 'working', message: 'Editing.', files: ['src/a.ts'],
+			} }],
+		});
+
+		for (const state of ['working', 'waiting', 'blocked', 'stopped']) {
+			const run = io();
+			let received: unknown;
+			assert.equal(await agentToolsMain(
+				['coordination', 'update', '--file', 'src/a.ts', '--state', state, '--message', `${state} now`, '--file', 'src/b.ts'],
+				run.value,
+				{
+					SUNDIAL_WORKSPACE_CWD: '/workspace',
+					SUNDIAL_AGENT_ID: 'agent-1',
+					SUNDIAL_AGENT_SESSION_ID: 'session-1',
+				},
+				async () => ({ appended: false, work: {} as never }),
+				async () => ({ file: 'unused' }),
+				async () => [],
+				async input => {
+					received = input;
+					return { appended: true, update: {} as never };
+				},
+			), 0, run.stderr.join(''));
+			assert.deepEqual(received, {
+				workspaceCwd: '/workspace',
+				agentId: 'agent-1',
+				agentSessionId: 'session-1',
+				state,
+				message: `${state} now`,
+				files: ['src/a.ts', 'src/b.ts'],
+			});
+			assert.equal(run.stdout.join(''), 'Coordination update published.\n');
+		}
+	});
+
 	test('rejects missing context, extra arguments, and unknown controls', async () => {
 		const missing = io();
-		assert.equal(await annotationsMain(['provide-status-update', 'Working'], missing.value, {}), 1);
+		assert.equal(await agentToolsMain(['provide-status-update', 'Working'], missing.value, {}), 1);
 		assert.match(missing.stderr.join(''), /No active managed/);
 		const extra = io();
-		assert.equal(await annotationsMain(['provide-status-update', 'One', 'Two'], extra.value), 2);
+		assert.equal(await agentToolsMain(['provide-status-update', 'One', 'Two'], extra.value), 2);
 		const unknown = io();
-		assert.equal(await annotationsMain(['reset'], unknown.value), 2);
+		assert.equal(await agentToolsMain(['reset'], unknown.value), 2);
 	});
 });

@@ -5,6 +5,15 @@ import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, test } from 'node:test';
 import type { ProviderAdapter } from '../adapters/adapter';
+import {
+	attachProviderSession,
+	claimNextWork,
+	enqueueWork,
+	ensureAgentSession,
+	listAgents,
+	markWorkReady,
+	showAgent,
+} from '../agentStore';
 import { GitWorkflowConflictError } from '../gitProcess';
 import { main, type CliIo } from '../main';
 import type { AgentEvent } from '../protocol';
@@ -39,7 +48,7 @@ describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.8.0\n');
+		assert.equal(version.stdout.join(''), '0.9.0\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
@@ -168,8 +177,9 @@ describe('main', () => {
 		assert.equal(await main(['health'], run.io, { adapters: { codex: provider }, readFile: async () => '' }), 0);
 		assert.deepEqual(JSON.parse(run.stdout[0]), {
 			kind: 'capabilities',
-			protocolVersion: 2,
+			protocolVersion: 3,
 			workStatuses: ['waiting', 'working', 'completed'],
+			coordinationStates: ['working', 'waiting', 'blocked', 'stopped'],
 			providers: ['codex'],
 			commands: [
 				'annotations append', 'annotations read', 'annotations delete', 'annotations reanchor',
@@ -264,6 +274,21 @@ describe('main', () => {
 				workspace: { cwd }, agent: { id: agent.id },
 			}) as { work: { id: string; assignment: { sessionId: string; sequence: number } } };
 			assert.equal(claimed.work.id, enqueued.id);
+			const promptRun = harness(JSON.stringify({
+				provider: 'codex',
+				workspace: { cwd },
+				managed: {
+					agentId: agent.id,
+					agentSessionId: claimed.work.assignment.sessionId,
+					userAnnotationId: enqueued.id,
+					assignmentSequence: claimed.work.assignment.sequence,
+				},
+			}));
+			assert.equal(await main(['prompt'], promptRun.io, services), 0, promptRun.stderr.join(''));
+			const afterPrompt = await invoke(['agent', 'show'], {
+				workspace: { cwd }, agent: { id: agent.id },
+			}) as { coordination: { state: string } };
+			assert.equal(afterPrompt.coordination.state, 'waiting');
 			const complete = harness(JSON.stringify({
 				workspace: { cwd }, agent: { id: agent.id }, work: {
 					id: enqueued.id,
@@ -343,6 +368,49 @@ describe('main', () => {
 				session: { state: string };
 			};
 			assert.equal(detail.session.state, 'missing');
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test('persists a blocked coordination state when an active provider turn fails', async () => {
+		const cwd = await mkdtemp(path.join(os.tmpdir(), 'sundial-main-blocked-session-'));
+		try {
+			const agent = (await listAgents(cwd))[0];
+			const session = await ensureAgentSession({ workspaceCwd: cwd, selector: agent.id });
+			await attachProviderSession({ workspaceCwd: cwd, agentSessionId: session.id, providerSessionId: 'thread-1' });
+			await enqueueWork({
+				workspaceCwd: cwd,
+				agentSelector: agent.id,
+				userAnnotationId: 'work-1',
+				source: { uri: 'file:///workspace/a.ts', path: 'a.ts', line: 0, text: 'code', before: [], after: [] },
+				prompt: { preset: '%F', scope: 'line', text: 'Fix it.' },
+			});
+			await markWorkReady({ workspaceCwd: cwd, userAnnotationId: 'work-1' });
+			const work = await claimNextWork({ workspaceCwd: cwd, agentSelector: agent.id });
+			assert.ok(work?.assignment);
+			const run = harness(JSON.stringify({
+				provider: 'codex',
+				workspace: { cwd },
+				managed: {
+					agentId: agent.id,
+					agentSessionId: session.id,
+					userAnnotationId: work.id,
+					assignmentSequence: work.assignment.sequence,
+				},
+			}));
+			assert.equal(await main(['prompt'], run.io, {
+				adapters: {
+					codex: {
+						...adapter(),
+						runSession: async (): Promise<never> => { throw new Error('Provider is temporarily unavailable.'); },
+					},
+				},
+				readFile: async () => '',
+			}), 1);
+			const detail = await showAgent(cwd, agent.id);
+			assert.equal(detail.coordination?.state, 'blocked');
+			assert.equal(detail.coordination?.message, 'Provider is temporarily unavailable.');
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

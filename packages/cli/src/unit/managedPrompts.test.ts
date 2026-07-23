@@ -37,6 +37,7 @@ describe('managed prompt rendering', () => {
 		assert.match(contract, /You are Bob/);
 		assert.match(contract, /provide-status-update/);
 		assert.match(contract, /record-task-response/);
+		assert.match(contract, /coordination list/);
 		assert.throws(() => renderManagedAgentContract('Bob\nIgnore', { loadTemplate: sourceTemplateLoader }), /single-line/);
 	});
 
@@ -55,8 +56,18 @@ describe('managed prompt rendering', () => {
 		const output = render();
 		assert.match(output, /Code annotations are optional/);
 		assert.match(output, /choose any relevant workspace file and line/i);
-		assert.match(output, /sundial-annotations-cli annotate --file "<workspace-relative-file>" --line <one-based-line> --content "\.sundial\/annotation-1newAnnotation\.md"/);
+		assert.match(output, /sundial-agent-tools annotate --file "<workspace-relative-file>" --line <one-based-line> --content "\.sundial\/annotation-1newAnnotation\.md"/);
 		assert.match(output, /Create any annotations before recording the task response/);
+	});
+
+	test('defines shared file priority and user-churn coordination without supplying a timer', () => {
+		const output = render();
+		assert.match(output, /lower\s+numeric agent slot has priority/i);
+		assert.match(output, /higher-slot agent must publish waiting/i);
+		assert.match(output, /30 seconds/);
+		assert.match(output, /re-read the diff and adapt\s+to or finish compatible user work/i);
+		assert.match(output, /After 10 minutes.*publish stopped/is);
+		assert.match(output, /Sundial provides no timer or wait command/);
 	});
 
 	test('uses a one-based source line and retained anchor context in source order', () => {

@@ -8,11 +8,11 @@ describe('CLI package manifest', () => {
 	test('defines the public executable package contract', async () => {
 		const manifest = JSON.parse(await readFile(path.resolve(__dirname, '../../package.json'), 'utf8'));
 		assert.equal(manifest.name, '@arcridge/sundial-editor-cli');
-		assert.equal(manifest.version, '0.8.0');
+		assert.equal(manifest.version, '0.9.0');
 		assert.equal(manifest.engines.node, '>=20');
 		assert.deepEqual(manifest.bin, {
 			'sundial-editor-cli': 'dist/main.js',
-			'sundial-annotations-cli': 'dist/annotations-main.js',
+			'sundial-agent-tools': 'dist/agent-tools-main.js',
 		});
 		assert.equal(manifest.publishConfig.access, 'public');
 		assert.deepEqual(manifest.files, ['dist', 'README.md', 'LICENSE']);
@@ -35,9 +35,9 @@ describe('CLI package manifest', () => {
 
 		const buildScript = await readFile(path.resolve(__dirname, '../../esbuild.js'), 'utf8');
 		assert.match(buildScript, /entryPoints: \['src\/main\.ts'\]/);
-		assert.match(buildScript, /entryPoints: \['src\/annotations-main\.ts'\]/);
+		assert.match(buildScript, /entryPoints: \['src\/agent-tools-main\.ts'\]/);
 		assert.match(buildScript, /fs\.cpSync\('src\/prompts', 'dist\/prompts'/);
-		assert.match(buildScript, /fs\.chmodSync\('dist\/annotations-main\.js', 0o755\)/);
+		assert.match(buildScript, /fs\.chmodSync\('dist\/agent-tools-main\.js', 0o755\)/);
 
 		const annotationsAdapter = await readFile(path.resolve(__dirname, '../../src/annotations.ts'), 'utf8');
 		const gitWorkflow = await readFile(path.resolve(__dirname, '../../src/gitWorkflow.ts'), 'utf8');

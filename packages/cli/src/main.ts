@@ -10,6 +10,7 @@ import {
 	attachProviderSession,
 	claimNextWork,
 	completeWork,
+	coordinationStates,
 	enqueueWork,
 	ensureAgentSession,
 	getAgentTranscript,
@@ -17,6 +18,7 @@ import {
 	listWork,
 	markProviderSessionMissing,
 	markWorkReady,
+	publishAutomaticCoordinationUpdate,
 	renameAgent,
 	resetAgentSession,
 	setSessionTranscript,
@@ -118,7 +120,7 @@ async function health(args: readonly string[], io: CliIo, services: MainServices
 		if (args.length !== expectedLength) {throw new Error(`Unexpected health arguments: ${args.join(' ')}`);}
 		const adapter = services.adapters[provider]; if (adapter === undefined) {throw new Error(`Unsupported provider: ${provider}`);}
 		const providerHealth = await adapter.health({ forceRefresh: refresh });
-		writeJson(io, { kind: 'capabilities', protocolVersion: 2, workStatuses: ['waiting', 'working', 'completed'], providers: [provider], commands: editorCommands, health: providerHealth });
+		writeJson(io, { kind: 'capabilities', protocolVersion: 3, workStatuses: ['waiting', 'working', 'completed'], coordinationStates, providers: [provider], commands: editorCommands, health: providerHealth });
 		return providerHealth.available && providerHealth.compatible ? 0 : 1;
 	} catch (error) { io.stderr.write(`${errorMessage(error)}\n`); return 2; }
 }
@@ -290,15 +292,36 @@ async function reconcileCurrentWork(cwd: string, detail: AgentDetail, reason: st
 }
 
 async function prompt(args: readonly string[], io: CliIo, services: MainServices): Promise<number> {
+	let request: PromptRequest | undefined;
 	try {
-		const request = parsePromptRequest(await requestInput(args, io, services, 'prompt'));
+		request = parsePromptRequest(await requestInput(args, io, services, 'prompt'));
 		const adapter = requiredAdapter(services, request.provider); const abortController = new AbortController(); const abort = (): void => abortController.abort(); process.once('SIGINT', abort); process.once('SIGTERM', abort);
 		try {
 			await runManagedPrompt(request, adapter, io, abortController.signal);
+			await publishAutomaticCoordinationUpdate({
+				workspaceCwd: request.workspace.cwd,
+				agentId: request.managed.agentId,
+				agentSessionId: request.managed.agentSessionId,
+				state: 'waiting',
+				message: 'Provider turn finished; waiting for the next step.',
+			});
 			io.stdout.write(`${renderEvent({ kind: 'status', status: 'waiting' })}\n`); return 0;
 		} finally { process.removeListener('SIGINT', abort); process.removeListener('SIGTERM', abort); }
 	} catch (error) {
 		const message = error instanceof SyntaxError ? `Invalid JSON: ${error.message}` : errorMessage(error);
+		if (request !== undefined) {
+			try {
+				await publishAutomaticCoordinationUpdate({
+					workspaceCwd: request.workspace.cwd,
+					agentId: request.managed.agentId,
+					agentSessionId: request.managed.agentSessionId,
+					state: 'blocked',
+					message: coordinationFailureMessage(message),
+				});
+			} catch {
+				// Preserve the primary prompt failure when its managed session is already stale.
+			}
+		}
 		io.stdout.write(`${renderEvent({ kind: 'status', status: 'blocked', message })}\n`);
 		io.stdout.write(`${renderEvent({ kind: 'error', message, recoverable: true })}\n`);
 		io.stderr.write(`sundial-editor-cli: ${message}\n`); return 1;
@@ -386,6 +409,10 @@ function stringArray(value: unknown, field: string): readonly string[] { if (!Ar
 function preset(value: unknown): WorkItem['prompt']['preset'] { if (typeof value !== 'string' || !/^%(Q|F|W|R|C|T)$/.test(value)) {throw new Error('prompt.preset is invalid');} return value as WorkItem['prompt']['preset']; }
 function scope(value: unknown): WorkItem['prompt']['scope'] { if (value !== 'line' && value !== 'project') {throw new Error('prompt.scope is invalid');} return value; }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function coordinationFailureMessage(message: string): string {
+	const singleLine = message.replace(/[\r\n]+/gu, ' ').trim() || 'Provider turn failed.';
+	return [...singleLine].slice(0, 240).join('');
+}
 
 function redactProviderNativeIds(value: unknown): unknown {
 	if (Array.isArray(value)) { return value.map(redactProviderNativeIds); }

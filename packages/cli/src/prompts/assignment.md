@@ -13,7 +13,7 @@ rationale, or a follow-up would help the user at a particular code location.
 You may choose any relevant workspace file and line. Write only the Markdown
 body to {{annotation_file}}, then run:
 
-  sundial-annotations-cli annotate --file "<workspace-relative-file>" --line <one-based-line> --content "{{annotation_file}}"
+  sundial-agent-tools annotate --file "<workspace-relative-file>" --line <one-based-line> --content "{{annotation_file}}"
 
 Repeat by writing new Markdown to the same file before each additional command.
 Create any annotations before recording the task response.
@@ -22,7 +22,7 @@ For this assignment, the response file is {{response_file}}. When the work and
 validation are complete, write its complete Markdown body there and record it
 exactly once with:
 
-  sundial-annotations-cli record-task-response "{{response_file}}"
+  sundial-agent-tools record-task-response "{{response_file}}"
 
 After that command succeeds, do not modify the workspace. Provider prose alone
 does not complete the assignment, and Provide Status Update is not a substitute.

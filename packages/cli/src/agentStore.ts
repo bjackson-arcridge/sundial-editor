@@ -13,6 +13,8 @@ export type AgentSelector = string | number;
 export type WorkStatus = 'waiting' | 'working' | 'completed';
 export type WorkUpdateKind = 'enqueued' | 'ready' | 'claimed' | 'status' | 'completed' | 'requeued';
 export type SessionState = 'uninitialized' | 'available' | 'missing';
+export const coordinationStates = ['working', 'waiting', 'blocked', 'stopped'] as const;
+export type CoordinationState = typeof coordinationStates[number];
 
 export const agentStoreVersion = 1;
 export const defaultAgentNames = ['Bob', 'Amy', 'Sam', 'Mike', 'Ty'] as const;
@@ -40,7 +42,21 @@ export interface AgentSessionRecord {
 	readonly providerSessionId?: string;
 	readonly createdAt: string;
 	readonly updatedAt: string;
+	readonly coordinationUpdates: readonly CoordinationUpdate[];
 	readonly transcript: readonly TranscriptEntry[];
+}
+
+export interface CoordinationUpdate {
+	readonly at: string;
+	readonly state: CoordinationState;
+	readonly message: string;
+	readonly files: readonly string[];
+}
+
+export interface CoordinationAgent {
+	readonly slot: number;
+	readonly name: string;
+	readonly update?: CoordinationUpdate;
 }
 
 export interface WorkSource {
@@ -123,6 +139,7 @@ export interface AgentSummary {
 	readonly slot: number;
 	readonly name: string;
 	readonly session: AgentSessionSummary;
+	readonly coordination?: CoordinationUpdate;
 	readonly queue: { readonly waiting: number; readonly working: number; readonly completed: number };
 	readonly currentWork?: WorkSummary;
 	readonly controls: {
@@ -175,6 +192,11 @@ export interface AssignedWorkRequest extends WorkIdentityRequest {
 
 export interface StatusUpdateResult {
 	readonly work: UserAnnotationWorkItem;
+	readonly appended: boolean;
+}
+
+export interface CoordinationUpdateResult {
+	readonly update: CoordinationUpdate;
 	readonly appended: boolean;
 }
 
@@ -266,6 +288,41 @@ export function normalizeAgentStatus(value: unknown): string {
 	return status;
 }
 
+export function normalizeCoordinationState(value: unknown): CoordinationState {
+	if (typeof value !== 'string' || !(coordinationStates as readonly string[]).includes(value)) {
+		throw new AgentStoreValidationError(`Coordination state must be one of: ${coordinationStates.join(', ')}.`);
+	}
+	return value as CoordinationState;
+}
+
+export function normalizeCoordinationFiles(workspaceCwd: string, values: unknown): readonly string[] {
+	if (!Array.isArray(values) || values.length > 100 || !values.every(value => typeof value === 'string')) {
+		throw new AgentStoreValidationError('Coordination files must contain at most 100 workspace-relative paths.');
+	}
+	const workspace = path.resolve(workspaceCwd);
+	const normalized: string[] = [];
+	for (const value of values) {
+		const portable = value.replaceAll('\\', '/');
+		if (portable.includes('\0') || portable.length > 1_024 || path.posix.isAbsolute(portable)
+			|| /^[A-Za-z]:/u.test(portable) || portable.split('/').includes('..')) {
+			throw new AgentStoreValidationError('Coordination files must be safe workspace-relative paths.');
+		}
+		const relative = path.posix.normalize(portable);
+		if (relative === '.' || relative === '..' || relative.startsWith('../') || relative.split('/').some(segment => segment === '')) {
+			throw new AgentStoreValidationError('Coordination files must be safe workspace-relative paths.');
+		}
+		const resolved = path.resolve(workspace, ...relative.split('/'));
+		const checked = path.relative(workspace, resolved);
+		if (checked === '' || path.isAbsolute(checked) || checked === '..' || checked.startsWith(`..${path.sep}`)) {
+			throw new AgentStoreValidationError('Coordination files must stay inside the workspace.');
+		}
+		if (!normalized.includes(relative)) {
+			normalized.push(relative);
+		}
+	}
+	return normalized;
+}
+
 export function agentStorePath(workspaceCwd: string): string {
 	return storePaths(workspaceCwd).root;
 }
@@ -332,7 +389,17 @@ export async function ensureAgentSession(input: { workspaceCwd: string; selector
 		const agent = selectAgent(await readAgents(input.workspaceCwd), input.selector);
 		if (agent.currentSessionId !== undefined) {return readSessionRequired(input.workspaceCwd, agent.currentSessionId);}
 		const now = defaultServices.now().toISOString();
-		const session: AgentSessionRecord = { version: 1, id: asAgentSessionId(defaultServices.createId()), agentId: agent.id, provider: 'codex', state: 'uninitialized', createdAt: now, updatedAt: now, transcript: [] };
+		const session: AgentSessionRecord = {
+			version: 1,
+			id: asAgentSessionId(defaultServices.createId()),
+			agentId: agent.id,
+			provider: 'codex',
+			state: 'uninitialized',
+			createdAt: now,
+			updatedAt: now,
+			coordinationUpdates: [initialCoordinationUpdate(now)],
+			transcript: [],
+		};
 		await createDocument(sessionFilePath(input.workspaceCwd, session.id), session);
 		await replaceDocument(agentFilePath(input.workspaceCwd, agent.id), { ...agent, currentSessionId: session.id });
 		return session;
@@ -375,7 +442,17 @@ export async function resetAgentSession(input: {
 		}
 		if (agent.currentSessionId !== undefined) {await rm(sessionFilePath(input.workspaceCwd, agent.currentSessionId), { force: true });}
 		const now = defaultServices.now().toISOString();
-		const session: AgentSessionRecord = { version: 1, id: asAgentSessionId(defaultServices.createId()), agentId: agent.id, provider: 'codex', state: 'uninitialized', createdAt: now, updatedAt: now, transcript: [] };
+		const session: AgentSessionRecord = {
+			version: 1,
+			id: asAgentSessionId(defaultServices.createId()),
+			agentId: agent.id,
+			provider: 'codex',
+			state: 'uninitialized',
+			createdAt: now,
+			updatedAt: now,
+			coordinationUpdates: [initialCoordinationUpdate(now)],
+			transcript: [],
+		};
 		await createDocument(sessionFilePath(input.workspaceCwd, session.id), session);
 		const updatedAgent: NamedAgent = { ...agent, currentSessionId: session.id }; await replaceDocument(agentFilePath(input.workspaceCwd, agent.id), updatedAgent);
 		return { agent: updatedAgent, session, requeued };
@@ -430,7 +507,14 @@ export async function claimNextWork(input: { workspaceCwd: string; agentSelector
 		const item = all.filter(work => work.agentId === agent.id && work.status === 'waiting' && work.ready).sort(compareWork)[0]; if (item === undefined) {return undefined;}
 		const at = defaultServices.now().toISOString(); const sequence = item.lastAssignmentSequence + 1;
 		const next: UserAnnotationWorkItem = { ...item, status: 'working', lastAssignmentSequence: sequence, assignment: { sessionId: agent.currentSessionId, sequence, claimedAt: at }, updatedAt: at, updates: [...item.updates, { at, kind: 'claimed', message: `Assigned to ${agent.name}.` }] };
-		await replaceDocument(workFilePath(input.workspaceCwd, item.id), next); return next;
+		await replaceDocument(workFilePath(input.workspaceCwd, item.id), next);
+		await appendCoordinationUpdate(input.workspaceCwd, session, {
+			at,
+			state: 'working',
+			message: 'Starting the assigned work.',
+			files: [],
+		});
+		return next;
 	});
 }
 
@@ -495,6 +579,52 @@ export async function provideStatusUpdate(input: AssignmentInput & { status: str
 	return { work, appended };
 }
 
+export async function listCoordinationAgents(workspaceCwd: string): Promise<readonly CoordinationAgent[]> {
+	const agents = await listAgents(workspaceCwd);
+	return agents.map(agent => ({
+		slot: agent.slot,
+		name: agent.name,
+		...(agent.coordination === undefined ? {} : { update: agent.coordination }),
+	}));
+}
+
+export async function publishCoordinationUpdate(input: {
+	readonly workspaceCwd: string;
+	readonly agentId: string;
+	readonly agentSessionId: string;
+	readonly state: unknown;
+	readonly message: unknown;
+	readonly files: unknown;
+}): Promise<CoordinationUpdateResult> {
+	const state = normalizeCoordinationState(input.state);
+	const message = normalizeAgentStatus(input.message);
+	const files = normalizeCoordinationFiles(input.workspaceCwd, input.files);
+	return withStoreLock(input.workspaceCwd, defaultServices, async () => {
+		const agent = selectAgent(await readAgents(input.workspaceCwd), asAgentId(input.agentId));
+		const session = await readSessionRequired(input.workspaceCwd, input.agentSessionId);
+		if (agent.currentSessionId !== session.id || session.agentId !== agent.id || session.state !== 'available') {
+			throw new AgentStoreConflictError('stale_assignment', 'The invoking agent session is no longer active.');
+		}
+		const latest = session.coordinationUpdates.at(-1)!;
+		if (latest.state === state && latest.message === message && sameStrings(latest.files, files)) {
+			return { update: latest, appended: false };
+		}
+		const update: CoordinationUpdate = { at: defaultServices.now().toISOString(), state, message, files };
+		await appendCoordinationUpdate(input.workspaceCwd, session, update);
+		return { update, appended: true };
+	});
+}
+
+export async function publishAutomaticCoordinationUpdate(input: {
+	readonly workspaceCwd: string;
+	readonly agentId: string;
+	readonly agentSessionId: string;
+	readonly state: CoordinationState;
+	readonly message: string;
+}): Promise<CoordinationUpdateResult> {
+	return publishCoordinationUpdate({ ...input, files: [] });
+}
+
 export async function listWork(workspaceCwd: string, selector?: AgentSelector): Promise<readonly UserAnnotationWorkItem[]> {
 	const work = await readWork(workspaceCwd); if (selector === undefined) {return work.sort(compareWork);}
 	const agent = await resolveAgentSelector(workspaceCwd, selector); return work.filter(item => item.agentId === agent.id).sort(compareWork);
@@ -542,7 +672,7 @@ function sameResponseAttempt(evidence: PendingResponseEvidence, input: ResponseE
 		&& evidence.file === input.file;
 }
 
-async function projectAgentSummaries(cwd: string, agents: readonly NamedAgent[]): Promise<AgentSummary[]> { const all = await readWork(cwd); const projected: AgentSummary[] = []; for (const agent of [...agents].sort((a, b) => a.slot - b.slot)) { const work = all.filter(item => item.agentId === agent.id); const working = work.filter(item => item.status === 'working'); if (working.length > 1) {throw new AgentStoreValidationError(`Agent ${agent.id} has more than one working item.`);} const current = working[0]; const session = agent.currentSessionId === undefined ? undefined : await readSessionRequired(cwd, agent.currentSessionId); if (session !== undefined && session.agentId !== agent.id) {throw new AgentStoreValidationError(`Agent ${agent.id} references another agent's session.`);} const sessionSummary: AgentSessionSummary = session === undefined ? { state: 'missing' } : session.state === 'missing' ? { state: 'missing', id: session.id } : { state: session.state, id: session.id, provider: session.provider }; projected.push({ id: agent.id, slot: agent.slot, name: agent.name, session: sessionSummary, queue: { waiting: work.filter(x => x.status === 'waiting').length, working: working.length, completed: work.filter(x => x.status === 'completed').length }, ...(current === undefined ? {} : { currentWork: workSummary(current) }), controls: { canRename: true, canEnsureSession: session?.state !== 'available', canOpen: session?.state === 'available', canInterrupt: current !== undefined, canReset: session !== undefined } }); } return projected; }
+async function projectAgentSummaries(cwd: string, agents: readonly NamedAgent[]): Promise<AgentSummary[]> { const all = await readWork(cwd); const projected: AgentSummary[] = []; for (const agent of [...agents].sort((a, b) => a.slot - b.slot)) { const work = all.filter(item => item.agentId === agent.id); const working = work.filter(item => item.status === 'working'); if (working.length > 1) {throw new AgentStoreValidationError(`Agent ${agent.id} has more than one working item.`);} const current = working[0]; const session = agent.currentSessionId === undefined ? undefined : await readSessionRequired(cwd, agent.currentSessionId); if (session !== undefined && session.agentId !== agent.id) {throw new AgentStoreValidationError(`Agent ${agent.id} references another agent's session.`);} const sessionSummary: AgentSessionSummary = session === undefined ? { state: 'missing' } : session.state === 'missing' ? { state: 'missing', id: session.id } : { state: session.state, id: session.id, provider: session.provider }; const coordination = session?.coordinationUpdates.at(-1); projected.push({ id: agent.id, slot: agent.slot, name: agent.name, session: sessionSummary, ...(coordination === undefined ? {} : { coordination }), queue: { waiting: work.filter(x => x.status === 'waiting').length, working: working.length, completed: work.filter(x => x.status === 'completed').length }, ...(current === undefined ? {} : { currentWork: workSummary(current) }), controls: { canRename: true, canEnsureSession: session?.state !== 'available', canOpen: session?.state === 'available', canInterrupt: current !== undefined, canReset: session !== undefined } }); } return projected; }
 function workSummary(item: UserAnnotationWorkItem): WorkSummary { return { id: item.id, agentId: item.agentId, status: item.status, ready: item.ready, enqueuedAt: item.enqueuedAt, updatedAt: item.updatedAt, latestUpdate: item.updates[item.updates.length - 1], ...(item.assignment === undefined ? {} : { assignment: item.assignment }) }; }
 
 async function readAgents(cwd: string): Promise<NamedAgent[]> { const agents = await readDocuments(storePaths(cwd).agents, validateNamedAgent); if (!unique(agents.map(agent => agent.id)) || !unique(agents.map(agent => agent.slot)) || !unique(agents.map(agent => fold(agent.name)))) {throw new AgentStoreValidationError('Logical agent identities, slots, and names must be unique.');} return agents; }
@@ -552,13 +682,23 @@ async function readDocuments<T extends { readonly id: string }>(directory: strin
 async function readOptional<T>(file: string, validate: (value: unknown) => asserts value is T): Promise<T | undefined> { try { const value: unknown = JSON.parse(await readFile(file, 'utf8')); validate(value); return value; } catch (error) { if (nodeCode(error) === 'ENOENT') {return undefined;} throw error; } }
 
 function validateNamedAgent(value: unknown): asserts value is NamedAgent { if (!isRecord(value) || value.version !== 1 || !validOpaque(value.id) || !Number.isSafeInteger(value.slot) || (value.slot as number) < 1 || typeof value.name !== 'string' || validateAgentName(value.name) !== value.name || (value.currentSessionId !== undefined && !validOpaque(value.currentSessionId))) {throw new AgentStoreValidationError('Malformed logical agent file.');} }
-function validateSessionRecord(value: unknown): asserts value is AgentSessionRecord { if (!isRecord(value) || value.version !== 1 || !validOpaque(value.id) || !validOpaque(value.agentId) || value.provider !== 'codex' || !['uninitialized', 'available', 'missing'].includes(String(value.state)) || !validTimestamp(value.createdAt) || !validTimestamp(value.updatedAt) || Date.parse(value.updatedAt) < Date.parse(value.createdAt) || !Array.isArray(value.transcript) || !value.transcript.every(isTranscriptEntry) || (value.providerSessionId !== undefined && (typeof value.providerSessionId !== 'string' || value.providerSessionId.trim() === '')) || (value.state === 'available' && typeof value.providerSessionId !== 'string') || (value.state === 'uninitialized' && (value.providerSessionId !== undefined || value.transcript.length !== 0))) {throw new AgentStoreValidationError('Malformed managed session file.');} }
+function validateSessionRecord(value: unknown): asserts value is AgentSessionRecord {
+	if (isRecord(value) && value.coordinationUpdates === undefined && validTimestamp(value.updatedAt)) {
+		// Version-1 sessions created before coordination histories gain a safe in-memory
+		// baseline and persist it on their next ordinary session mutation.
+		value.coordinationUpdates = [initialCoordinationUpdate(value.updatedAt)];
+	}
+	if (!isRecord(value) || value.version !== 1 || !validOpaque(value.id) || !validOpaque(value.agentId) || value.provider !== 'codex' || !['uninitialized', 'available', 'missing'].includes(String(value.state)) || !validTimestamp(value.createdAt) || !validTimestamp(value.updatedAt) || Date.parse(value.updatedAt) < Date.parse(value.createdAt) || !Array.isArray(value.coordinationUpdates) || value.coordinationUpdates.length === 0 || !value.coordinationUpdates.every(isCoordinationUpdate) || !chronological(value.coordinationUpdates.map(update => update.at)) || Date.parse(value.coordinationUpdates[0].at) < Date.parse(value.createdAt) || Date.parse(value.coordinationUpdates.at(-1)!.at) > Date.parse(value.updatedAt) || !Array.isArray(value.transcript) || !value.transcript.every(isTranscriptEntry) || (value.providerSessionId !== undefined && (typeof value.providerSessionId !== 'string' || value.providerSessionId.trim() === '')) || (value.state === 'available' && typeof value.providerSessionId !== 'string') || (value.state === 'uninitialized' && (value.providerSessionId !== undefined || value.transcript.length !== 0))) {
+		throw new AgentStoreValidationError('Malformed managed session file.');
+	}
+}
 function validateWorkItem(value: unknown): asserts value is UserAnnotationWorkItem { if (!isRecord(value) || value.version !== 1 || !validOpaque(value.id) || !validOpaque(value.agentId) || !['waiting', 'working', 'completed'].includes(String(value.status)) || typeof value.ready !== 'boolean' || !validTimestamp(value.enqueuedAt) || !validTimestamp(value.updatedAt) || Date.parse(value.updatedAt) < Date.parse(value.enqueuedAt) || !Number.isSafeInteger(value.lastAssignmentSequence) || (value.lastAssignmentSequence as number) < 0 || !Array.isArray(value.updates) || value.updates.length === 0 || !value.updates.every(isWorkUpdate) || !chronological(value.updates.map(update => update.at)) || value.updates[0].kind !== 'enqueued' || value.updates[0].at !== value.enqueuedAt || value.updates.at(-1)?.at !== value.updatedAt || !isRecord(value.source) || !isRecord(value.prompt) || (value.pendingResponse !== undefined && !isPendingResponseEvidence(value.pendingResponse))) {throw new AgentStoreValidationError('Malformed user work file.');} validateSource(value.source as unknown as WorkSource); validatePrompt(value.prompt as unknown as WorkPrompt); validateWorkLifecycle(value as unknown as UserAnnotationWorkItem); }
 function validateSource(value: WorkSource): void { if (!isRecord(value) || typeof value.uri !== 'string' || value.uri.trim() === '' || (value.path !== undefined && !safeRelativePath(value.path)) || !Number.isSafeInteger(value.line) || value.line < 0 || typeof value.text !== 'string' || !isContext(value.before) || !isContext(value.after)) {throw new AgentStoreValidationError('Malformed work source.');} }
 function validatePrompt(value: WorkPrompt): void { if (!isRecord(value) || !/^%(Q|F|W|R|C|T)$/.test(String(value.preset)) || !['line', 'project'].includes(String(value.scope)) || typeof value.text !== 'string' || value.text.trim() === '') {throw new AgentStoreValidationError('Malformed work prompt.');} }
 function isContext(value: unknown): value is readonly string[] { return Array.isArray(value) && value.length <= 3 && value.every(line => typeof line === 'string' && line.trim() !== '' && !/[\r\n\u2028\u2029]/u.test(line)); }
 function isWorkUpdate(value: unknown): value is WorkUpdate { return isRecord(value) && validTimestamp(value.at) && ['enqueued', 'ready', 'claimed', 'status', 'completed', 'requeued'].includes(String(value.kind)) && typeof value.message === 'string' && value.message.trim() !== ''; }
 function isTranscriptEntry(value: unknown): value is TranscriptEntry { return isRecord(value) && ['user', 'assistant', 'system', 'tool'].includes(String(value.role)) && typeof value.text === 'string' && value.text.trim() !== '' && (value.timestamp === undefined || validTimestamp(value.timestamp)); }
+function isCoordinationUpdate(value: unknown): value is CoordinationUpdate { return isRecord(value) && validTimestamp(value.at) && (coordinationStates as readonly string[]).includes(String(value.state)) && typeof value.message === 'string' && normalizeAgentStatus(value.message) === value.message && Array.isArray(value.files) && value.files.length <= 100 && value.files.every(file => normalizedCoordinationPath(file)) && unique(value.files); }
 
 function validateWorkLifecycle(item: UserAnnotationWorkItem): void {
 	let status: WorkStatus = 'waiting';
@@ -651,10 +791,24 @@ function compareWork(a: UserAnnotationWorkItem, b: UserAnnotationWorkItem): numb
 function chronological(timestamps: readonly string[]): boolean { return timestamps.every((timestamp, index) => index === 0 || Date.parse(timestamp) >= Date.parse(timestamps[index - 1])); }
 function validTimestamp(value: unknown): value is string { return typeof value === 'string' && value !== '' && !Number.isNaN(Date.parse(value)); }
 function unique(values: readonly (string | number)[]): boolean { return new Set(values).size === values.length; }
+function sameStrings(left: readonly string[], right: readonly string[]): boolean { return left.length === right.length && left.every((value, index) => value === right[index]); }
+function normalizedCoordinationPath(value: unknown): value is string { return safeRelativePath(value) && value.length <= 1_024 && !value.includes('\\') && !/^[A-Za-z]:/u.test(value) && value !== '.' && path.posix.normalize(value) === value; }
 function safeRelativePath(value: unknown): value is string { return typeof value === 'string' && value.trim() !== '' && !path.isAbsolute(value) && !value.split(/[\\/]/u).some(segment => segment === '..' || segment === ''); }
 function nonEmpty(value: string, name: string): string { if (value.trim() === '') {throw new AgentStoreValidationError(`${name} must be non-empty.`);} return value; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function nodeCode(error: unknown): string | undefined { return error instanceof Error && 'code' in error ? String(error.code) : undefined; }
 async function createDocument(file: string, value: unknown): Promise<void> { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' }); }
 async function replaceDocument(file: string, value: unknown): Promise<void> { await mkdir(path.dirname(file), { recursive: true }); const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`; try { await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' }); await rename(temporary, file); } finally { await rm(temporary, { force: true }); } }
+function initialCoordinationUpdate(at: string): CoordinationUpdate { return { at, state: 'waiting', message: 'Waiting for an assignment.', files: [] }; }
+async function appendCoordinationUpdate(cwd: string, session: AgentSessionRecord, update: CoordinationUpdate): Promise<void> {
+	const current = session.coordinationUpdates.at(-1);
+	if (current !== undefined && current.state === update.state && current.message === update.message && sameStrings(current.files, update.files)) {
+		return;
+	}
+	await replaceDocument(sessionFilePath(cwd, session.id), {
+		...session,
+		updatedAt: update.at,
+		coordinationUpdates: [...session.coordinationUpdates, update],
+	});
+}
 async function withStoreLock<T>(cwd: string, services: AgentStoreServices, operation: () => Promise<T>): Promise<T> { const paths = storePaths(cwd); await mkdir(paths.root, { recursive: true }); const started = Date.now(); while (true) { try { await mkdir(paths.lock); break; } catch (error) { if (nodeCode(error) !== 'EEXIST') {throw error;} try { const info = await stat(paths.lock); if (Date.now() - info.mtimeMs > services.staleLockMs) {await rm(paths.lock, { recursive: true, force: true });} } catch { /* retry */ } if (Date.now() - started > services.lockTimeoutMs) {throw new AgentStoreConflictError('state_conflict', 'Timed out waiting for agent-store lock.');} await services.sleep(10); } } try { return await operation(); } finally { await rm(paths.lock, { recursive: true, force: true }); } }

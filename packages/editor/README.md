@@ -60,6 +60,8 @@ Sundial Editor contributes the **Sundial Agents** panel to VS Code's right-hand 
 
 Each named agent has its own persistent queue. Submitted interactions move independently through **waiting**, **working**, and **completed**, so a busy agent can finish older work in order while other agents continue. A collapsed work card shows its latest status; expand its history to see ordered progress updates.
 
+Managed agents also share their current coordination state and structured file claims. When intended edits overlap, the lower numeric agent slot proceeds while the other agent waits and rechecks, reducing churn without locking files or interrupting user edits.
+
 Agent controls let you rename the logical agent, read its current-session status history, choose **Open in Codex**, interrupt current work, or reset the provider session. History contains only the concise status updates published by the agent, not provider conversation text. Interrupting or resetting returns unfinished work to that agent's queue without discarding its durable work history, stable identity, slot, or editable name. If a recorded conversation is no longer available, the agent shows **missing session**. Sending new work then asks, “No active session found; this operation will create a fresh session,” and creates one only after confirmation.
 
 Agent queues, session records, and status histories survive VS Code restarts in CLI-owned runtime state under `.sundial/agents/`. The directory is gitignored and remains separate from checked-in source-annotation companions.

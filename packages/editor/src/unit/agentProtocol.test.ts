@@ -6,6 +6,7 @@ import {
 	isAgentTranscript,
 	isAgentTranscriptViewState,
 	isAgentWorkViewState,
+	isCoordinationUpdate,
 	isNamedAgent,
 	isUserAnnotationWorkItem,
 	isWorkStatus,
@@ -63,6 +64,12 @@ const bob: NamedAgent = {
 	slot: 4,
 	name: 'Bob',
 	session: { state: 'available', id: sessionId, provider: 'codex' },
+	coordination: {
+		at: workingAt,
+		state: 'working',
+		message: 'Editing the agent protocol.',
+		files: ['packages/editor/src/agentProtocol.ts'],
+	},
 	queue: { waiting: 2, working: 1, completed: 3 },
 	currentWork: work,
 	controls: {
@@ -124,6 +131,14 @@ describe('named agent projections', () => {
 		assert.equal(isNamedAgent({
 			...bob,
 			currentWork: { ...work, agentId: parseAgentId('agent-amy') },
+		}), false);
+		assert.equal(isNamedAgent({
+			...bob,
+			coordination: { ...bob.coordination!, state: 'paused' },
+		}), false);
+		assert.equal(isCoordinationUpdate({
+			...bob.coordination!,
+			files: ['../outside.ts'],
 		}), false);
 		assert.throws(() => parseNamedAgent({ ...bob, session: { state: 'available', id: sessionId } }), /malformed/);
 	});

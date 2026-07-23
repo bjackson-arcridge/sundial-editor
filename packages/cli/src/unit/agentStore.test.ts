@@ -9,15 +9,19 @@ import {
 	completeWork,
 	enqueueWork,
 	ensureAgentSession,
+	listCoordinationAgents,
 	listAgents,
 	listWork,
 	markWorkReady,
 	markResponseRecorded,
 	prepareResponseEvidence,
 	provideStatusUpdate,
+	publishCoordinationUpdate,
 	renameAgent,
 	requeueWork,
 	resetAgentSession,
+	sessionFilePath,
+	showAgent,
 	showWork,
 } from '../agentStore';
 
@@ -48,7 +52,113 @@ describe('persistent agent store', () => {
 		await markWorkReady({ workspaceCwd: cwd, userAnnotationId: 'work-2' });
 		await markWorkReady({ workspaceCwd: cwd, userAnnotationId: first.id });
 		assert.equal((await claimNextWork({ workspaceCwd: cwd, agentSelector: agent.id }))?.id, 'work-1');
+		assert.equal((await showAgent(cwd, agent.id)).coordination?.state, 'working');
 		assert.equal(await claimNextWork({ workspaceCwd: cwd, agentSelector: agent.id }), undefined);
+	});
+
+	test('persists ordered coordination histories, normalizes claims, and exposes identity-safe projections', async () => {
+		const cwd = await workspace();
+		const [agent, peer] = await listAgents(cwd);
+		const session = await ensureAgentSession({ workspaceCwd: cwd, selector: agent.id });
+		await attachProviderSession({ workspaceCwd: cwd, agentSessionId: session.id, providerSessionId: 'thread-1' });
+		assert.equal((await showAgent(cwd, agent.id)).coordination?.state, 'waiting');
+
+		const first = await publishCoordinationUpdate({
+			workspaceCwd: cwd,
+			agentId: agent.id,
+			agentSessionId: session.id,
+			state: 'working',
+			message: 'Editing shared code.',
+			files: ['./src/a.ts', 'src\\b.ts', 'src/a.ts'],
+		});
+		assert.equal(first.appended, true);
+		assert.deepEqual(first.update.files, ['src/a.ts', 'src/b.ts']);
+		assert.equal((await publishCoordinationUpdate({
+			workspaceCwd: cwd,
+			agentId: agent.id,
+			agentSessionId: session.id,
+			state: 'working',
+			message: 'Editing shared code.',
+			files: ['src/a.ts', 'src/b.ts'],
+		})).appended, false);
+
+		for (const state of ['waiting', 'blocked', 'stopped'] as const) {
+			await publishCoordinationUpdate({
+				workspaceCwd: cwd,
+				agentId: agent.id,
+				agentSessionId: session.id,
+				state,
+				message: `${state} update`,
+				files: [],
+			});
+		}
+		const projection = await listCoordinationAgents(cwd);
+		assert.deepEqual(projection.map(item => [item.slot, item.name]), [[agent.slot, agent.name], [peer.slot, peer.name], [3, 'Sam'], [4, 'Mike'], [5, 'Ty']]);
+		assert.equal(projection[0].update?.state, 'stopped');
+		assert.equal('id' in projection[0], false);
+
+		const stored = JSON.parse(await readFile(sessionFilePath(cwd, session.id), 'utf8'));
+		assert.deepEqual(stored.coordinationUpdates.map((update: { state: string }) => update.state), [
+			'waiting', 'working', 'waiting', 'blocked', 'stopped',
+		]);
+		await assert.rejects(() => publishCoordinationUpdate({
+			workspaceCwd: cwd,
+			agentId: agent.id,
+			agentSessionId: session.id,
+			state: 'working',
+			message: 'Unsafe.',
+			files: ['../outside.ts'],
+		}), /workspace-relative/);
+		await assert.rejects(() => publishCoordinationUpdate({
+			workspaceCwd: cwd,
+			agentId: peer.id,
+			agentSessionId: session.id,
+			state: 'working',
+			message: 'Impersonating.',
+			files: [],
+		}), /no longer active/);
+	});
+
+	test('serializes concurrent coordination publications without losing history', async () => {
+		const cwd = await workspace();
+		const agent = (await listAgents(cwd))[0];
+		const session = await ensureAgentSession({ workspaceCwd: cwd, selector: agent.id });
+		await attachProviderSession({ workspaceCwd: cwd, agentSessionId: session.id, providerSessionId: 'thread-1' });
+		await Promise.all(['First update.', 'Second update.'].map(message => publishCoordinationUpdate({
+			workspaceCwd: cwd,
+			agentId: agent.id,
+			agentSessionId: session.id,
+			state: 'working',
+			message,
+			files: ['src/a.ts'],
+		})));
+		const stored = JSON.parse(await readFile(sessionFilePath(cwd, session.id), 'utf8'));
+		assert.equal(stored.coordinationUpdates.length, 3);
+		assert.deepEqual(new Set(stored.coordinationUpdates.slice(1).map((update: { message: string }) => update.message)), new Set(['First update.', 'Second update.']));
+	});
+
+	test('adopts pre-coordination version-1 sessions without discarding runtime state', async () => {
+		const cwd = await workspace();
+		const agent = (await listAgents(cwd))[0];
+		const session = await ensureAgentSession({ workspaceCwd: cwd, selector: agent.id });
+		await attachProviderSession({ workspaceCwd: cwd, agentSessionId: session.id, providerSessionId: 'thread-1' });
+		const file = sessionFilePath(cwd, session.id);
+		const legacy = JSON.parse(await readFile(file, 'utf8'));
+		delete legacy.coordinationUpdates;
+		await writeFile(file, `${JSON.stringify(legacy, null, 2)}\n`);
+
+		assert.equal((await showAgent(cwd, agent.id)).coordination?.state, 'waiting');
+		await publishCoordinationUpdate({
+			workspaceCwd: cwd,
+			agentId: agent.id,
+			agentSessionId: session.id,
+			state: 'working',
+			message: 'Continuing upgraded work.',
+			files: ['src/a.ts'],
+		});
+		const upgraded = JSON.parse(await readFile(file, 'utf8'));
+		assert.deepEqual(upgraded.coordinationUpdates.map((update: { state: string }) => update.state), ['waiting', 'working']);
+		assert.equal(upgraded.providerSessionId, 'thread-1');
 	});
 
 	test('accepts new queue work only for persisted available sessions', async () => {

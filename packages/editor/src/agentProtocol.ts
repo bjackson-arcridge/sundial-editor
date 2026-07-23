@@ -13,6 +13,15 @@ export type WorkStatus = typeof workStatuses[number];
 
 export const workUpdateKinds = ['enqueued', 'ready', 'claimed', 'status', 'completed', 'requeued'] as const;
 export type WorkUpdateKind = typeof workUpdateKinds[number];
+export const coordinationStates = ['working', 'waiting', 'blocked', 'stopped'] as const;
+export type CoordinationState = typeof coordinationStates[number];
+
+export interface CoordinationUpdate {
+	readonly at: string;
+	readonly state: CoordinationState;
+	readonly message: string;
+	readonly files: readonly string[];
+}
 
 export interface WorkUpdate {
 	readonly at: string;
@@ -78,6 +87,7 @@ export interface NamedAgent {
 	readonly slot: number;
 	readonly name: string;
 	readonly session: AgentSessionSummary;
+	readonly coordination?: CoordinationUpdate;
 	readonly queue: AgentQueueCounts;
 	readonly currentWork?: WorkSummary;
 	readonly controls: AgentControls;
@@ -173,6 +183,21 @@ export function isWorkUpdate(value: unknown): value is WorkUpdate {
 		&& isNonEmptyString(value.message);
 }
 
+export function isCoordinationUpdate(value: unknown): value is CoordinationUpdate {
+	return isRecord(value)
+		&& isTimestamp(value.at)
+		&& typeof value.state === 'string'
+		&& (coordinationStates as readonly string[]).includes(value.state)
+		&& isNonEmptyString(value.message)
+		&& value.message === value.message.trim()
+		&& [...value.message].length <= 240
+		&& !/[\r\n]/u.test(value.message)
+		&& Array.isArray(value.files)
+		&& value.files.length <= 100
+		&& value.files.every(file => typeof file === 'string' && isNormalizedRelativePath(file))
+		&& new Set(value.files).size === value.files.length;
+}
+
 export function isWorkSummary(value: unknown): value is WorkSummary {
 	if (!isRecord(value)
 		|| !isUserAnnotationId(value.id)
@@ -223,6 +248,7 @@ export function isNamedAgent(value: unknown): value is NamedAgent {
 		|| (value.slot as number) < 1
 		|| !isAgentName(value.name)
 		|| !isAgentSessionSummary(value.session)
+		|| (value.coordination !== undefined && !isCoordinationUpdate(value.coordination))
 		|| !isAgentQueueCounts(value.queue)
 		|| !isAgentControls(value.controls)
 		|| (value.currentWork !== undefined && !isWorkSummary(value.currentWork))) {
@@ -491,6 +517,17 @@ function isOpaqueId(value: unknown): value is string {
 
 function isNonEmptyString(value: unknown): value is string {
 	return typeof value === 'string' && value.trim() !== '';
+}
+
+function isNormalizedRelativePath(value: string): boolean {
+	return value !== ''
+		&& value.length <= 1_024
+		&& !value.startsWith('/')
+		&& !/^[A-Za-z]:/u.test(value)
+		&& !value.includes('\\')
+		&& !value.includes('\0')
+		&& value !== '.'
+		&& !value.split('/').some(segment => segment === '' || segment === '.' || segment === '..');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

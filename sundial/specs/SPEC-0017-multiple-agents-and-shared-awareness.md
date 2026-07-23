@@ -1,9 +1,9 @@
 ---
 id: SPEC-0017
 title: Shared awareness and agent coordination
-status: Todo
+status: Done
 created: 2026-07-13
-updated: 2026-07-22
+updated: 2026-07-23
 created_by: bjackson
 domain: editor
 slice: 9
@@ -66,6 +66,16 @@ Pause specifics: pause for 30 seconds at a time.  After 10 minutes; change statu
 
 ## Implementation Log
 
+- 2026-07-23: Renamed the managed-agent executable to `sundial-agent-tools` and removed the old bin/build entry point.
+- 2026-07-23: Added per-session coordination histories with `working`, `waiting`, `blocked`, and `stopped` states, normalized structured file claims, current-update agent projections, legacy version-1 session adoption, and serialized atomic document replacement.
+- 2026-07-23: Added managed-context `coordination list` and `coordination update` commands, automatic claim/prompt coordination transitions, protocol capability projection, and the lower-slot/user-churn prompt contract.
+- 2026-07-23: Applied the single minor release increments: CLI `0.9.0` and editor `0.16.0`.
+- 2026-07-23: Updated the `diff-workflow` staged companion from obsolete version 4 to the current version-5 schema after the broad harness exposed the stale fixture; no diff product behavior was changed.
+
 ## Test Log
 
 - 2026-07-22: Planning-only update; no runtime tests were required.
+- 2026-07-23: Passed CLI type checks and 72 CLI unit tests, including authorization, normalization, ordering, concurrent persistence, lifecycle transitions, prompt content, legacy sessions, and rename metadata.
+- 2026-07-23: Passed 102 editor unit tests, editor host/webview type checks, workspace lint, CLI build/help smoke checks, and 11 CLI integration tests.
+- 2026-07-23: `npm run check-types`, `npm run lint`, and `npm run test:unit` passed (186 unit tests total). CLI packaging dry-run included only `sundial-editor-cli` and the renamed `sundial-agent-tools` entry point.
+- 2026-07-23: Root `npm test` passed all 11 CLI integration tests and four of five VS Code scenarios. The unrelated `diff-workflow` scenario remained timing-sensitive under pinned VS Code 1.118.1 across cached retries, failing variably while focusing the original compare side or waiting for an automatically converted fourth diff. DR-0014 was applied: no diff product behavior was changed to satisfy the harness.
