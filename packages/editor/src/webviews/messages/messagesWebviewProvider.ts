@@ -9,6 +9,10 @@ import {
 } from '../../agentProtocol.js';
 import type { Annotation, AnnotationLink } from '../../annotationProtocol.js';
 import {
+	prepareAnnotationResponse,
+	type ResponseContinuity,
+} from '../../annotationResponse.js';
+import {
 	defaultPaneSplitPercent,
 	normalizePaneSplitPercent,
 	paneSplitPercentConfiguration,
@@ -85,6 +89,7 @@ interface PendingPrompt {
 	readonly cwd: string;
 	readonly draft: string;
 	readonly targetAgentId?: AgentId;
+	readonly response?: { readonly continuity: ResponseContinuity };
 	readonly reservedWork?: UserAnnotationWorkItem;
 }
 
@@ -130,6 +135,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	private pendingPaneSplitWrites = 0;
 	private annotationLoadGeneration = 0;
 	private agentLoadGeneration = 0;
+	private responseOpening = false;
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -223,12 +229,101 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 				return;
 			}
 		}
-		this.pendingPrompt = { prompt, cwd, draft: '', targetAgentId: target?.id };
+		await this.openComposer(prompt, cwd, agents, target?.id);
+	}
+
+	private async openComposer(
+		prompt: PromptContext,
+		cwd: string,
+		agents: readonly NamedAgent[],
+		targetAgentId?: AgentId,
+		response?: { readonly continuity: ResponseContinuity },
+	): Promise<void> {
+		if (agents.length === 0) {
+			this.setError('No managed agents are available.');
+			return;
+		}
+		this.pendingPrompt = {
+			prompt,
+			cwd,
+			draft: '',
+			...(targetAgentId === undefined ? {} : { targetAgentId }),
+			...(response === undefined ? {} : { response }),
+		};
 		this.notice = undefined;
 		this.postState();
 		await vscode.commands.executeCommand('workbench.view.extension.sundialEditor');
 		await vscode.commands.executeCommand('sundialEditor.messages.focus');
 		this.focusPendingComposer();
+	}
+
+	async respondToViewedAnnotation(): Promise<void> {
+		const viewed = this.viewedAnnotation;
+		if (viewed === undefined || this.pendingPrompt !== undefined || this.busy || this.responseOpening) {
+			return;
+		}
+
+		this.responseOpening = true;
+		this.busy = true;
+		this.notice = { tone: 'info', message: 'Preparing annotation response…' };
+		this.postState();
+		try {
+			const [agents, work] = await Promise.all([
+				(this.services.listAgents ?? listAgentsViaCli)(this.cliPath(), viewed.cwd),
+				(this.services.listWork ?? listWorkViaCli)(this.cliPath(), viewed.cwd),
+			]);
+			this.agentsState = agents.length === 0 ? { kind: 'empty' } : { kind: 'ready', agents };
+			this.work = work;
+			const prepared = await prepareAnnotationResponse(
+				viewed.sourceUri,
+				viewed.annotation,
+				work,
+				agents,
+				{
+					activeEditor: () => {
+						const editor = vscode.window.activeTextEditor;
+						return editor === undefined ? undefined : {
+							sourceUri: editor.document.uri.toString(),
+							line: editor.selection.active.line,
+						};
+					},
+					linkedSourceUri: file => workspaceFileUri(viewed.cwd, file),
+					readAnnotations: sourceUri => (this.services.readAnnotations ?? readAnnotationsViaCli)(
+						this.cliPath(),
+						{ workspace: { cwd: viewed.cwd }, document: { uri: sourceUri } },
+					),
+					readSourceDocument: async sourceUri => {
+						const uri = vscode.Uri.parse(sourceUri);
+						const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+						if (workspaceFolder === undefined
+							|| path.normalize(workspaceFolder.uri.fsPath) !== path.normalize(viewed.cwd)) {
+							throw new Error('The annotation source is outside the current workspace.');
+						}
+						const document = await vscode.workspace.openTextDocument(uri);
+						return {
+							sourceUri: document.uri.toString(),
+							lineCount: document.lineCount,
+							isDirty: document.isDirty,
+							lineAt: line => ({ text: document.lineAt(line).text }),
+						};
+					},
+				},
+			);
+			await this.openComposer(
+				prepared.prompt,
+				viewed.cwd,
+				agents,
+				prepared.preferredAgentId,
+				{ continuity: prepared.continuity },
+			);
+		} catch (error) {
+			this.setError(`The annotation response could not be opened. ${errorMessage(error)}`);
+		} finally {
+			this.responseOpening = false;
+			this.busy = false;
+			this.postState();
+			this.focusPendingComposer();
+		}
 	}
 
 	diagnostics(): MessagesDiagnostics {
@@ -524,6 +619,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			case 'nextAnnotation': void this.selectAdjacentAnnotation(1); return;
 			case 'toggleAnnotationPin': this.toggleAnnotationPin(); return;
 			case 'toggleAnnotationFilter': this.toggleAnnotationFilter(); return;
+			case 'respondToAnnotation': void this.respondToViewedAnnotation(); return;
 			case 'deleteAnnotation': void this.deleteViewedAnnotation(); return;
 			case 'setPaneSplitPercent': this.persistPaneSplitPercent(message.percent); return;
 			default: { const unhandled: never = message; throw new Error(`Unexpected webview message: ${JSON.stringify(unhandled)}`); }
@@ -772,6 +868,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			prompt: this.pendingPrompt.prompt,
 			draft: this.pendingPrompt.draft,
 			...(this.pendingPrompt.targetAgentId === undefined ? {} : { targetAgentId: this.pendingPrompt.targetAgentId }),
+			...(this.pendingPrompt.response === undefined ? {} : { response: this.pendingPrompt.response }),
 		};
 	}
 
@@ -863,6 +960,14 @@ function annotationOrder(annotation: Annotation): number {
 }
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+
+function workspaceFileUri(cwd: string, workspaceRelativeFile: string): string | undefined {
+	const resolved = path.resolve(cwd, ...workspaceRelativeFile.split('/'));
+	const relative = path.relative(cwd, resolved);
+	return relative === '' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+		? undefined
+		: vscode.Uri.file(resolved).toString();
+}
 
 function shellCommand(command: string, args: readonly string[]): string {
 	return [command, ...args].map(value => `'${value.replaceAll("'", "'\\''")}'`).join(' ');

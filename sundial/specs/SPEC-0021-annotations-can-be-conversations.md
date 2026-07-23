@@ -1,7 +1,7 @@
 ---
 id: SPEC-0021
 title: Annotations can be conversations
-status: Active
+status: Done
 created: 2026-07-22
 updated: 2026-07-23
 created_by: bjackson
@@ -89,7 +89,15 @@ If not, then the user must select the agent from a dropdown.
 ## Implementation Log
 
 - 2026-07-23: Marked Active and planned against the accepted editor/webview decisions and the assumed-complete SPEC-0022 task-creation controller. No Decision Record candidate is proposed because the design applies existing session-readiness, queued-work, annotation-identity, CLI-boundary, and webview rules without establishing a new cross-project convention.
+- 2026-07-23: Implemented a host-side response resolver that inherits task semantics, reads agent-annotation parents through the CLI, rebuilds saved-source context at the current annotation anchor, and preselects only an exact available originating session.
+- 2026-07-23: Added the fieldless Respond toolbar action, accessible response-composer continuity states, blank target enforcement when continuity is unavailable, and reuse of the existing durable enqueue/append/ready transaction for a fresh annotation identity.
+- 2026-07-23: Added unit, protocol, static webview, and staged VS Code coverage plus capability-level README documentation. Kept the existing editor `0.16.0` release and made no CLI or annotation-package contract/version change.
+- 2026-07-23: Decision-aware review found no substantive completeness, security/privacy, or accepted-DR issue. No new Decision Record candidate is warranted.
 
 ## Test Log
 
-- Planning only; no product code or test command was run.
+- 2026-07-23: `npm run check-types` passed across annotations, CLI, editor host, and editor webview.
+- 2026-07-23: `npm run lint` passed.
+- 2026-07-23: `npm run test:unit` passed all 201 tests (12 annotations, 72 CLI, 117 editor).
+- 2026-07-23: The staged `prompt-to-messages` scenario passed twice, including response open/cancel, exact-session preselection, fresh response annotation/work identity, completion, and preservation of the original annotation.
+- 2026-07-23: Two elevated `npm test` runs passed all 11 CLI integration tests and the delayed-autosave, prompt-to-messages, annotation-retry, and annotation-reanchor VS Code scenarios. The unchanged diff-workflow scenario prevented a fully green command with different focus/state wait timeouts on the two runs. Under DR-0014 no diff product change was made for this harness-only failure.

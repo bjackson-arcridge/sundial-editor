@@ -120,6 +120,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('sundialEditor.internal.toggleAnnotationPin', () => messagesProvider.toggleAnnotationPin()),
 		vscode.commands.registerCommand('sundialEditor.internal.previousAnnotation', () => messagesProvider.selectAdjacentAnnotation(-1)),
 		vscode.commands.registerCommand('sundialEditor.internal.nextAnnotation', () => messagesProvider.selectAdjacentAnnotation(1)),
+		vscode.commands.registerCommand('sundialEditor.internal.respondToAnnotation', () => messagesProvider.respondToViewedAnnotation()),
 		vscode.commands.registerCommand('sundialEditor.internal.deleteAnnotation', () => messagesProvider.deleteViewedAnnotation(true)),
 		vscode.commands.registerCommand('sundialEditor.internal.diffDiagnostics', () => diffController.diagnostics()),
 		vscode.commands.registerCommand('sundialEditor.diff.toggle', () => toggleDiff()),

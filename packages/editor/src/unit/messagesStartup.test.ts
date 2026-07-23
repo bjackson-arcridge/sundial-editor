@@ -28,3 +28,18 @@ test('messages sidebar loads agents from the workspace root before a file editor
 	assert.match(providerSource, /const cwd = this\.currentCwd\(\);\s*if \(cwd !== undefined\) \{ void this\.refreshAgentState\(cwd\); \}/);
 	assert.match(extensionSource, /event\.affectsConfiguration\('sundialEditor\.cliPath'\)[\s\S]*?void messagesProvider\.refreshAgentState\(\);/);
 });
+
+test('annotation response control is accessible and sends only a fieldless selection action', () => {
+	const appSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
+	const protocolSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/messages/messages.ts'), 'utf8');
+
+	assert.match(
+		appSource,
+		/<button class="icon respond-annotation" type="button" \?disabled=\$\{viewer === undefined \|\| this\.busy\}[\s\S]*?aria-label="Respond to annotation" title="Respond to annotation"/,
+	);
+	assert.match(appSource, /this\.webviewHost\.postMessage\(\{ kind: 'respondToAnnotation' \}\);/);
+	assert.match(appSource, /The originating active conversation is preselected\./);
+	assert.match(appSource, /The originating conversation is unavailable\. Choose an agent; the selected agent may not have the prior conversation context\./);
+	assert.match(appSource, /\.annotation-toolbar button:not\(:disabled\)/);
+	assert.match(protocolSource, /case 'respondToAnnotation':[\s\S]*?return hasExactKeys\(value, \['kind'\]\);/);
+});

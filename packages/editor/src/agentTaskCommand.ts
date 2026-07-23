@@ -4,6 +4,7 @@ import type {
 	PromptScope,
 } from './promptCommand';
 import type { PromptEditor } from './promptSubmission';
+import { captureLineAnchor } from './annotationResponse';
 
 export interface AgentTaskCommand {
 	readonly id: string;
@@ -63,7 +64,7 @@ export async function createAgentTask(
 	}
 
 	const sourceLine = editor.selection.active.line;
-	const anchor = captureActiveLineAnchor(editor.document, sourceLine);
+	const anchor = captureLineAnchor(editor.document, sourceLine);
 	const sourceText = `${command.preset}${command.scope === 'project' ? '@G' : ''}`;
 	const prompt: PromptContext = {
 		preset: command.preset,
@@ -83,27 +84,4 @@ export async function createAgentTask(
 
 	await dependencies.openComposer(prompt);
 	return true;
-}
-
-function captureActiveLineAnchor(
-	document: PromptEditor['document'],
-	sourceLine: number,
-): { readonly text: string; readonly before: readonly string[]; readonly after: readonly string[] } {
-	const before: string[] = [];
-	for (let line = sourceLine - 1; line >= 0 && before.length < 3; line -= 1) {
-		const text = document.lineAt(line).text;
-		if (text.trim() !== '') {
-			before.unshift(text);
-		}
-	}
-
-	const after: string[] = [];
-	for (let line = sourceLine + 1; line < document.lineCount && after.length < 3; line += 1) {
-		const text = document.lineAt(line).text;
-		if (text.trim() !== '') {
-			after.push(text);
-		}
-	}
-
-	return { text: document.lineAt(sourceLine).text, before, after };
 }

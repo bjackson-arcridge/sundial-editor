@@ -11,6 +11,7 @@ import {
 	type UserAnnotationWorkItem,
 } from '../../agentProtocol.js';
 import { isAnnotation, type AgentFileAnnotation, type Annotation, type AnnotationLink, type UserAnnotation } from '../../annotationProtocol.js';
+import type { ResponseContinuity } from '../../annotationResponse.js';
 import { maximumPaneSplitPercent, minimumPaneSplitPercent } from '../../paneSplit.js';
 import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';
 export interface HostNotice {
@@ -41,11 +42,13 @@ export type MessagesState = MessagesStateBase & (
 		readonly prompt: PromptContext;
 		readonly draft: string;
 		readonly targetAgentId?: AgentId;
+		readonly response?: { readonly continuity: ResponseContinuity };
 	}
 	| {
 		readonly prompt?: undefined;
 		readonly draft?: undefined;
 		readonly targetAgentId?: undefined;
+		readonly response?: undefined;
 	}
 );
 
@@ -200,6 +203,7 @@ export type WebviewToHost =
 	| { readonly kind: 'nextAnnotation' }
 	| { readonly kind: 'toggleAnnotationPin' }
 	| { readonly kind: 'toggleAnnotationFilter' }
+	| { readonly kind: 'respondToAnnotation' }
 	| { readonly kind: 'deleteAnnotation' }
 	| { readonly kind: 'setPaneSplitPercent'; readonly percent: number };
 
@@ -253,6 +257,7 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 		case 'nextAnnotation':
 		case 'toggleAnnotationPin':
 		case 'toggleAnnotationFilter':
+		case 'respondToAnnotation':
 		case 'deleteAnnotation':
 			return hasExactKeys(value, ['kind']);
 		default:
@@ -263,7 +268,7 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 function isMessagesState(value: unknown): value is MessagesState {
 	if (!isRecord(value)
 		|| !hasAllowedKeys(value, [
-			'agents', 'work', 'paneSplitPercent', 'workflow', 'prompt', 'draft', 'targetAgentId', 'busy', 'notice', 'annotationViewer',
+			'agents', 'work', 'paneSplitPercent', 'workflow', 'prompt', 'draft', 'targetAgentId', 'response', 'busy', 'notice', 'annotationViewer',
 		])
 		|| !hasRequiredKeys(value, ['agents', 'work', 'paneSplitPercent', 'workflow'])
 		|| !isAgentsViewState(value.agents)
@@ -282,12 +287,13 @@ function isMessagesState(value: unknown): value is MessagesState {
 	}
 
 	if (value.prompt === undefined) {
-		if (value.draft !== undefined || value.targetAgentId !== undefined) {
+		if (value.draft !== undefined || value.targetAgentId !== undefined || value.response !== undefined) {
 			return false;
 		}
 	} else if (!isPromptContext(value.prompt)
 		|| typeof value.draft !== 'string'
-		|| (value.targetAgentId !== undefined && !isAgentId(value.targetAgentId))) {
+		|| (value.targetAgentId !== undefined && !isAgentId(value.targetAgentId))
+		|| (value.response !== undefined && !isResponseComposerState(value.response))) {
 		return false;
 	}
 
@@ -296,7 +302,13 @@ function isMessagesState(value: unknown): value is MessagesState {
 	}
 	const agentIds = new Set<AgentId>(value.agents.agents.map(agent => agent.id));
 	return value.work.every(item => agentIds.has(item.agentId))
-		&& (value.prompt === undefined || (value.targetAgentId !== undefined && agentIds.has(value.targetAgentId)));
+		&& (value.prompt === undefined || value.targetAgentId === undefined || agentIds.has(value.targetAgentId));
+}
+
+function isResponseComposerState(value: unknown): value is { readonly continuity: ResponseContinuity } {
+	return isRecord(value)
+		&& hasExactKeys(value, ['continuity'])
+		&& (value.continuity === 'originating-session' || value.continuity === 'agent-selection-required');
 }
 
 function isWorkflowPresentation(value: unknown): value is WorkflowPresentation {

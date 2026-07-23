@@ -163,6 +163,14 @@ describe('messages protocol guards', () => {
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { ...readyState(), targetAgentId: amyId },
 		}), true, 'an agent without an active session remains a valid preselected target');
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state',
+			state: { ...readyState(), response: { continuity: 'originating-session' } },
+		}), true);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state',
+			state: { ...readyState(), targetAgentId: undefined, response: { continuity: 'agent-selection-required' } },
+		}), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'focusComposer' }), true);
 	});
 
@@ -188,6 +196,15 @@ describe('messages protocol guards', () => {
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { ...readyState(), draft: 12 },
+		}), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { ...readyState(), prompt: undefined, draft: undefined, targetAgentId: undefined, response: { continuity: 'originating-session' } },
+		}), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { ...readyState(), response: { continuity: 'unknown' } },
+		}), false);
+		assert.equal(isValidHostToWebviewMessage({
+			kind: 'state', state: { ...readyState(), response: { continuity: 'originating-session', agentSessionId: 'session-secret' } },
 		}), false);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state', state: { ...readyState(), paneSplitPercent: 9 },
@@ -248,6 +265,7 @@ describe('messages protocol guards', () => {
 			{ kind: 'nextAnnotation' },
 			{ kind: 'toggleAnnotationPin' },
 			{ kind: 'toggleAnnotationFilter' },
+			{ kind: 'respondToAnnotation' },
 			{ kind: 'deleteAnnotation' },
 			{ kind: 'setPaneSplitPercent', percent: 62 },
 		] as const;
@@ -278,6 +296,8 @@ describe('messages protocol guards', () => {
 		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: Number.NaN }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'setPaneSplitPercent', percent: 50, extra: true }), false);
 		assert.equal(isValidWebviewToHostMessage({ kind: 'toggleAnnotationFilter', extra: true }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'respondToAnnotation', annotationId: workId }), false);
+		assert.equal(isValidWebviewToHostMessage({ kind: 'respondToAnnotation', agentSessionId: bobSessionId }), false);
 	});
 
 	test('presents agent annotations without exposing the provider session identity', () => {

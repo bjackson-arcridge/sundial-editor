@@ -18,6 +18,7 @@ import {
 	paneSplitPercentFromPointer,
 } from '../../../paneSplit.js';
 import type { PromptContext } from '../../../promptCommand.js';
+import type { ResponseContinuity } from '../../../annotationResponse.js';
 import type { AnnotationLink } from '../../../annotationProtocol.js';
 import {
 	type AnnotationViewerState,
@@ -726,6 +727,7 @@ export class MessagesApp extends LitElement {
 	@state() private prompt: PromptContext | undefined;
 	@state() private messageText = '';
 	@state() private targetAgentId: AgentId | undefined;
+	@state() private responseContinuity: ResponseContinuity | undefined;
 	@state() private busy = false;
 	@state() private notice: HostNotice | undefined;
 	@state() private openHistoryAgentId: AgentId | undefined;
@@ -830,21 +832,34 @@ export class MessagesApp extends LitElement {
 		const selectedAgent = availableAgents.find(agent => agent.id === this.targetAgentId);
 		const canSubmit = !this.busy && this.messageText.trim() !== '' && selectedAgent !== undefined;
 		const createsFreshSession = selectedAgent !== undefined && selectedAgent.session.state !== 'available';
+		const isResponse = this.responseContinuity !== undefined;
+		const responseHelp = this.responseContinuity === 'originating-session'
+			? 'The originating active conversation is preselected. Changing the target sends this response to the agent you choose.'
+			: 'The originating conversation is unavailable. Choose an agent; the selected agent may not have the prior conversation context.';
+		const targetDescription = [
+			isResponse ? 'response-continuity-help' : '',
+			createsFreshSession ? 'fresh-session-warning' : '',
+		].filter(Boolean).join(' ');
+		const messageDescription = ['message-help', createsFreshSession ? 'fresh-session-warning' : ''].filter(Boolean).join(' ');
 		return html`
 			<section class="composer-takeover" aria-labelledby="new-message-heading">
 				<header class="context">
-					<h1 id="new-message-heading">New message</h1>
-					<p class="status">Source: User ${prompt.preset}</p>
+					${isResponse
+						? html`<h1 id="new-message-heading">Respond to annotation</h1>`
+						: html`<h1 id="new-message-heading">New message</h1>`}
+					<p class="status">Source: ${isResponse ? 'Response · ' : ''}User ${prompt.preset}</p>
 				</header>
 				<form class="composer" @submit=${this.submitComposer} @keydown=${this.handleComposerKeydown}>
 					<div class="composer-fields">
-						<label for="target-agent">Current agent</label>
+						<label for="target-agent">${this.responseContinuity === 'originating-session'
+							? 'Current agent — originating conversation preselected'
+							: isResponse ? 'Choose an agent' : 'Current agent'}</label>
 						<select
 							id="target-agent"
 							.value=${this.targetAgentId ?? ''}
 							?disabled=${this.busy || availableAgents.length === 0}
 							@change=${this.updateTargetAgent}
-							aria-describedby=${createsFreshSession ? 'fresh-session-warning' : nothing}
+							aria-describedby=${targetDescription === '' ? nothing : targetDescription}
 							required
 						>
 							<option value="" disabled .selected=${this.targetAgentId === undefined}>Select a current agent</option>
@@ -852,6 +867,9 @@ export class MessagesApp extends LitElement {
 								<option value=${agent.id} .selected=${agent.id === this.targetAgentId}>${`>${agent.slot} ${agent.name} — ${this.sessionLabel(agent)}`}</option>
 							`)}
 						</select>
+						${isResponse
+							? html`<p id="response-continuity-help" class="fresh-session-warning">${responseHelp}</p>`
+							: nothing}
 						${createsFreshSession
 							? html`<p id="fresh-session-warning" class="fresh-session-warning">No active session found; this operation will create a fresh session.</p>`
 							: nothing}
@@ -861,7 +879,7 @@ export class MessagesApp extends LitElement {
 							.value=${this.messageText}
 							?readonly=${this.busy}
 							@input=${this.updateMessageText}
-							aria-describedby=${createsFreshSession ? 'message-help fresh-session-warning' : 'message-help'}
+							aria-describedby=${messageDescription}
 							required
 						></textarea>
 					</div>
@@ -1125,6 +1143,10 @@ export class MessagesApp extends LitElement {
 						aria-pressed=${viewer?.pinned === true} @click=${this.toggleAnnotationPin}>
 						${this.renderToolbarIcon('pin')}
 					</button>
+					<button class="icon respond-annotation" type="button" ?disabled=${viewer === undefined || this.busy}
+						aria-label="Respond to annotation" title="Respond to annotation" @click=${this.respondToAnnotation}>
+						${this.renderToolbarIcon('history')}
+					</button>
 					<button class="icon" type="button" ?disabled=${viewer === undefined}
 						aria-label=${takeoverTitle} title=${takeoverTitle}
 						aria-pressed=${this.takeoverExpanded} @click=${this.toggleTakeover}>
@@ -1245,6 +1267,7 @@ export class MessagesApp extends LitElement {
 				if (hostMessage.state.prompt === undefined) {
 					this.messageText = '';
 					this.targetAgentId = undefined;
+					this.responseContinuity = undefined;
 				} else {
 					if (isOpeningPrompt) {
 						this.messageText = hostMessage.state.draft ?? '';
@@ -1252,6 +1275,7 @@ export class MessagesApp extends LitElement {
 					if (isOpeningPrompt || hostTargetChanged || this.targetAgentId === undefined) {
 						this.targetAgentId = hostMessage.state.targetAgentId;
 					}
+					this.responseContinuity = hostMessage.state.response?.continuity;
 				}
 				return;
 			}
@@ -1425,6 +1449,12 @@ export class MessagesApp extends LitElement {
 
 	private toggleAnnotationFilter = (): void => {
 		this.webviewHost.postMessage({ kind: 'toggleAnnotationFilter' });
+	};
+
+	private respondToAnnotation = (): void => {
+		if (!this.busy && this.annotationViewer !== undefined) {
+			this.webviewHost.postMessage({ kind: 'respondToAnnotation' });
+		}
 	};
 
 	private deleteAnnotation = (): void => {

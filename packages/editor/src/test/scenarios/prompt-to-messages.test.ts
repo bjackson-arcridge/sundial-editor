@@ -26,6 +26,7 @@ interface MessagesDiagnostics {
 		};
 		readonly draft?: string;
 		readonly targetAgentId?: string;
+		readonly response?: { readonly continuity: 'originating-session' | 'agent-selection-required' };
 		readonly annotationViewer?: {
 			readonly sourceUri: string;
 			readonly annotation: {
@@ -244,6 +245,36 @@ suite('Scenario: prompt-to-messages', () => {
 		assert.match(afterDeleteYaml, /Fix this through the test provider/);
 		assert.doesNotMatch(afterDeleteYaml, /Explain the second source line/);
 		assert.doesNotMatch(afterDeleteYaml, /agentSessionId: "session-amy"/);
+
+		await vscode.commands.executeCommand('sundialEditor.internal.respondToAnnotation');
+		const responseComposer = await waitForMessagesState();
+		assert.deepEqual(responseComposer.state.response, { continuity: 'originating-session' });
+		assert.equal(responseComposer.state.targetAgentId, 'agent-bob');
+		assert.equal(responseComposer.state.prompt?.preset, '%F');
+		assert.equal(responseComposer.state.prompt?.scope, 'line');
+		assert.equal(responseComposer.state.prompt?.sourceLine, 0);
+		assert.equal(responseComposer.state.prompt?.anchorText, 'code before the command');
+		await vscode.commands.executeCommand('sundialEditor.internal.cancelPendingMessage');
+		const afterResponseCancel = await waitForAgentState(state => state.prompt === undefined);
+		assert.deepEqual(afterResponseCancel.state.work.map(item => item.id), [annotationId]);
+
+		await vscode.commands.executeCommand('sundialEditor.internal.respondToAnnotation');
+		await waitForMessagesState();
+		await vscode.commands.executeCommand(
+			'sundialEditor.internal.submitPendingMessage',
+			'Follow up in the originating conversation.',
+		);
+		const followUpViewed = await waitForAnnotationState(
+			state => state.annotationViewer?.annotation.message === 'Follow up in the originating conversation.',
+		);
+		const followUpId = followUpViewed.state.annotationViewer?.annotation.id;
+		assert.ok(followUpId);
+		assert.notEqual(followUpId, annotationId);
+		const followUpCompleted = await waitForCompletedRun(2);
+		assert.equal(followUpCompleted.state.work.find(item => item.id === followUpId)?.agentId, 'agent-bob');
+		const followUpYaml = await readFile(companionPath, 'utf8');
+		assert.match(followUpYaml, /Fix this through the test provider/);
+		assert.match(followUpYaml, /Follow up in the originating conversation/);
 	});
 });
 

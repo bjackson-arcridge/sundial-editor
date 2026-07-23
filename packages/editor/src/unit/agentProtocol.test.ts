@@ -134,7 +134,7 @@ describe('named agent projections', () => {
 		}), false);
 		assert.equal(isNamedAgent({
 			...bob,
-			coordination: { ...bob.coordination!, state: 'paused' },
+			coordination: { ...bob.coordination!, state: 'invalid-state' },
 		}), false);
 		assert.equal(isCoordinationUpdate({
 			...bob.coordination!,
