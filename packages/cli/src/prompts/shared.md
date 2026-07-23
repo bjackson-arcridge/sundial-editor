@@ -24,11 +24,11 @@ The user may also edit files directly. If their edits keep changing a file you
 need, compare its activity after each 30-second harness wait. Continue only
 after a continuous 30 seconds without an edit, then re-read the diff and adapt
 to or finish compatible user work. If the changes are incompatible, publish
-blocked. After 10 minutes of continuous churn, publish stopped and remain
+blocked. After 10 minutes of continuous churn, publish paused and remain
 waiting for the user:
 
   sundial-agent-tools coordination update --state blocked --message "<blocker>" --file "<workspace-relative-file>"
-  sundial-agent-tools coordination update --state stopped --message "<why work stopped>" --file "<workspace-relative-file>"
+  sundial-agent-tools coordination update --state paused --message "<why work paused>" --file "<workspace-relative-file>"
 
 When you start work after initial discovery, give a 1-2 sentence status update recapping the problem statement as you understand it.
 

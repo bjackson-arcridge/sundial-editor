@@ -67,7 +67,7 @@ Pause specifics: pause for 30 seconds at a time.  After 10 minutes; change statu
 ## Implementation Log
 
 - 2026-07-23: Renamed the managed-agent executable to `sundial-agent-tools` and removed the old bin/build entry point.
-- 2026-07-23: Added per-session coordination histories with `working`, `waiting`, `blocked`, and `stopped` states, normalized structured file claims, current-update agent projections, legacy version-1 session adoption, and serialized atomic document replacement.
+- 2026-07-23: Added per-session coordination histories with `working`, `waiting`, `blocked`, and `paused` states, normalized structured file claims, current-update agent projections, legacy version-1 session adoption, and serialized atomic document replacement.
 - 2026-07-23: Added managed-context `coordination list` and `coordination update` commands, automatic claim/prompt coordination transitions, protocol capability projection, and the lower-slot/user-churn prompt contract.
 - 2026-07-23: Applied the single minor release increments: CLI `0.9.0` and editor `0.16.0`.
 - 2026-07-23: Updated the `diff-workflow` staged companion from obsolete version 4 to the current version-5 schema after the broad harness exposed the stale fixture; no diff product behavior was changed.

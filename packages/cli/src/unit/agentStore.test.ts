@@ -82,7 +82,7 @@ describe('persistent agent store', () => {
 			files: ['src/a.ts', 'src/b.ts'],
 		})).appended, false);
 
-		for (const state of ['waiting', 'blocked', 'stopped'] as const) {
+		for (const state of ['waiting', 'blocked', 'paused'] as const) {
 			await publishCoordinationUpdate({
 				workspaceCwd: cwd,
 				agentId: agent.id,
@@ -94,12 +94,12 @@ describe('persistent agent store', () => {
 		}
 		const projection = await listCoordinationAgents(cwd);
 		assert.deepEqual(projection.map(item => [item.slot, item.name]), [[agent.slot, agent.name], [peer.slot, peer.name], [3, 'Sam'], [4, 'Mike'], [5, 'Ty']]);
-		assert.equal(projection[0].update?.state, 'stopped');
+		assert.equal(projection[0].update?.state, 'paused');
 		assert.equal('id' in projection[0], false);
 
 		const stored = JSON.parse(await readFile(sessionFilePath(cwd, session.id), 'utf8'));
 		assert.deepEqual(stored.coordinationUpdates.map((update: { state: string }) => update.state), [
-			'waiting', 'working', 'waiting', 'blocked', 'stopped',
+			'waiting', 'working', 'waiting', 'blocked', 'paused',
 		]);
 		await assert.rejects(() => publishCoordinationUpdate({
 			workspaceCwd: cwd,

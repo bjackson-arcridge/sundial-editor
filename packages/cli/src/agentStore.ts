@@ -13,7 +13,7 @@ export type AgentSelector = string | number;
 export type WorkStatus = 'waiting' | 'working' | 'completed';
 export type WorkUpdateKind = 'enqueued' | 'ready' | 'claimed' | 'status' | 'completed' | 'requeued';
 export type SessionState = 'uninitialized' | 'available' | 'missing';
-export const coordinationStates = ['working', 'waiting', 'blocked', 'stopped'] as const;
+export const coordinationStates = ['working', 'waiting', 'blocked', 'paused'] as const;
 export type CoordinationState = typeof coordinationStates[number];
 
 export const agentStoreVersion = 1;

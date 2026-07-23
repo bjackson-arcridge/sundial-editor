@@ -66,7 +66,7 @@ describe('managed prompt rendering', () => {
 		assert.match(output, /higher-slot agent must publish waiting/i);
 		assert.match(output, /30 seconds/);
 		assert.match(output, /re-read the diff and adapt\s+to or finish compatible user work/i);
-		assert.match(output, /After 10 minutes.*publish stopped/is);
+		assert.match(output, /After 10 minutes.*publish paused/i);
 		assert.match(output, /Sundial provides no timer or wait command/);
 	});
 

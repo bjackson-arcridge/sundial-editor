@@ -179,7 +179,7 @@ describe('main', () => {
 			kind: 'capabilities',
 			protocolVersion: 3,
 			workStatuses: ['waiting', 'working', 'completed'],
-			coordinationStates: ['working', 'waiting', 'blocked', 'stopped'],
+			coordinationStates: ['working', 'waiting', 'blocked', 'paused'],
 			providers: ['codex'],
 			commands: [
 				'annotations append', 'annotations read', 'annotations delete', 'annotations reanchor',

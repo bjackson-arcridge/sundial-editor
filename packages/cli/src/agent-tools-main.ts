@@ -24,7 +24,7 @@ Usage:
 
 coordination list shows every managed agent's numeric slot, name, and latest
 coordination update. coordination update publishes working, waiting, blocked, or
-stopped state for the current agent, with structured workspace-relative file claims.
+paused state for the current agent, with structured workspace-relative file claims.
 provide-status-update publishes one concise status for the current assignment.
 The status must be one line containing 1 to 240 characters.
 annotate adds the Markdown in the assigned content file to any workspace source

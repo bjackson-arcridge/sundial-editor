@@ -122,7 +122,7 @@ describe('agent-facing tools CLI', () => {
 			} }],
 		});
 
-		for (const state of ['working', 'waiting', 'blocked', 'stopped']) {
+		for (const state of ['working', 'waiting', 'blocked', 'paused']) {
 			const run = io();
 			let received: unknown;
 			assert.equal(await agentToolsMain(

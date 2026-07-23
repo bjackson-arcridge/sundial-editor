@@ -13,7 +13,7 @@ export type WorkStatus = typeof workStatuses[number];
 
 export const workUpdateKinds = ['enqueued', 'ready', 'claimed', 'status', 'completed', 'requeued'] as const;
 export type WorkUpdateKind = typeof workUpdateKinds[number];
-export const coordinationStates = ['working', 'waiting', 'blocked', 'stopped'] as const;
+export const coordinationStates = ['working', 'waiting', 'blocked', 'paused'] as const;
 export type CoordinationState = typeof coordinationStates[number];
 
 export interface CoordinationUpdate {
