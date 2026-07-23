@@ -12,6 +12,8 @@ import {
 	appendOfficialResponse,
 	appendUserAnnotation,
 	deleteUserAnnotation,
+	listUserAnnotations,
+	parseAnnotationListRequest,
 	readUserAnnotations,
 	reanchorAnnotations,
 	writeAgentAnnotationPair,
@@ -41,6 +43,57 @@ async function workspace(): Promise<{ root: string; source: string; sourceUri: s
 }
 
 describe('version 5 annotation companions', () => {
+	test('lists compact user summaries without reading source files or projecting agent content', async () => {
+		const currentPermanentCommit = 'a'.repeat(40);
+		const oldPermanentCommit = 'b'.repeat(40);
+		const result = await listUserAnnotations({ workspace: { cwd: '/workspace' } }, {
+			resolvePermanentCommit: async cwd => {
+				assert.equal(cwd, '/workspace');
+				return currentPermanentCommit;
+			},
+			listCompanions: async cwd => {
+				assert.equal(cwd, '/workspace');
+				return [{
+					file: 'src/example.ts',
+					companion: {
+						version: 5,
+						sourceDigest: 'd'.repeat(64),
+						annotations: [{
+							kind: 'user', id: 'query-old', permanentBaseCommit: oldPermanentCommit,
+							message: 'Earlier question.', preset: '%Q', scope: 'project',
+							anchor: { line: null, text: '', before: [], after: [] },
+							officialResponses: [], agentAnnotations: [],
+						}, {
+							kind: 'agent', id: 'agent-note', permanentBaseCommit: currentPermanentCommit,
+							agentId: 'agent-1', agentSessionId: 'session-1', body: 'Private body.',
+							createdAt: '2026-07-23T12:00:00.000Z',
+							anchor: { line: 3, text: 'code', before: [], after: [] },
+							userAnnotation: { annotationId: 'query-current', file: 'src/example.ts', line: 3 },
+						}, {
+							kind: 'user', id: 'query-current', permanentBaseCommit: currentPermanentCommit,
+							message: 'Current question.', preset: '%F', scope: 'line',
+							anchor: { line: 3, text: 'code', before: [], after: [] },
+							officialResponses: [], agentAnnotations: [],
+						}],
+					},
+				}];
+			},
+		});
+		assert.deepEqual(result, {
+			currentPermanentCommit,
+			groups: [{
+				file: 'src/example.ts',
+				annotations: [
+					{ id: 'query-old', message: 'Earlier question.', line: null, currentPermanent: false },
+					{ id: 'query-current', message: 'Current question.', line: 3, currentPermanent: true },
+				],
+			}],
+		});
+		assert.equal(JSON.stringify(result).includes('Private body'), false);
+		assert.deepEqual(parseAnnotationListRequest({ workspace: { cwd: '/workspace' } }), { workspace: { cwd: '/workspace' } });
+		assert.throws(() => parseAnnotationListRequest({ workspace: { cwd: '/workspace' }, document: {} }), /only workspace/);
+	});
+
 	test('builds fixed anchors from saved LF or CRLF source', () => {
 		assert.deepEqual(createAnnotationAnchor('one\r\n\r\ntwo\r\nthree\r\nfour\r\nfive', 2), {
 			line: 2, text: 'two', before: ['one'], after: ['three', 'four', 'five'],

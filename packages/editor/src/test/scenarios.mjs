@@ -26,6 +26,11 @@ export const scenarios = [
 		git: { commits: [], workingTree: {} },
 	},
 	{
+		label: 'annotation-index',
+		description: 'Workspace annotations are grouped, filtered, opened by stable identity, and refreshed from companion changes.',
+		git: { commits: [], workingTree: {} },
+	},
+	{
 		label: 'diff-workflow',
 		description: 'Global diff mode replaces and restores workspace editors across baseline changes.',
 		settings: {

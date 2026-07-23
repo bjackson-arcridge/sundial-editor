@@ -20,10 +20,13 @@ import type { PromptContext } from './promptCommand';
 import {
 	parseAnnotationCompanion,
 	parseAnnotation,
+	parseAnnotationListResult,
 	parseAnnotationReanchorResult,
 	type AnnotationAppendRequest,
 	type AnnotationCompanion,
 	type AnnotationDeleteRequest,
+	type AnnotationListRequest,
+	type AnnotationListResult,
 	type AnnotationReadRequest,
 	type AnnotationReanchorRequest,
 	type AnnotationReanchorResult,
@@ -186,6 +189,16 @@ export async function readAnnotationsViaCli(
 	services: CliProcessServices = defaultServices,
 ): Promise<AnnotationCompanion> {
 	return parseAnnotationCompanion(await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'read'], request, services));
+}
+
+export async function listAnnotationsViaCli(
+	cliPath: string,
+	request: AnnotationListRequest,
+	services: CliProcessServices = defaultServices,
+): Promise<AnnotationListResult> {
+	return parseAnnotationListResult(
+		await invokeJsonCommand(cliPath, request.workspace.cwd, ['annotations', 'list'], request, services),
+	);
 }
 
 export async function deleteAnnotationViaCli(

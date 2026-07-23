@@ -11,6 +11,7 @@ import {
 	enqueueWorkViaCli,
 	ensureAgentSessionViaCli,
 	interruptAgentViaCli,
+	listAnnotationsViaCli,
 	listAgentsViaCli,
 	listWorkViaCli,
 	markWorkReadyViaCli,
@@ -192,6 +193,21 @@ describe('CLI runner', () => {
 	});
 
 	test('uses typed annotation read and delete requests', async () => {
+		const listChild = fakeChild();
+		const list = listAnnotationsViaCli('sundial-editor-cli', {
+			workspace: { cwd },
+		}, servicesFor(listChild, invocation => {
+			assert.deepEqual(invocation.args, ['annotations', 'list']);
+		}));
+		finishJson(listChild, {
+			currentPermanentCommit: permanentBaseCommit,
+			groups: [{
+				file: 'src/example.ts',
+				annotations: [{ id: workId, message: waitingWork.prompt.text, line: 4, currentPermanent: true }],
+			}],
+		});
+		assert.equal((await list).groups[0].annotations[0].id, workId);
+
 		const readChild = fakeChild();
 		const read = readAnnotationsViaCli('sundial-editor-cli', {
 			workspace: { cwd }, document: { uri: waitingWork.source.uri },

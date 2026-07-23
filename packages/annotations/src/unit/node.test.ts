@@ -1,5 +1,5 @@
 import * as assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, test } from 'node:test';
@@ -11,6 +11,7 @@ import {
 } from '../paths';
 import {
 	CompanionWorkingSet,
+	listWorkspaceCompanions,
 	readCompanionFile,
 	writeCompanionFile,
 } from '../store';
@@ -70,5 +71,30 @@ describe('shared companion file access', () => {
 		working.stage(second, { ...empty(), sourceDigest: 'invalid' } as AnnotationCompanion);
 		await assert.rejects(() => working.write(), /Invalid annotation companion/);
 		assert.deepEqual(writes, []);
+	});
+
+	test('enumerates nested companions deterministically without following runtime or symlink entries', async () => {
+		const root = await mkdtemp(path.join(os.tmpdir(), 'sundial-shared-list-'));
+		roots.push(root);
+		await writeCompanionFile(companionPathForFile(root, 'z.ts'), empty('b'.repeat(64)));
+		await writeCompanionFile(companionPathForFile(root, 'src/a.ts'), empty('c'.repeat(64)));
+		await mkdir(path.join(root, '.sundial', 'agents'), { recursive: true });
+		await writeFile(path.join(root, '.sundial', 'agents', 'ignored.comments'), 'malformed');
+		await writeFile(path.join(root, '.sundial', 'src', 'temporary.comments.tmp'), 'malformed');
+		await symlink(
+			path.join(root, '.sundial', 'src', 'a.ts.comments'),
+			path.join(root, '.sundial', 'src', 'linked.ts.comments'),
+		);
+		assert.deepEqual((await listWorkspaceCompanions(root)).map(item => item.file), ['src/a.ts', 'z.ts']);
+	});
+
+	test('returns an empty missing store and reports a malformed companion path', async () => {
+		const root = await mkdtemp(path.join(os.tmpdir(), 'sundial-shared-invalid-list-'));
+		roots.push(root);
+		assert.deepEqual(await listWorkspaceCompanions(root), []);
+		const malformed = companionPathForFile(root, 'src/broken.ts');
+		await mkdir(path.dirname(malformed), { recursive: true });
+		await writeFile(malformed, 'not a companion');
+		await assert.rejects(() => listWorkspaceCompanions(root), /\.sundial\/src\/broken\.ts\.comments/);
 	});
 });

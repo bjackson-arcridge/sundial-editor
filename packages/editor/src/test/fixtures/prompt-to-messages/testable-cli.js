@@ -132,6 +132,10 @@ function handleAgent(operation, action, request) {
 }
 
 function handleAnnotations(operation, request) {
+	if (operation === 'list') {
+		writeJson(listAnnotations(request.workspace.cwd));
+		return;
+	}
 	const companionPath = annotationCompanionPath(request);
 	if (operation === 'read') {
 		const companion = readCompanion(companionPath, request.document.uri);
@@ -313,6 +317,34 @@ function readCompanion(companionPath, sourceUri) {
 	const lines = fs.readFileSync(companionPath, 'utf8').trimEnd().split('\n');
 	const version = Number(lines[0].slice('version: '.length));
 	return { version, sourceDigest: lines[1].slice('sourceDigest: '.length), annotations: lines.slice(3).map(line => JSON.parse(line.slice(4))) };
+}
+
+function listAnnotations(cwd) {
+	const store = path.join(cwd, '.sundial');
+	const currentPermanentCommit = permanentCommit();
+	if (!fs.existsSync(store)) { return { currentPermanentCommit, groups: [] }; }
+	const companionPaths = [];
+	const visit = directory => {
+		for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+			if (directory === store && entry.name === 'agents') { continue; }
+			const entryPath = path.join(directory, entry.name);
+			if (entry.isDirectory()) { visit(entryPath); }
+			else if (entry.isFile() && entry.name.endsWith('.comments')) { companionPaths.push(entryPath); }
+		}
+	};
+	visit(store);
+	const groups = companionPaths.sort().flatMap(companionPath => {
+		const companion = readCompanion(companionPath);
+		const annotations = companion.annotations.flatMap(annotation => annotation.kind === 'user' ? [{
+			id: annotation.id, message: annotation.message, line: annotation.anchor.line,
+			currentPermanent: annotation.permanentBaseCommit === currentPermanentCommit,
+		}] : []);
+		return annotations.length === 0 ? [] : [{
+			file: path.relative(store, companionPath).slice(0, -'.comments'.length).split(path.sep).join('/'),
+			annotations,
+		}];
+	});
+	return { currentPermanentCommit, groups };
 }
 
 function permanentCommit() {

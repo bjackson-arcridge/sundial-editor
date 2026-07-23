@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import {
 	emptyAnnotationCompanion,
@@ -8,6 +8,7 @@ import {
 	renderAnnotationCompanion,
 	type AnnotationCompanion,
 } from './index.js';
+import { sourceFileForCompanion } from './paths.js';
 
 export interface CompanionFileFound {
 	readonly kind: 'found';
@@ -19,6 +20,11 @@ export interface CompanionFileMissing {
 }
 
 export type CompanionFileReadResult = CompanionFileFound | CompanionFileMissing;
+
+export interface WorkspaceCompanion {
+	readonly file: string;
+	readonly companion: AnnotationCompanion;
+}
 
 export interface CompanionWriteTarget {
 	readonly recordPath: string;
@@ -134,6 +140,33 @@ export async function readCompanionFile(file: string): Promise<CompanionFileRead
 	}
 }
 
+export async function listWorkspaceCompanions(cwd: string): Promise<readonly WorkspaceCompanion[]> {
+	if (!path.isAbsolute(cwd)) { throw new Error('workspace.cwd must be an absolute path'); }
+	const storeRoot = path.join(path.resolve(cwd), '.sundial');
+	let rootStat;
+	try { rootStat = await lstat(storeRoot); }
+	catch (error) {
+		if (nodeCode(error) === 'ENOENT') { return []; }
+		throw error;
+	}
+	if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+		throw new Error('Annotation companion store must be a directory.');
+	}
+	const companionPaths: string[] = [];
+	await collectCompanionPaths(storeRoot, storeRoot, companionPaths);
+	const result: WorkspaceCompanion[] = [];
+	for (const companionPath of companionPaths) {
+		const file = sourceFileForCompanion(cwd, companionPath);
+		try {
+			const loaded = await readCompanionFile(companionPath);
+			if (loaded.kind === 'found') { result.push({ file, companion: loaded.companion }); }
+		} catch (error) {
+			throw new Error(`Invalid annotation companion ${path.relative(cwd, companionPath).split(path.sep).join('/')}: ${errorMessage(error)}`);
+		}
+	}
+	return result.sort((left, right) => compareText(left.file, right.file));
+}
+
 export async function writeCompanionFile(companionPath: string, companion: AnnotationCompanion): Promise<void> {
 	const rendered = renderAnnotationCompanion(companion);
 	await mkdir(path.dirname(companionPath), { recursive: true });
@@ -198,4 +231,25 @@ function absolutePath(file: string): string {
 
 function nodeCode(error: unknown): string | undefined {
 	return error instanceof Error && 'code' in error ? String(error.code) : undefined;
+}
+
+async function collectCompanionPaths(root: string, directory: string, output: string[]): Promise<void> {
+	const entries = await readdir(directory, { withFileTypes: true });
+	for (const entry of entries.sort((left, right) => compareText(left.name, right.name))) {
+		if (directory === root && entry.name === 'agents') { continue; }
+		const entryPath = path.join(directory, entry.name);
+		if (entry.isDirectory()) {
+			await collectCompanionPaths(root, entryPath, output);
+		} else if (entry.isFile() && entry.name.endsWith('.comments')) {
+			output.push(entryPath);
+		}
+	}
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function compareText(left: string, right: string): number {
+	return left < right ? -1 : left > right ? 1 : 0;
 }

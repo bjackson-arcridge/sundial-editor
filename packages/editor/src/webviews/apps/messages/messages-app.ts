@@ -22,6 +22,7 @@ import type { ResponseContinuity } from '../../../annotationResponse.js';
 import type { AnnotationLink } from '../../../annotationProtocol.js';
 import {
 	type AnnotationViewerState,
+	type AnnotationIndexState,
 	type HostNotice,
 	type HostToWebview,
 	type WorkflowPresentation,
@@ -33,6 +34,7 @@ import {
 	latestStatusForWork,
 	sessionStatusHistoryGroupsForAgent,
 	waitingAgentForAnnotation,
+	annotationIndexGroups,
 } from '../../messages/messages.js';
 import { getHost, readInitialState } from '../shared/host.js';
 import { tokenStyles } from '../shared/styles.js';
@@ -237,6 +239,78 @@ export class MessagesApp extends LitElement {
 				justify-content: space-between;
 				gap: 8px;
 				margin-bottom: 8px;
+			}
+
+			.primary-tabs {
+				display: flex;
+				margin-bottom: 8px;
+				border-bottom: 1px solid var(--se-border);
+				gap: 2px;
+			}
+
+			.primary-tab {
+				border-color: transparent;
+				border-radius: 0;
+				background: transparent;
+				color: var(--se-muted-fg);
+			}
+
+			.primary-tab:hover:not(:disabled) {
+				background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+				color: var(--se-fg);
+			}
+
+			.primary-tab[aria-selected="true"] {
+				border-bottom-color: var(--se-focus);
+				color: var(--se-fg);
+			}
+
+			.annotation-index-toolbar {
+				display: flex;
+				align-items: center;
+				justify-content: flex-end;
+				min-height: 34px;
+				margin-bottom: 8px;
+				padding: 2px 4px;
+				border-bottom: 1px solid var(--se-border);
+				background: var(--se-toolbar-bg);
+			}
+
+			.annotation-index {
+				display: grid;
+				gap: 14px;
+			}
+
+			.annotation-index-section {
+				display: grid;
+				min-width: 0;
+				gap: 4px;
+			}
+
+			.annotation-index-heading {
+				overflow-wrap: anywhere;
+				text-transform: uppercase;
+			}
+
+			.annotation-index-row {
+				width: 100%;
+				border-color: var(--se-surface-bg);
+				background: var(--se-surface-bg);
+				color: var(--se-fg);
+				text-align: start;
+			}
+
+			.annotation-index-row:hover:not(:disabled) {
+				background: var(--vscode-list-hoverBackground);
+			}
+
+			.annotation-index-message {
+				display: -webkit-box;
+				overflow: hidden;
+				-webkit-box-orient: vertical;
+				-webkit-line-clamp: 2;
+				line-height: 1.4;
+				overflow-wrap: anywhere;
 			}
 
 			.agents-state {
@@ -723,6 +797,8 @@ export class MessagesApp extends LitElement {
 	private readonly webviewHost = getHost<WebviewToHost, HostToWebview>();
 	private hostTargetAgentId: AgentId | undefined;
 	@state() private agents: AgentsViewState = { kind: 'loading' };
+	@state() private annotationIndex: AnnotationIndexState = { kind: 'loading' };
+	@state() private selectedPrimaryTab: 'agents' | 'annotations' = 'agents';
 	@state() private work: readonly UserAnnotationWorkItem[] = [];
 	@state() private prompt: PromptContext | undefined;
 	@state() private messageText = '';
@@ -790,7 +866,7 @@ export class MessagesApp extends LitElement {
 			? annotationPane
 			: html`
 				<div class="layout">
-					<section class="agent-pane" aria-label="Agents">${normalMessages}</section>
+					<section class="agent-pane" aria-label="Agents and annotations">${normalMessages}</section>
 					<div
 						class="pane-separator ${this.isResizingPanes ? 'dragging' : ''}"
 						role="separator"
@@ -814,16 +890,91 @@ export class MessagesApp extends LitElement {
 	}
 
 	private renderNormalMessages() {
+		const selectedPanel = this.selectedPrimaryTab === 'agents' ? this.renderAgentsPanel() : this.renderAnnotationIndexPanel();
 		return html`
-			<h1>Messages</h1>
 			${this.notice === undefined
 				? nothing
 				: html`<p class="notice ${this.notice.tone}" role=${this.notice.tone === 'error' ? 'alert' : 'status'}>${this.notice.message}</p>`}
+			<div class="primary-tabs" role="tablist" aria-label="Messages view">
+				<button id="agents-tab" class="primary-tab" type="button" role="tab"
+					aria-selected=${this.selectedPrimaryTab === 'agents'} aria-controls="agents-panel"
+					tabindex=${this.selectedPrimaryTab === 'agents' ? 0 : -1}
+					@click=${() => this.selectPrimaryTab('agents')}
+					@keydown=${this.handlePrimaryTabKeydown}>Agents</button>
+				<button id="annotations-tab" class="primary-tab" type="button" role="tab"
+					aria-selected=${this.selectedPrimaryTab === 'annotations'} aria-controls="annotations-panel"
+					tabindex=${this.selectedPrimaryTab === 'annotations' ? 0 : -1}
+					@click=${() => this.selectPrimaryTab('annotations')}
+					@keydown=${this.handlePrimaryTabKeydown}>Annotations</button>
+			</div>
+			${selectedPanel}
+		`;
+	}
+
+	private renderAgentsPanel() {
+		return html`
+			<section id="agents-panel" role="tabpanel" aria-labelledby="agents-tab">
 			<div class="agents-header">
-				<h2>Agents</h2>
 				<button class="secondary" type="button" ?disabled=${this.busy} @click=${this.refreshAgents}>Refresh</button>
 			</div>
 			${this.renderAgents()}
+			</section>
+		`;
+	}
+
+	private renderAnnotationIndexPanel() {
+		const filterTitle = this.annotationFilterTitle();
+		const groups = annotationIndexGroups(this.annotationIndex, this.workflow.annotationFilterEnabled);
+		let content;
+		switch (this.annotationIndex.kind) {
+			case 'loading':
+				content = html`<div class="agents-state" role="status" aria-live="polite">Loading annotations…</div>`;
+				break;
+			case 'empty':
+				content = html`<div class="agents-state"><p class="empty">No annotations in this workspace.</p></div>`;
+				break;
+			case 'error':
+				content = html`<div class="agents-state" role="alert">
+					<p class="empty">${this.annotationIndex.message}</p>
+					${this.annotationIndex.recoverable
+						? html`<button class="secondary" type="button" @click=${this.retryAnnotationIndex}>Try again</button>`
+						: nothing}
+				</div>`;
+				break;
+			case 'ready':
+				content = groups.length === 0
+					? html`<div class="agents-state"><p class="empty">No annotations for the current permanent commit.</p></div>`
+					: html`<div class="annotation-index">${groups.map((group, groupIndex) => html`
+						<section class="annotation-index-section" aria-labelledby="annotation-file-${groupIndex}">
+							<h2 id="annotation-file-${groupIndex}" class="annotation-index-heading">${group.file}</h2>
+							${group.annotations.map(annotation => {
+								const location = annotation.line === null ? 'File' : `Line ${annotation.line + 1}`;
+								const label = `${annotation.message} — ${group.file}, ${location}`;
+								return html`<button class="annotation-index-row" type="button"
+									aria-label=${label} title=${label}
+									@click=${() => this.openAnnotation({
+										annotationId: annotation.id, file: group.file, line: annotation.line,
+									})}><span class="annotation-index-message">${annotation.message}</span></button>`;
+							})}
+						</section>
+					`)}</div>`;
+				break;
+			default: {
+				const unhandled: never = this.annotationIndex;
+				throw new Error(`Unexpected annotation index state: ${JSON.stringify(unhandled)}`);
+			}
+		}
+		return html`
+			<section id="annotations-panel" role="tabpanel" aria-labelledby="annotations-tab">
+				<div class="annotation-index-toolbar" role="toolbar" aria-label="Annotation list operations">
+					<button class="icon annotation-filter" type="button"
+						aria-label="Filter annotations to current permanent commit" title=${filterTitle}
+						aria-pressed=${this.workflow.annotationFilterEnabled} @click=${this.toggleAnnotationFilter}>
+						${this.renderToolbarIcon('filter')}
+					</button>
+				</div>
+				${content}
+			</section>
 		`;
 	}
 
@@ -1103,9 +1254,7 @@ export class MessagesApp extends LitElement {
 		const metadataTitle = this.metadataExpanded ? 'Collapse annotation metadata' : 'Expand annotation metadata';
 		const pinTitle = viewer?.pinned ? 'Unpin annotation' : 'Pin annotation';
 		const takeoverTitle = this.takeoverExpanded ? 'Restore annotation pane' : 'Expand annotation pane';
-		const filterTitle = this.workflow.annotationFilterEnabled
-			? 'Showing annotations for the current permanent commit; activate to show all annotations'
-			: 'Show only annotations for the current permanent commit';
+		const filterTitle = this.annotationFilterTitle();
 		const baselineLabel = this.workflow.baseline?.slice(0, 8) ?? 'unselected';
 		const workflowLabel = this.workflow.diffEnabled
 			? `Diff ${this.workflow.diffLayout} · ${baselineLabel}`
@@ -1245,6 +1394,7 @@ export class MessagesApp extends LitElement {
 				this.busy = hostMessage.state.busy === true;
 				this.notice = hostMessage.state.notice;
 				this.workflow = hostMessage.state.workflow;
+				this.annotationIndex = hostMessage.state.annotationIndex;
 				this.annotationViewer = hostMessage.state.annotationViewer;
 				this.hostTargetAgentId = hostMessage.state.targetAgentId;
 				const editingAgent = this.agents.kind === 'ready'
@@ -1328,6 +1478,36 @@ export class MessagesApp extends LitElement {
 			this.webviewHost.postMessage({ kind: 'refresh' });
 		}
 	};
+
+	private selectPrimaryTab(tab: 'agents' | 'annotations'): void {
+		this.selectedPrimaryTab = tab;
+	}
+
+	private handlePrimaryTabKeydown = (keyboardEvent: KeyboardEvent): void => {
+		const tabs = ['agents', 'annotations'] as const;
+		const current = tabs.indexOf(this.selectedPrimaryTab);
+		let next: number | undefined;
+		if (keyboardEvent.key === 'ArrowLeft') { next = (current - 1 + tabs.length) % tabs.length; }
+		else if (keyboardEvent.key === 'ArrowRight') { next = (current + 1) % tabs.length; }
+		else if (keyboardEvent.key === 'Home') { next = 0; }
+		else if (keyboardEvent.key === 'End') { next = tabs.length - 1; }
+		if (next === undefined) { return; }
+		keyboardEvent.preventDefault();
+		this.selectedPrimaryTab = tabs[next];
+		void this.updateComplete.then(() => {
+			this.renderRoot.querySelector<HTMLButtonElement>(`#${this.selectedPrimaryTab}-tab`)?.focus();
+		});
+	};
+
+	private retryAnnotationIndex = (): void => {
+		this.webviewHost.postMessage({ kind: 'retryAnnotationIndex' });
+	};
+
+	private annotationFilterTitle(): string {
+		return this.workflow.annotationFilterEnabled
+			? 'Showing annotations for the current permanent commit; activate to show all annotations'
+			: 'Show only annotations for the current permanent commit';
+	}
 
 	private beginRename(agent: NamedAgent): void {
 		this.editingAgentId = agent.id;

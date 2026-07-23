@@ -53,11 +53,11 @@ function typeScriptSources(root: string): string[] {
 }
 
 describe('Sundial Editor manifest', () => {
-	test('is an independent 0.16.0 extension package', () => {
+	test('is an independent 0.17.0 extension package', () => {
 		const manifest = readManifest();
 		assert.equal(manifest.name, 'sundial-editor');
 		assert.equal(manifest.publisher, 'arcridge');
-		assert.equal(manifest.version, '0.16.0');
+		assert.equal(manifest.version, '0.17.0');
 		assert.equal(Object.hasOwn(manifest, 'extensionDependencies'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@arcridge/sundial'), false);
 		assert.equal(Object.hasOwn(manifest.dependencies ?? {}, 'sundial'), false);
@@ -211,7 +211,7 @@ describe('Sundial Editor manifest', () => {
 		const providerSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/messages/messagesWebviewProvider.ts'), 'utf8');
 		const sharedStyles = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/shared/styles.ts'), 'utf8');
 
-		assert.match(messagesSource, /class="agent-pane" aria-label="Agents"/);
+		assert.match(messagesSource, /class="agent-pane" aria-label="Agents and annotations"/);
 		assert.match(messagesSource, /class="pane-separator/);
 		assert.match(messagesSource, /class="annotation-pane/);
 		assert.match(messagesSource, /\.annotation-content \{[\s\S]*?overflow: auto/);
@@ -263,6 +263,22 @@ describe('Sundial Editor manifest', () => {
 		assert.doesNotMatch(messagesSource, /class="codicon/);
 		assert.match(sharedStyles, /--se-icon-fg: var\(--vscode-foreground\)/);
 		assert.match(sharedStyles, /--se-toolbar-bg: var\(--vscode-sideBarSectionHeader-background/);
+	});
+
+	test('renders an accessible annotation index with shared filtering and exact links', () => {
+		const messagesSource = fs.readFileSync(path.resolve(__dirname, '../../src/webviews/apps/messages/messages-app.ts'), 'utf8');
+		assert.match(messagesSource, /role="tablist" aria-label="Messages view"/);
+		assert.match(messagesSource, /role="tab"[\s\S]*aria-selected=/);
+		assert.match(messagesSource, /role="tabpanel"/);
+		assert.match(messagesSource, /ArrowLeft/);
+		assert.match(messagesSource, /ArrowRight/);
+		assert.match(messagesSource, /keyboardEvent\.key === 'Home'/);
+		assert.match(messagesSource, /keyboardEvent\.key === 'End'/);
+		assert.match(messagesSource, /annotationIndexGroups\(this\.annotationIndex, this\.workflow\.annotationFilterEnabled\)/);
+		assert.match(messagesSource, /-webkit-line-clamp: 2/);
+		assert.match(messagesSource, /annotationId: annotation\.id, file: group\.file, line: annotation\.line/);
+		assert.match(messagesSource, /No annotations in this workspace\./);
+		assert.match(messagesSource, /No annotations for the current permanent commit\./);
 	});
 
 	test('renders and applies the permanent-commit annotation filter from typed workflow state', () => {

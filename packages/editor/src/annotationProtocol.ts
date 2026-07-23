@@ -2,6 +2,7 @@ import {
 	isAnnotation,
 	isUserAnnotation,
 	parseAnnotation as parseSharedAnnotation,
+	parseAnnotationListResult as parseSharedAnnotationListResult,
 	parseAnnotationReadResult,
 	parseAnnotationReanchorResult as parseSharedAnnotationReanchorResult,
 	type AgentFileAnnotation,
@@ -10,6 +11,9 @@ import {
 	type AnnotationAppendRequest,
 	type AnnotationDeleteRequest,
 	type AnnotationLink,
+	type AnnotationListGroup,
+	type AnnotationListRequest,
+	type AnnotationListResult,
 	type AnnotationReadRequest,
 	type AnnotationReadResult,
 	type AnnotationReanchorRequest,
@@ -25,6 +29,9 @@ export type {
 	AnnotationAppendRequest,
 	AnnotationDeleteRequest,
 	AnnotationLink,
+	AnnotationListGroup,
+	AnnotationListRequest,
+	AnnotationListResult,
 	AnnotationReadRequest,
 	AnnotationReanchorRequest,
 	AnnotationReanchorResult,
@@ -44,6 +51,11 @@ export function parseAnnotation(value: unknown): Annotation {
 export function parseAnnotationCompanion(value: unknown): AnnotationCompanion {
 	try { return parseAnnotationReadResult(value); }
 	catch { throw new Error('Sundial Editor CLI returned a malformed annotation companion.'); }
+}
+
+export function parseAnnotationListResult(value: unknown): AnnotationListResult {
+	try { return parseSharedAnnotationListResult(value); }
+	catch { throw new Error('Sundial Editor CLI returned a malformed annotation list.'); }
 }
 
 export function parseAnnotationReanchorResult(value: unknown): AnnotationReanchorResult {

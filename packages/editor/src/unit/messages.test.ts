@@ -9,6 +9,7 @@ import {
 } from '../agentProtocol';
 import {
 	annotationForLine,
+	annotationIndexGroups,
 	annotationsForCurrentPermanentCommit,
 	currentWorkForAgent,
 	displayedWorkForAgent,
@@ -131,6 +132,16 @@ const annotationViewer = {
 	canPrevious: false,
 	canNext: true,
 } as const;
+const annotationIndex = {
+	kind: 'ready',
+	groups: [{
+		file: 'src/example.ts',
+		annotations: [
+			{ id: 'annotation-2', message: 'Add coverage.', line: 3, currentPermanent: false },
+			{ id: 'annotation-1', message: 'Fix this.', line: 3, currentPermanent: true },
+		],
+	}],
+} as const;
 
 function readyState() {
 	return {
@@ -138,6 +149,7 @@ function readyState() {
 		work: [work],
 		paneSplitPercent,
 		workflow,
+		annotationIndex,
 		prompt,
 		draft,
 		targetAgentId: bobId,
@@ -150,14 +162,18 @@ function readyState() {
 describe('messages protocol guards', () => {
 	test('accepts loading, empty, error, and complete ready host states', () => {
 		assert.equal(isValidHostToWebviewMessage({
-			kind: 'state', state: { agents: { kind: 'loading' }, work: [], paneSplitPercent, workflow },
+			kind: 'state', state: { agents: { kind: 'loading' }, work: [], paneSplitPercent, workflow, annotationIndex: { kind: 'loading' } },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({
-			kind: 'state', state: { agents: { kind: 'empty' }, work: [], paneSplitPercent, workflow, prompt, draft },
+			kind: 'state', state: { agents: { kind: 'empty' }, work: [], paneSplitPercent, workflow, annotationIndex: { kind: 'empty' }, prompt, draft },
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({
 			kind: 'state',
-			state: { agents: { kind: 'error', message: 'CLI unavailable.', recoverable: true }, work: [], paneSplitPercent, workflow },
+			state: {
+				agents: { kind: 'error', message: 'CLI unavailable.', recoverable: true },
+				work: [], paneSplitPercent, workflow,
+				annotationIndex: { kind: 'error', message: 'Index unavailable.', recoverable: true },
+			},
 		}), true);
 		assert.equal(isValidHostToWebviewMessage({ kind: 'state', state: readyState() }), true);
 		assert.equal(isValidHostToWebviewMessage({
@@ -266,6 +282,7 @@ describe('messages protocol guards', () => {
 			{ kind: 'toggleAnnotationPin' },
 			{ kind: 'toggleAnnotationFilter' },
 			{ kind: 'respondToAnnotation' },
+			{ kind: 'retryAnnotationIndex' },
 			{ kind: 'deleteAnnotation' },
 			{ kind: 'setPaneSplitPercent', percent: 62 },
 		] as const;
@@ -510,5 +527,13 @@ describe('messages view projections', () => {
 			['annotation-member'],
 			'the editor must not infer membership from permanentBaseCommit hashes',
 		);
+	});
+
+	test('filters workspace groups without losing file grouping or source order', () => {
+		assert.deepEqual(annotationIndexGroups(annotationIndex, false), annotationIndex.groups);
+		assert.deepEqual(annotationIndexGroups(annotationIndex, true), [{
+			file: 'src/example.ts',
+			annotations: [{ id: 'annotation-1', message: 'Fix this.', line: 3, currentPermanent: true }],
+		}]);
 	});
 });

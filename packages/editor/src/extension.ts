@@ -118,6 +118,8 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('sundialEditor.internal.submitPendingMessage', (message?: string) => messagesProvider.submitPendingMessage(message)),
 		vscode.commands.registerCommand('sundialEditor.internal.cancelPendingMessage', () => messagesProvider.cancelPendingMessage()),
 		vscode.commands.registerCommand('sundialEditor.internal.toggleAnnotationPin', () => messagesProvider.toggleAnnotationPin()),
+		vscode.commands.registerCommand('sundialEditor.internal.toggleAnnotationFilter', () => messagesProvider.toggleAnnotationFilter()),
+		vscode.commands.registerCommand('sundialEditor.internal.openAnnotation', link => messagesProvider.openLinkedAnnotation(link)),
 		vscode.commands.registerCommand('sundialEditor.internal.previousAnnotation', () => messagesProvider.selectAdjacentAnnotation(-1)),
 		vscode.commands.registerCommand('sundialEditor.internal.nextAnnotation', () => messagesProvider.selectAdjacentAnnotation(1)),
 		vscode.commands.registerCommand('sundialEditor.internal.respondToAnnotation', () => messagesProvider.respondToViewedAnnotation()),
@@ -221,7 +223,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	async function refreshWorkflowPresentation(cwd: string, state: GitWorkflowState): Promise<void> {
 		await diffController.acceptWorkflowState(cwd, state);
 		syncDiffPresentation(state);
-		await Promise.all([messagesProvider.refreshAgentState(cwd), messagesProvider.refreshActiveAnnotations()]);
+		await Promise.all([
+			messagesProvider.refreshAgentState(cwd),
+			messagesProvider.refreshActiveAnnotations(),
+			messagesProvider.refreshAnnotationIndex(cwd),
+		]);
 	}
 	function syncDiffPresentation(state?: GitWorkflowState): void {
 		const diagnostics = diffController.diagnostics();

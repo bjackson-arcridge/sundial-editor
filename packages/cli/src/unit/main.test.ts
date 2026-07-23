@@ -48,12 +48,13 @@ describe('main', () => {
 	test('renders version and help', async () => {
 		const version = harness();
 		assert.equal(await main(['--version'], version.io, { adapters: {}, readFile: async () => '' }), 0);
-		assert.equal(version.stdout.join(''), '0.9.0\n');
+		assert.equal(version.stdout.join(''), '0.9.1\n');
 
 		const help = harness();
 		assert.equal(await main(['help'], help.io, { adapters: {}, readFile: async () => '' }), 0);
 		assert.match(help.stdout.join(''), /prompt \[--input request\.json\]/);
 		assert.match(help.stdout.join(''), /annotations append/);
+		assert.match(help.stdout.join(''), /annotations list/);
 		assert.match(help.stdout.join(''), /annotations delete/);
 		assert.match(help.stdout.join(''), /workflow checkpoint-file/);
 		assert.match(help.stdout.join(''), /workflow consolidate/);
@@ -150,6 +151,16 @@ describe('main', () => {
 		}), 0);
 		assert.deepEqual(JSON.parse(read.stdout[0]), { version: 5, sourceDigest: 'd'.repeat(64), annotations: [], currentPermanentCommit: permanentBaseCommit, currentPermanentAnnotationIds: [] });
 
+		const list = harness('{"workspace":{"cwd":"/workspace"}}');
+		assert.equal(await main(['annotations', 'list'], list.io, {
+			adapters: {}, readFile: async () => '',
+			listUserAnnotations: async value => {
+				assert.deepEqual(value, { workspace: { cwd: '/workspace' } });
+				return { currentPermanentCommit: permanentBaseCommit, groups: [] };
+			},
+		}), 0);
+		assert.deepEqual(JSON.parse(list.stdout[0]), { currentPermanentCommit: permanentBaseCommit, groups: [] });
+
 		const reanchor = harness('{"previousSource":"old"}');
 		assert.equal(await main(['annotations', 'reanchor'], reanchor.io, {
 			adapters: {}, readFile: async () => '',
@@ -182,7 +193,7 @@ describe('main', () => {
 			coordinationStates: ['working', 'waiting', 'blocked', 'paused'],
 			providers: ['codex'],
 			commands: [
-				'annotations append', 'annotations read', 'annotations delete', 'annotations reanchor',
+				'annotations append', 'annotations list', 'annotations read', 'annotations delete', 'annotations reanchor',
 				'workflow state', 'workflow baseline', 'workflow checkpoint-file', 'workflow checkpoint-all', 'workflow consolidate', 'workflow repair',
 				'agent list', 'agent show', 'agent rename', 'agent session ensure',
 				'agent work enqueue', 'agent work ready', 'agent work list', 'agent work show',

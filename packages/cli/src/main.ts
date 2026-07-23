@@ -29,7 +29,7 @@ import {
 	type AgentSelector,
 	type WorkItem,
 } from './agentStore.js';
-import { appendUserAnnotation, deleteUserAnnotation, readUserAnnotations, reanchorAnnotations } from './annotations.js';
+import { appendUserAnnotation, deleteUserAnnotation, listUserAnnotations, readUserAnnotations, reanchorAnnotations } from './annotations.js';
 import { consolidateTemporaryCommits, createTemporaryCommit, moveGitWorkflowBaseline, readGitWorkflowState } from './gitWorkflow.js';
 import { GitWorkflowConflictError } from './gitProcess.js';
 import { renderManagedAgentContract, renderManagedPrompt } from './managedPrompts.js';
@@ -48,6 +48,7 @@ export interface MainServices {
 	readonly readFile: (path: string) => Promise<string>;
 	readonly appendUserAnnotation?: typeof appendUserAnnotation;
 	readonly deleteUserAnnotation?: typeof deleteUserAnnotation;
+	readonly listUserAnnotations?: typeof listUserAnnotations;
 	readonly readUserAnnotations?: typeof readUserAnnotations;
 	readonly reanchorAnnotations?: typeof reanchorAnnotations;
 	readonly readGitWorkflowState?: typeof readGitWorkflowState;
@@ -70,6 +71,7 @@ Usage:
   sundial-editor-cli health [--provider codex] [--refresh]
   sundial-editor-cli prompt [--input request.json]
   sundial-editor-cli annotations append [--input request.json]
+  sundial-editor-cli annotations list [--input request.json]
   sundial-editor-cli annotations read [--input request.json]
   sundial-editor-cli annotations delete [--input request.json]
 	  sundial-editor-cli annotations reanchor [--input request.json]
@@ -126,7 +128,7 @@ async function health(args: readonly string[], io: CliIo, services: MainServices
 }
 
 const editorCommands = [
-	'annotations append', 'annotations read', 'annotations delete', 'annotations reanchor',
+	'annotations append', 'annotations list', 'annotations read', 'annotations delete', 'annotations reanchor',
 	'workflow state', 'workflow baseline', 'workflow checkpoint-file', 'workflow checkpoint-all', 'workflow consolidate', 'workflow repair',
 	'agent list', 'agent show', 'agent rename', 'agent session ensure',
 	'agent work enqueue', 'agent work ready', 'agent work list', 'agent work show', 'agent work claim', 'agent work complete', 'agent work requeue',
@@ -153,13 +155,14 @@ async function workflow(args: readonly string[], io: CliIo, services: MainServic
 async function annotations(args: readonly string[], io: CliIo, services: MainServices): Promise<number> {
 	try {
 		const [operation, ...rest] = args;
-		if (operation !== 'append' && operation !== 'delete' && operation !== 'read' && operation !== 'reanchor') {
-			throw new Error('annotations requires append, delete, read, or reanchor');
+		if (operation !== 'append' && operation !== 'delete' && operation !== 'list' && operation !== 'read' && operation !== 'reanchor') {
+			throw new Error('annotations requires append, delete, list, read, or reanchor');
 		}
 		const request = await requestInput(rest, io, services, `annotations ${operation}`);
 		const result = operation === 'append' ? await (services.appendUserAnnotation ?? appendUserAnnotation)(request)
 			: operation === 'delete' ? await (services.deleteUserAnnotation ?? deleteUserAnnotation)(request)
 				: operation === 'reanchor' ? await (services.reanchorAnnotations ?? reanchorAnnotations)(request)
+					: operation === 'list' ? await (services.listUserAnnotations ?? listUserAnnotations)(request)
 					: await (services.readUserAnnotations ?? readUserAnnotations)(request);
 		writeJson(io, result); return 0;
 	} catch (error) { return machineFailure(io, error); }

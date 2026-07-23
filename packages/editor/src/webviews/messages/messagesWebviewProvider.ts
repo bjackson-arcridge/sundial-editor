@@ -24,6 +24,7 @@ import {
 	enqueueWorkViaCli,
 	ensureAgentSessionViaCli,
 	interruptAgentViaCli,
+	listAnnotationsViaCli,
 	listAgentsViaCli,
 	listWorkViaCli,
 	markWorkReadyViaCli,
@@ -41,6 +42,7 @@ import { attachMessageRouter, type MessageRouter } from '../shared/messageRouter
 import {
 	annotationForLine,
 	annotationsForCurrentPermanentCommit,
+	type AnnotationIndexState,
 	type HostToWebview,
 	type MessagesState,
 	type WorkflowPresentation,
@@ -55,6 +57,7 @@ export interface MessagesServices {
 	readonly appendAnnotation?: typeof appendAnnotationViaCli;
 	readonly deleteAnnotation?: typeof deleteAnnotationViaCli;
 	readonly readAnnotations?: typeof readAnnotationsViaCli;
+	readonly listAnnotations?: typeof listAnnotationsViaCli;
 	readonly listAgents?: typeof listAgentsViaCli;
 	readonly listWork?: typeof listWorkViaCli;
 	readonly renameAgent?: typeof renameAgentViaCli;
@@ -134,6 +137,10 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 	private paneSplitPersistence = Promise.resolve();
 	private pendingPaneSplitWrites = 0;
 	private annotationLoadGeneration = 0;
+	private annotationIndexLoadGeneration = 0;
+	private annotationIndexCwd: string | undefined;
+	private annotationIndexState: AnnotationIndexState = { kind: 'loading' };
+	private annotationIndexRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 	private agentLoadGeneration = 0;
 	private responseOpening = false;
 
@@ -186,6 +193,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		});
 		const cwd = this.currentCwd();
 		if (cwd !== undefined) { void this.refreshAgentState(cwd); }
+		void this.ensureAnnotationIndexWorkspace();
 		if (messagesView.visible) { queueMicrotask(() => this.focusPendingComposer()); }
 	}
 
@@ -250,6 +258,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			...(targetAgentId === undefined ? {} : { targetAgentId }),
 			...(response === undefined ? {} : { response }),
 		};
+		void this.ensureAnnotationIndexWorkspace();
 		this.notice = undefined;
 		this.postState();
 		await vscode.commands.executeCommand('workbench.view.extension.sundialEditor');
@@ -347,12 +356,14 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 		this.busy = false;
 		this.notice = undefined;
 		this.postState();
+		void this.ensureAnnotationIndexWorkspace();
 		if (prompt !== undefined) { void this.services.returnToSource(prompt); }
 		if (pending?.reservedWork !== undefined) { void this.refreshAgentState(pending.cwd); }
 	}
 
 	async setActiveLocation(location: ActiveLocation | undefined, reload = false): Promise<void> {
 		this.activeLocation = location;
+		void this.ensureAnnotationIndexWorkspace();
 		if (location === undefined) {
 			this.services.showAnnotationMarkers?.(undefined, []);
 			this.postState();
@@ -477,11 +488,63 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 
 	async refreshAnnotationsForCompanion(companionPath: string): Promise<void> {
 		const location = this.activeLocation;
-		if (location === undefined) { return; }
-		const expected = companionPathForSource(location.cwd, location.sourceUri);
-		if (path.normalize(companionPath) === path.normalize(expected)) {
-			await this.refreshActiveAnnotations();
+		if (location !== undefined) {
+			const expected = companionPathForSource(location.cwd, location.sourceUri);
+			if (path.normalize(companionPath) === path.normalize(expected)) {
+				await this.refreshActiveAnnotations();
+			}
 		}
+		const cwd = this.currentCwd();
+		if (cwd !== undefined && isInsideWorkspace(cwd, companionPath)) {
+			this.scheduleAnnotationIndexRefresh(cwd);
+		}
+	}
+
+	async refreshAnnotationIndex(cwd = this.currentCwd(), workspaceChanged = false): Promise<void> {
+		if (cwd === undefined) {
+			this.annotationIndexCwd = undefined;
+			this.annotationIndexState = { kind: 'empty' };
+			this.postState();
+			return;
+		}
+		const generation = ++this.annotationIndexLoadGeneration;
+		if (workspaceChanged || this.annotationIndexCwd !== cwd) {
+			this.annotationIndexCwd = cwd;
+			this.annotationIndexState = { kind: 'loading' };
+			this.postState();
+		}
+		try {
+			const result = await (this.services.listAnnotations ?? listAnnotationsViaCli)(
+				this.cliPath(), { workspace: { cwd } },
+			);
+			if (generation !== this.annotationIndexLoadGeneration || this.currentCwd() !== cwd) { return; }
+			this.workflow = { ...this.workflow, currentPermanentCommit: result.currentPermanentCommit };
+			this.annotationIndexState = result.groups.length === 0
+				? { kind: 'empty' }
+				: {
+					kind: 'ready',
+					groups: result.groups.map(group => ({ ...group, annotations: [...group.annotations].reverse() })),
+				};
+			this.postState();
+		} catch (error) {
+			if (generation !== this.annotationIndexLoadGeneration || this.currentCwd() !== cwd) { return; }
+			this.annotationIndexState = { kind: 'error', message: errorMessage(error), recoverable: true };
+			this.postState();
+		}
+	}
+
+	private async ensureAnnotationIndexWorkspace(): Promise<void> {
+		const cwd = this.currentCwd();
+		if (cwd === this.annotationIndexCwd) { return; }
+		await this.refreshAnnotationIndex(cwd, true);
+	}
+
+	private scheduleAnnotationIndexRefresh(cwd: string): void {
+		if (this.annotationIndexRefreshTimer !== undefined) { clearTimeout(this.annotationIndexRefreshTimer); }
+		this.annotationIndexRefreshTimer = setTimeout(() => {
+			this.annotationIndexRefreshTimer = undefined;
+			if (this.currentCwd() === cwd) { void this.refreshAnnotationIndex(cwd); }
+		}, 50);
 	}
 
 	toggleAnnotationPin(): void {
@@ -555,7 +618,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 				this.services.showAnnotationMarkers?.(loaded.sourceUri, annotationLines(visibleRemaining));
 			}
 			this.postState();
-			await this.refreshAgentState(viewed.cwd);
+			await Promise.all([this.refreshAgentState(viewed.cwd), this.refreshAnnotationIndex(viewed.cwd)]);
 		} catch (error) { this.setError(`The annotation could not be deleted. ${errorMessage(error)}`); }
 	}
 
@@ -614,12 +677,16 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			case 'interruptAgent': void this.interruptAgent(message.agentId); return;
 			case 'resetAgent': void this.resetAgent(message.agentId); return;
 			case 'revealAnnotation': void this.revealWorkAnnotation(message.annotationId); return;
-			case 'openAnnotation': void this.openLinkedAnnotation(message.link); return;
+			case 'openAnnotation':
+				void this.openLinkedAnnotation(message.link)
+					.catch(error => this.setError(`The annotation could not be opened. ${errorMessage(error)}`));
+				return;
 			case 'previousAnnotation': void this.selectAdjacentAnnotation(-1); return;
 			case 'nextAnnotation': void this.selectAdjacentAnnotation(1); return;
 			case 'toggleAnnotationPin': this.toggleAnnotationPin(); return;
 			case 'toggleAnnotationFilter': this.toggleAnnotationFilter(); return;
 			case 'respondToAnnotation': void this.respondToViewedAnnotation(); return;
+			case 'retryAnnotationIndex': void this.refreshAnnotationIndex(); return;
 			case 'deleteAnnotation': void this.deleteViewedAnnotation(); return;
 			case 'setPaneSplitPercent': this.persistPaneSplitPercent(message.percent); return;
 			default: { const unhandled: never = message; throw new Error(`Unexpected webview message: ${JSON.stringify(unhandled)}`); }
@@ -825,6 +892,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			this.viewedAnnotation = { sourceUri: pending.prompt.sourceUri, cwd, annotation };
 		}
 		this.postState();
+		void this.refreshAnnotationIndex(cwd);
 	}
 
 	private focusPendingComposer(): void {
@@ -856,6 +924,7 @@ export class MessagesWebviewProvider implements vscode.WebviewViewProvider {
 			work: this.work,
 			paneSplitPercent: this.paneSplitPercent,
 			workflow: this.workflow,
+			annotationIndex: this.annotationIndexState,
 			...(this.busy ? { busy: true as const } : {}),
 			...(this.notice === undefined ? {} : { notice: this.notice }),
 			...(viewer === undefined ? {} : { annotationViewer: viewer }),
@@ -967,6 +1036,11 @@ function workspaceFileUri(cwd: string, workspaceRelativeFile: string): string | 
 	return relative === '' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
 		? undefined
 		: vscode.Uri.file(resolved).toString();
+}
+
+function isInsideWorkspace(cwd: string, file: string): boolean {
+	const relative = path.relative(path.resolve(cwd), path.resolve(file));
+	return relative !== '' && !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`);
 }
 
 function shellCommand(command: string, args: readonly string[]): string {

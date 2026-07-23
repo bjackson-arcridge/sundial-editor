@@ -62,6 +62,27 @@ export interface AnnotationReadResult extends AnnotationCompanion {
 	readonly currentPermanentAnnotationIds: readonly string[];
 }
 
+export interface AnnotationListRequest {
+	readonly workspace: { readonly cwd: string };
+}
+
+export interface AnnotationListItem {
+	readonly id: string;
+	readonly message: string;
+	readonly line: number | null;
+	readonly currentPermanent: boolean;
+}
+
+export interface AnnotationListGroup {
+	readonly file: string;
+	readonly annotations: readonly AnnotationListItem[];
+}
+
+export interface AnnotationListResult {
+	readonly currentPermanentCommit: string;
+	readonly groups: readonly AnnotationListGroup[];
+}
+
 export interface AnnotationAppendRequest {
 	readonly workspace: { readonly cwd: string };
 	readonly document: { readonly uri: string; readonly line: number };
@@ -183,6 +204,21 @@ export function parseAnnotationReadResult(value: unknown): AnnotationReadResult 
 	return value as unknown as AnnotationReadResult;
 }
 
+export function parseAnnotationListResult(value: unknown): AnnotationListResult {
+	if (!isRecord(value) || !hasExactKeys(value, ['currentPermanentCommit', 'groups'])
+		|| !isCommitHash(value.currentPermanentCommit) || !Array.isArray(value.groups)
+		|| !value.groups.every(isAnnotationListGroup)) {
+		throw new Error('Invalid annotation list result.');
+	}
+	const groups = value.groups as AnnotationListGroup[];
+	const files = groups.map(group => group.file);
+	const annotationIds = groups.flatMap(group => group.annotations.map(annotation => annotation.id));
+	if (new Set(files).size !== files.length || new Set(annotationIds).size !== annotationIds.length) {
+		throw new Error('Invalid annotation list result.');
+	}
+	return value as unknown as AnnotationListResult;
+}
+
 export function parseAnnotationReanchorResult(value: unknown): AnnotationReanchorResult {
 	if (!isRecord(value) || !Array.isArray(value.changedAnnotationIds) || !value.changedAnnotationIds.every(isOpaqueId)
 		|| !Array.isArray(value.fileScopedAnnotationIds) || !value.fileScopedAnnotationIds.every(isOpaqueId)
@@ -285,6 +321,24 @@ function isCanonicalTimestamp(value: unknown): value is string {
 
 function isCommitHash(value: unknown): value is string {
 	return typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
+}
+
+function isAnnotationListGroup(value: unknown): value is AnnotationListGroup {
+	return isRecord(value) && hasExactKeys(value, ['file', 'annotations'])
+		&& isSafeRelativeFile(value.file) && value.file !== '.sundial' && !String(value.file).startsWith('.sundial/')
+		&& Array.isArray(value.annotations) && value.annotations.length > 0
+		&& value.annotations.every(isAnnotationListItem)
+		&& new Set(value.annotations.map(annotation => (annotation as AnnotationListItem).id)).size === value.annotations.length;
+}
+
+function isAnnotationListItem(value: unknown): value is AnnotationListItem {
+	return isRecord(value) && hasExactKeys(value, ['id', 'message', 'line', 'currentPermanent'])
+		&& isOpaqueId(value.id) && isNonEmptyString(value.message) && isNullableLine(value.line)
+		&& typeof value.currentPermanent === 'boolean';
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+	return Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 }
 
 function nonEmptyStrings(value: Record<string, unknown>, fields: readonly string[]): boolean {

@@ -10,7 +10,14 @@ import {
 	type UserAnnotationId,
 	type UserAnnotationWorkItem,
 } from '../../agentProtocol.js';
-import { isAnnotation, type AgentFileAnnotation, type Annotation, type AnnotationLink, type UserAnnotation } from '../../annotationProtocol.js';
+import {
+	isAnnotation,
+	type AgentFileAnnotation,
+	type Annotation,
+	type AnnotationLink,
+	type AnnotationListGroup,
+	type UserAnnotation,
+} from '../../annotationProtocol.js';
 import type { ResponseContinuity } from '../../annotationResponse.js';
 import { maximumPaneSplitPercent, minimumPaneSplitPercent } from '../../paneSplit.js';
 import { promptPresets, type PromptContext, type PromptPreset, type PromptScope } from '../../promptCommand.js';
@@ -24,10 +31,17 @@ interface MessagesStateBase {
 	readonly work: readonly UserAnnotationWorkItem[];
 	readonly paneSplitPercent: number;
 	readonly workflow: WorkflowPresentation;
+	readonly annotationIndex: AnnotationIndexState;
 	readonly busy?: boolean;
 	readonly notice?: HostNotice;
 	readonly annotationViewer?: AnnotationViewerState;
 }
+
+export type AnnotationIndexState =
+	| { readonly kind: 'loading' }
+	| { readonly kind: 'empty' }
+	| { readonly kind: 'ready'; readonly groups: readonly AnnotationListGroup[] }
+	| { readonly kind: 'error'; readonly message: string; readonly recoverable: boolean };
 
 export interface WorkflowPresentation {
 	readonly diffEnabled: boolean;
@@ -106,6 +120,19 @@ export function annotationsForCurrentPermanentCommit(
 	if (!filterEnabled) { return annotations; }
 	const currentIds = new Set(currentPermanentAnnotationIds);
 	return annotations.filter(annotation => currentIds.has(annotation.id));
+}
+
+export function annotationIndexGroups(
+	state: AnnotationIndexState,
+	filterEnabled: boolean,
+): readonly AnnotationListGroup[] {
+	if (state.kind !== 'ready') { return []; }
+	return state.groups.flatMap(group => {
+		const annotations = filterEnabled
+			? group.annotations.filter(annotation => annotation.currentPermanent)
+			: group.annotations;
+		return annotations.length === 0 ? [] : [{ ...group, annotations }];
+	});
 }
 
 export function currentWorkForAgent(
@@ -204,6 +231,7 @@ export type WebviewToHost =
 	| { readonly kind: 'toggleAnnotationPin' }
 	| { readonly kind: 'toggleAnnotationFilter' }
 	| { readonly kind: 'respondToAnnotation' }
+	| { readonly kind: 'retryAnnotationIndex' }
 	| { readonly kind: 'deleteAnnotation' }
 	| { readonly kind: 'setPaneSplitPercent'; readonly percent: number };
 
@@ -258,6 +286,7 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 		case 'toggleAnnotationPin':
 		case 'toggleAnnotationFilter':
 		case 'respondToAnnotation':
+		case 'retryAnnotationIndex':
 		case 'deleteAnnotation':
 			return hasExactKeys(value, ['kind']);
 		default:
@@ -268,9 +297,9 @@ export function isValidWebviewToHostMessage(value: unknown): value is WebviewToH
 function isMessagesState(value: unknown): value is MessagesState {
 	if (!isRecord(value)
 		|| !hasAllowedKeys(value, [
-			'agents', 'work', 'paneSplitPercent', 'workflow', 'prompt', 'draft', 'targetAgentId', 'response', 'busy', 'notice', 'annotationViewer',
+			'agents', 'work', 'paneSplitPercent', 'workflow', 'annotationIndex', 'prompt', 'draft', 'targetAgentId', 'response', 'busy', 'notice', 'annotationViewer',
 		])
-		|| !hasRequiredKeys(value, ['agents', 'work', 'paneSplitPercent', 'workflow'])
+		|| !hasRequiredKeys(value, ['agents', 'work', 'paneSplitPercent', 'workflow', 'annotationIndex'])
 		|| !isAgentsViewState(value.agents)
 		|| !Array.isArray(value.work)
 		|| !value.work.every(isUserAnnotationWorkItem)
@@ -280,6 +309,7 @@ function isMessagesState(value: unknown): value is MessagesState {
 		|| value.paneSplitPercent < minimumPaneSplitPercent
 		|| value.paneSplitPercent > maximumPaneSplitPercent
 		|| !isWorkflowPresentation(value.workflow)
+		|| !isAnnotationIndexState(value.annotationIndex)
 		|| (value.busy !== undefined && typeof value.busy !== 'boolean')
 		|| (value.notice !== undefined && !isNotice(value.notice))
 		|| (value.annotationViewer !== undefined && !isAnnotationViewerState(value.annotationViewer))) {
@@ -309,6 +339,57 @@ function isResponseComposerState(value: unknown): value is { readonly continuity
 	return isRecord(value)
 		&& hasExactKeys(value, ['continuity'])
 		&& (value.continuity === 'originating-session' || value.continuity === 'agent-selection-required');
+}
+
+function isAnnotationIndexState(value: unknown): value is AnnotationIndexState {
+	if (!isRecord(value) || typeof value.kind !== 'string') { return false; }
+	switch (value.kind) {
+		case 'loading': case 'empty':
+			return hasExactKeys(value, ['kind']);
+		case 'error':
+			return hasExactKeys(value, ['kind', 'message', 'recoverable'])
+				&& isNonEmptyString(value.message) && typeof value.recoverable === 'boolean';
+		case 'ready':
+			return hasExactKeys(value, ['kind', 'groups'])
+				&& Array.isArray(value.groups) && value.groups.length > 0
+				&& isAnnotationListGroups(value.groups);
+		default:
+			return false;
+	}
+}
+
+function isAnnotationListGroups(groups: readonly unknown[]): boolean {
+	const files = new Set<string>();
+	const ids = new Set<string>();
+	for (const group of groups) {
+		if (!isRecord(group) || !hasExactKeys(group, ['file', 'annotations'])
+			|| !isSafeRelativeFile(group.file) || group.file === '.sundial' || group.file.startsWith('.sundial/')
+			|| files.has(group.file) || !Array.isArray(group.annotations) || group.annotations.length === 0) {
+			return false;
+		}
+		files.add(group.file);
+		for (const annotation of group.annotations) {
+			if (!isRecord(annotation) || !hasExactKeys(annotation, ['id', 'message', 'line', 'currentPermanent'])
+				|| !isOpaqueId(annotation.id) || ids.has(annotation.id)
+				|| !isNonEmptyString(annotation.message)
+				|| !(annotation.line === null || (Number.isSafeInteger(annotation.line) && (annotation.line as number) >= 0))
+				|| typeof annotation.currentPermanent !== 'boolean') {
+				return false;
+			}
+			ids.add(annotation.id);
+		}
+	}
+	return true;
+}
+
+function isSafeRelativeFile(value: unknown): value is string {
+	return typeof value === 'string' && value.trim() !== '' && !value.startsWith('/') && !value.startsWith('\\')
+		&& !/^[A-Za-z]:[\\/]/.test(value)
+		&& !value.split(/[\\/]/u).some(segment => segment === '' || segment === '.' || segment === '..');
+}
+
+function isOpaqueId(value: unknown): value is string {
+	return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 }
 
 function isWorkflowPresentation(value: unknown): value is WorkflowPresentation {

@@ -6,12 +6,15 @@ import {
 	currentAnnotationCompanionVersion,
 	isAnnotationPromptPreset,
 	isOpaqueId,
+	parseAnnotationListResult,
 	type AgentFileAnnotation,
 	type Annotation,
 	type AnnotationAppendRequest,
 	type AnnotationCompanion,
 	type AnnotationDeleteRequest,
 	type AnnotationLink,
+	type AnnotationListRequest,
+	type AnnotationListResult,
 	type AnnotationReadRequest,
 	type AnnotationReadResult,
 	type AnnotationReanchorResult,
@@ -31,6 +34,7 @@ import { createAnnotationAnchor } from '@arcridge/sundial-editor-annotations/rea
 import { repairFromDiff } from '@arcridge/sundial-editor-annotations/repair';
 import {
 	CompanionWorkingSet,
+	listWorkspaceCompanions,
 	readStableUtf8,
 	withCompanionLock,
 	type CompanionLockServices,
@@ -41,6 +45,7 @@ import { readGitWorkflowState } from './gitWorkflow.js';
 export interface AnnotationStoreServices extends CompanionLockServices {
 	readonly createId: () => string;
 	readonly resolvePermanentCommit: (cwd: string) => Promise<string>;
+	readonly listCompanions: typeof listWorkspaceCompanions;
 }
 
 const defaultServices: AnnotationStoreServices = {
@@ -49,6 +54,7 @@ const defaultServices: AnnotationStoreServices = {
 	lockTimeoutMs: 5_000,
 	staleLockMs: 30_000,
 	resolvePermanentCommit: async cwd => (await readGitWorkflowState({ workspace: { cwd } })).lastPermanentCommit,
+	listCompanions: listWorkspaceCompanions,
 };
 
 export async function appendUserAnnotation(
@@ -109,6 +115,25 @@ export async function readUserAnnotations(value: unknown): Promise<AnnotationRea
 	};
 }
 
+export async function listUserAnnotations(
+	value: unknown,
+	serviceOverrides: Partial<AnnotationStoreServices> = {},
+): Promise<AnnotationListResult> {
+	const request = parseAnnotationListRequest(value);
+	const services = { ...defaultServices, ...serviceOverrides };
+	const currentPermanentCommit = await services.resolvePermanentCommit(request.workspace.cwd);
+	const groups = (await services.listCompanions(request.workspace.cwd)).flatMap(({ file, companion }) => {
+		const annotations = companion.annotations.flatMap(annotation => annotation.kind === 'user' ? [{
+			id: annotation.id,
+			message: annotation.message,
+			line: annotation.anchor.line,
+			currentPermanent: annotation.permanentBaseCommit === currentPermanentCommit,
+		}] : []);
+		return annotations.length === 0 ? [] : [{ file, annotations }];
+	});
+	return parseAnnotationListResult({ currentPermanentCommit, groups });
+}
+
 export async function deleteUserAnnotation(value: unknown): Promise<Annotation> {
 	const request = parseAnnotationDeleteRequest(value);
 	return withCompanionLock(request.workspace.cwd, async () => {
@@ -146,6 +171,14 @@ export function parseAnnotationReadRequest(value: unknown): AnnotationReadReques
 		throw new Error('annotation read request must include workspace.cwd and document.uri');
 	}
 	return value as unknown as AnnotationReadRequest;
+}
+
+export function parseAnnotationListRequest(value: unknown): AnnotationListRequest {
+	if (!isRecord(value) || !hasExactKeys(value, ['workspace']) || !isWorkspace(value.workspace)
+		|| !hasExactKeys(value.workspace, ['cwd'])) {
+		throw new Error('annotation list request must include only workspace.cwd');
+	}
+	return value as unknown as AnnotationListRequest;
 }
 
 export function parseAnnotationDeleteRequest(value: unknown): AnnotationDeleteRequest {
@@ -407,6 +440,9 @@ function sameAgentAnnotationContent(left: AgentFileAnnotation, right: AgentFileA
 }
 
 function isWorkspace(value: unknown): value is { readonly cwd: string } { return isRecord(value) && isNonEmptyString(value.cwd); }
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+	return Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+}
 function isCanonicalTimestamp(value: unknown): value is string { return typeof value === 'string' && value !== '' && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value; }
 function isNonEmptyString(value: unknown): value is string { return typeof value === 'string' && value.trim() !== ''; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }

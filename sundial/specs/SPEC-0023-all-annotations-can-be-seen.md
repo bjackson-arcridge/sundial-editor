@@ -1,7 +1,7 @@
 ---
 id: SPEC-0023
 title: All annotations can be seen
-status: Todo
+status: Done
 created: 2026-07-23
 updated: 2026-07-23
 created_by: bjackson
@@ -88,4 +88,18 @@ None. The user-message wording scopes the top-level list to user annotations; re
 
 ## Implementation Log
 
+- Added exact shared request/result contracts for workspace annotation lists and a package-owned `.sundial` enumerator that ignores runtime, temporary, and symlink entries, sorts source paths deterministically, and reports malformed companions with their paths.
+- Added `sundial-editor-cli annotations list`, capability/help advertisement, compact user-only projection, editor adapter validation, and release metadata updates (`@arcridge/sundial-editor-cli` 0.9.1 and Sundial Editor 0.17.0).
+- Added generation-guarded, effective-workspace annotation-index state to the Messages provider. Initial loads, retained same-workspace refreshes, watcher burst coalescing, create/delete/re-anchor/repair refreshes, retry, and stale-workspace result rejection all use the CLI boundary.
+- Replaced the redundant upper headings with client-local accessible Agents/Annotations tabs. The Annotations panel shares the lower viewer's filter control and renders full-path uppercase groups, newest-first two-line user-message buttons, exact stable-ID links, and distinct loading/empty/filtered-empty/error states.
+- Added staged fixture CLI list support and an `annotation-index` VS Code scenario covering grouping, newest-first order, file scope, current-permanent membership, exact-ID opening, watcher deletion refresh, malformed-store recovery state, and lower-viewer retention.
+- No new Decision Record candidate was needed; the implementation follows the existing CLI-boundary, webview-protocol, accessibility, and refactoring records without establishing a new durable rule.
+
 ## Test Log
+
+- `npm run check-types` — passed.
+- `npm run lint` — passed.
+- `npm run test:unit` — passed: annotations 15, CLI 73, editor 111.
+- `npm test` — CLI integration passed (11); VS Code delayed-autosave, annotation-retry, annotation-reanchor, and the new annotation-index scenario passed. The combined harness had one transient prompt-to-messages focus assertion failure; the freshly restaged isolated prompt-to-messages scenario then passed. The diff-workflow scenario could not start in the combined run because VS Code reported another running instance, and an isolated retry reached the scenario but timed out waiting for its pre-existing fourth managed diff tab; its latest diagnostics showed the first three managed diffs and no annotation-index failure.
+- `git diff --check` — passed.
+- `sundial status` — passed with the pre-existing warning that DR-0039 references `SPEC-0020` without a path.
